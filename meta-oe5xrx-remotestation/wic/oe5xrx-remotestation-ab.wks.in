@@ -1,0 +1,24 @@
+# OE5XRX Station — A/B rootfs layout with read-only rootfs and persistent data.
+#
+# GPT partition table — required so --label values become PARTLABELs that
+# the kernel/udev can resolve via /dev/disk/by-partlabel/.
+bootloader --ptable=gpt
+
+# Layout (GPT, 8 partitions):
+#   1 firmware   (FAT, 64 MB, bootable)  — RPi FW + U-Boot + DTBs; RO in Linux
+#   2 uboot_env  (raw, 1 MB)             — U-Boot environment (primary)
+#   3 uboot_envr (raw, 1 MB)             — U-Boot environment (redundant)
+#   4 boot_a     (FAT, 64 MB)            — Kernel/DTB for slot A
+#   5 boot_b     (FAT, 64 MB)            — Kernel/DTB for slot B
+#   6 root_a     (ext4, 1024 MB)         — Rootfs A (read-only at runtime)
+#   7 root_b     (ext4, 1024 MB)         — Rootfs B (read-only at runtime)
+#   8 data       (ext4, expands on first boot) — Persistent state
+
+part /boot/firmware --source bootimg-partition --ondisk mmcblk0 --fstype=vfat --label firmware --fixed-size 64 --active --align 4
+part --ondisk mmcblk0 --fstype=none --label uboot_env --size 1 --align 4
+part --ondisk mmcblk0 --fstype=none --label uboot_envr --size 1 --align 4
+part --ondisk mmcblk0 --fstype=vfat --label boot_a --fixed-size 64 --align 4
+part --ondisk mmcblk0 --fstype=vfat --label boot_b --fixed-size 64 --align 4
+part / --source rootfs --ondisk mmcblk0 --fstype=ext4 --label root_a --fixed-size 1024 --align 4
+part --ondisk mmcblk0 --fstype=ext4 --label root_b --fixed-size 1024 --source empty --align 4
+part --ondisk mmcblk0 --fstype=ext4 --label data --fixed-size 2048 --align 4

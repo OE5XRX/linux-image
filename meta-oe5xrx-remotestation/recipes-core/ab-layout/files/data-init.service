@@ -1,0 +1,16 @@
+[Unit]
+Description=Initialize persistent data partition layout
+Requires=mnt-data.mount
+After=mnt-data.mount
+Before=var.mount home.mount root.mount local-fs.target
+DefaultDependencies=no
+ConditionPathIsMountPoint=/mnt/data
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=30
+ExecStart=/usr/sbin/data-init.sh
+
+[Install]
+WantedBy=local-fs.target

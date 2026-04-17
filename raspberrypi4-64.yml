@@ -1,0 +1,19 @@
+header:
+  version: 15
+  includes:
+    - oe5xrx.yml
+    - include/raspberrypi.yml
+
+machine: raspberrypi4-64
+
+local_conf_header:
+  rpi: |
+    LICENSE_FLAGS_ACCEPTED = "synaptics-killswitch"
+    KERNEL_DEVICETREE = "broadcom/bcm2711-rpi-cm4.dtb"
+    KERNEL_MODULE_AUTOLOAD:rpi += " i2c-dev i2c-bcm2708"
+    ENABLE_I2C = "1"
+    RPI_EXTRA_CONFIG = "\notg_mode=1\n"
+    # Dev-only: allow root login with empty password on the serial console.
+    # For production, drop this and rely on the station-agent terminal (with
+    # proper auth) for remote access + a provisioned recovery password.
+    EXTRA_IMAGE_FEATURES += "debug-tweaks"

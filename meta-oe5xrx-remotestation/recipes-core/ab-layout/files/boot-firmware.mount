@@ -1,0 +1,18 @@
+[Unit]
+Description=/boot/firmware (overrides fstab-generated unit)
+Before=local-fs.target
+DefaultDependencies=no
+Conflicts=umount.target
+Before=umount.target
+# Only relevant on RPi where the firmware partition is labeled "firmware".
+# On x64 the ESP is labeled "efi" and this unit is a no-op.
+ConditionPathExists=/dev/disk/by-partlabel/firmware
+
+[Mount]
+What=/dev/disk/by-partlabel/firmware
+Where=/boot/firmware
+Type=vfat
+Options=defaults
+
+[Install]
+WantedBy=local-fs.target

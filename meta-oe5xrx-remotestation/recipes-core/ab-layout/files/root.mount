@@ -1,0 +1,17 @@
+[Unit]
+Description=Bind /root onto persistent data partition
+Requires=mnt-data.mount data-init.service
+After=mnt-data.mount data-init.service
+Before=local-fs.target
+DefaultDependencies=no
+Conflicts=umount.target
+Before=umount.target
+
+[Mount]
+What=/mnt/data/root
+Where=/root
+Type=none
+Options=bind
+
+[Install]
+WantedBy=local-fs.target

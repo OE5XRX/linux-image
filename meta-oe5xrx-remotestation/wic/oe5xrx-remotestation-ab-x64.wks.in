@@ -1,0 +1,17 @@
+# OE5XRX Station — A/B rootfs layout for x86-64 (QEMU/dev).
+#
+# Mirrors the RPi A/B concept with GRUB-EFI as bootloader.
+# Kernel lives on the EFI partition alongside grub.cfg/grubenv.
+#
+# Layout (GPT, 4 partitions):
+#   1 efi       (FAT, 128 MB, ESP)  — GRUB-EFI + kernel + grub.cfg + grubenv
+#   2 root_a    (ext4, 1024 MB)     — Rootfs A (read-only at runtime)
+#   3 root_b    (ext4, 1024 MB)     — Rootfs B (OTA target, starts empty)
+#   4 data      (ext4, 2048 MB)     — Persistent /var, overlay /etc, /home
+
+bootloader --ptable=gpt --configfile=oe5xrx-grub.cfg
+
+part /boot --source bootimg-efi --sourceparams="loader=grub-efi" --ondisk vda --fstype=vfat --label efi --active --align 4 --fixed-size 128 --use-uuid
+part / --source rootfs --ondisk vda --fstype=ext4 --label root_a --fixed-size 1024 --align 4
+part --ondisk vda --fstype=ext4 --label root_b --fixed-size 1024 --align 4
+part --ondisk vda --fstype=ext4 --label data --fixed-size 2048 --align 4

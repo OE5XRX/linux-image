@@ -1,0 +1,284 @@
+name: Build Yocto Image
+
+on:
+  # Full builds run only when explicitly needed — on a release tag or via
+  # manual dispatch. Routine pushes go through ci.yml (parse-check only,
+  # no Hetzner server, no artifact).
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      machine:
+        description: "Target machine"
+        type: choice
+        options:
+          - qemux86-64
+          - raspberrypi4-64
+        default: qemux86-64
+
+concurrency:
+  group: yocto-build
+  cancel-in-progress: false
+
+env:
+  KAS_MACHINE: ${{ github.event.inputs.machine || 'qemux86-64' }}
+  CACHE_VOLUME_NAME: oe5xrx-yocto-cache
+
+jobs:
+  create-runner:
+    name: Create Hetzner Build Server
+    runs-on: ubuntu-latest
+    outputs:
+      server-id: ${{ steps.create.outputs.server-id }}
+    steps:
+      - name: Generate Runner Registration Token via API
+        id: runner-token
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          RUNNER_TOKEN=$(curl -sX POST \
+            -H "Authorization: token ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GH_REPO}/actions/runners/registration-token" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+          echo "::add-mask::${RUNNER_TOKEN}"
+          echo "token=${RUNNER_TOKEN}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.HCLOUD_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${SSH_PRIVATE_KEY}" > ~/.ssh/hetzner
+          chmod 600 ~/.ssh/hetzner
+          echo "StrictHostKeyChecking no" >> ~/.ssh/config
+          echo "IdentityFile ~/.ssh/hetzner" >> ~/.ssh/config
+
+      - name: Install hcloud CLI
+        run: |
+          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz
+          sudo mv hcloud /usr/local/bin/
+
+      - name: Detach leftover cache volume (safety)
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          VOLUME_SERVER=$(hcloud volume describe "${CACHE_VOLUME_NAME}" -o json \
+            | python3 -c "import sys,json; s=json.load(sys.stdin).get('server'); print(s or '')")
+          if [ -n "${VOLUME_SERVER}" ]; then
+            echo "Volume still attached to server ${VOLUME_SERVER}, detaching..."
+            hcloud volume detach "${CACHE_VOLUME_NAME}" || true
+          else
+            echo "Volume is free, nothing to detach."
+          fi
+
+      - name: Create Hetzner server (CX43)
+        id: create
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          HCLOUD_SSH_KEY_NAME: ${{ secrets.HCLOUD_SSH_KEY_NAME }}
+        run: |
+          SERVER_ID=$(hcloud server create \
+            --name "oe5xrx-yocto-builder" \
+            --type cx43 \
+            --image ubuntu-24.04 \
+            --ssh-key "${HCLOUD_SSH_KEY_NAME}" \
+            --location fsn1 \
+            --output json | python3 -c "import sys,json; print(json.load(sys.stdin)['server']['id'])")
+          SERVER_IP=$(hcloud server ip "${SERVER_ID}")
+          echo "server-id=${SERVER_ID}" >> "$GITHUB_OUTPUT"
+          echo "SERVER_IP=${SERVER_IP}" >> "$GITHUB_ENV"
+          echo "Server ${SERVER_ID} created at ${SERVER_IP}"
+
+      - name: Attach cache volume
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          hcloud volume attach --server "${{ steps.create.outputs.server-id }}" "${CACHE_VOLUME_NAME}"
+
+      - name: Wait for SSH
+        run: |
+          for i in $(seq 1 30); do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${SERVER_IP}" true 2>/dev/null; then
+              echo "SSH ready after ${i} attempts"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "SSH did not become ready within 5 minutes" >&2
+          exit 1
+
+      - name: Mount cache volume on server
+        run: |
+          ssh "root@${SERVER_IP}" bash -s << 'EOF'
+            set -euo pipefail
+            VOLUME_DEV=$(ls /dev/disk/by-id/scsi-0HC_Volume_* 2>/dev/null | head -1)
+            if [ -z "${VOLUME_DEV}" ]; then
+              echo "ERROR: No Hetzner volume found" >&2
+              exit 1
+            fi
+            mkdir -p /mnt/yocto-cache
+            mount -o discard,defaults "${VOLUME_DEV}" /mnt/yocto-cache
+            mkdir -p /mnt/yocto-cache/downloads /mnt/yocto-cache/sstate-cache
+            df -h /mnt/yocto-cache
+          EOF
+
+      - name: Install Yocto build dependencies
+        run: |
+          ssh "root@${SERVER_IP}" bash -s << 'EOF'
+            set -euo pipefail
+            # Fix Ubuntu 24.04 AppArmor restriction on user namespaces (required by Bitbake)
+            sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              gawk wget git diffstat unzip texinfo gcc build-essential \
+              chrpath socat cpio python3 python3-pip python3-pexpect \
+              xz-utils debianutils iputils-ping python3-git python3-jinja2 \
+              python3-subunit zstd liblz4-tool file locales libacl1
+            locale-gen en_US.UTF-8
+            pip3 install kas --break-system-packages
+          EOF
+
+      - name: Create yocto build user
+        run: |
+          ssh "root@${SERVER_IP}" bash -s << 'EOF'
+            set -euo pipefail
+            useradd -m -s /bin/bash yocto
+            echo "yocto ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/yocto
+            chown -R yocto:yocto /mnt/yocto-cache
+          EOF
+
+      - name: Install and start GitHub Actions Runner
+        env:
+          RUNNER_REG_TOKEN: ${{ steps.runner-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ssh "root@${SERVER_IP}" bash -s -- \
+            "oe5xrx-yocto-builder" "${RUNNER_REG_TOKEN}" "${GH_REPO}" << 'SETUP_SCRIPT'
+            set -euo pipefail
+            LABEL=$1; TOKEN=$2; REPO=$3
+
+            mkdir -p /opt/actions-runner
+            chown yocto:yocto /opt/actions-runner
+            su - yocto -c "
+              cd /opt/actions-runner
+              RUNNER_VERSION=\$(curl -s https://api.github.com/repos/actions/runner/releases/latest \
+                | python3 -c \"import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))\")
+              curl -sL \"https://github.com/actions/runner/releases/download/v\${RUNNER_VERSION}/actions-runner-linux-x64-\${RUNNER_VERSION}.tar.gz\" | tar xz
+              ./config.sh \
+                --url \"https://github.com/${REPO}\" \
+                --token \"${TOKEN}\" \
+                --labels \"${LABEL}\" \
+                --name \"${LABEL}\" \
+                --ephemeral \
+                --unattended
+            "
+
+            cat > /etc/systemd/system/gh-runner.service << 'UNIT'
+          [Unit]
+          Description=GitHub Actions Runner
+          After=network-online.target
+          [Service]
+          Type=simple
+          User=yocto
+          WorkingDirectory=/opt/actions-runner
+          ExecStart=/opt/actions-runner/run.sh
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+            systemctl daemon-reload
+            systemctl start gh-runner
+          SETUP_SCRIPT
+
+          # Give the runner a moment to connect to GitHub
+          sleep 10
+
+  build:
+    name: Build Yocto Image
+    needs: create-runner
+    runs-on: oe5xrx-yocto-builder
+    env:
+      LANG: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with Kas
+        run: |
+          if [ "${KAS_MACHINE}" = "qemux86-64" ]; then
+            kas build qemux86-64.yml
+          elif [ "${KAS_MACHINE}" = "raspberrypi4-64" ]; then
+            kas build raspberrypi4-64.yml
+          fi
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          # Follow symlinks (-L) so we capture real kernel/rootfs files, not links.
+          # Include rootfs (ext4/wic), kernel (bzImage/Image/zImage), device tree,
+          # and qemuboot.conf (runqemu metadata — helpful for local boot).
+          find -L build/tmp/deploy/images/ \
+            \( -name "*.ext4" -o -name "*.wic" -o -name "*.wic.gz" \
+               -o -name "*.wic.bz2" -o -name "*.wic.xz" \
+               -o -name "bzImage-*" -o -name "Image-*" -o -name "zImage-*" \
+               -o -name "*.qemuboot.conf" -o -name "*.dtb" \) \
+            -not -name "*.p7" \
+            | while read -r f; do cp -L "$f" artifacts/; done
+          ls -lh artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: yocto-image-${{ env.KAS_MACHINE }}
+          path: artifacts/
+          # Keep builds short — each Yocto artifact is ~420MB and we build
+          # often. Org storage fills up fast otherwise.
+          retention-days: 7
+
+  cleanup:
+    name: Delete Hetzner Server
+    needs: [create-runner, build]
+    runs-on: ubuntu-latest
+    if: always()
+    env:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+      SERVER_ID: ${{ needs.create-runner.outputs.server-id }}
+    steps:
+      - name: Delete server
+        run: |
+          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz
+          sudo mv hcloud /usr/local/bin/
+          if [ -n "${SERVER_ID}" ]; then
+            hcloud server delete "${SERVER_ID}" || true
+            echo "Server ${SERVER_ID} deleted"
+          else
+            echo "No server to delete"
+          fi
+
+      - name: Deregister runner (if still registered)
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_REPO: ${{ github.repository }}
+          RUNNER_LABEL: oe5xrx-yocto-builder
+        run: |
+          # Find and remove the runner if it's still registered
+          RUNNER_ID=$(curl -s \
+            -H "Authorization: token ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GH_REPO}/actions/runners" \
+            | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          for r in data.get('runners', []):
+              if r['name'] == '${RUNNER_LABEL}':
+                  print(r['id'])
+                  break
+          " 2>/dev/null || true)
+          if [ -n "${RUNNER_ID}" ]; then
+            curl -sX DELETE \
+              -H "Authorization: token ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GH_REPO}/actions/runners/${RUNNER_ID}" || true
+            echo "Runner ${RUNNER_LABEL} deregistered"
+          fi

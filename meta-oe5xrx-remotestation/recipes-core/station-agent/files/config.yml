@@ -1,0 +1,22 @@
+# OE5XRX Station Agent Configuration
+# This file is provisioned during image build and seeded to the data
+# partition on first boot. Per-station secrets (Ed25519 private key,
+# station_id) are injected at provisioning time.
+
+server_url: https://ham.oe5xrx.org
+
+# Authentication: Ed25519 signature (required)
+# station_id: 1
+# ed25519_key_path: /etc/station-agent/device_key.pem
+
+heartbeat_interval: 60
+ota_check_interval: 5
+download_dir: /var/lib/station-agent/downloads
+log_level: INFO
+
+# Remote terminal
+terminal_enabled: true
+terminal_shell: /bin/sh
+
+# Bootloader for A/B partition management: auto | grub | uboot
+bootloader: auto

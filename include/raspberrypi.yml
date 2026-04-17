@@ -1,0 +1,13 @@
+header:
+  version: 15
+
+repos:
+  meta-raspberrypi:
+    url: https://github.com/agherzan/meta-raspberrypi.git
+    branch: scarthgap
+
+local_conf_header:
+  raspberrypi: |
+    RPI_USE_U_BOOT = "1"
+    ENABLE_UART = "1"
+    IMAGE_INSTALL:append = " kernel-image kernel-devicetree"

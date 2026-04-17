@@ -1,0 +1,17 @@
+header:
+  version: 15
+  includes:
+    - oe5xrx.yml
+
+machine: qemux86-64
+
+local_conf_header:
+  qemu: |
+    # QEMU x64 test image — mirrors the RPi production image as closely as
+    # possible (A/B rootfs, read-only /, data partition), substituting
+    # GRUB-EFI for U-Boot.
+    EXTRA_IMAGE_FEATURES += "debug-tweaks"
+    # OVMF provides UEFI firmware for QEMU so GRUB-EFI can boot.
+    EFI_PROVIDER = "grub-efi"
+    # Ensure the kernel installs bzImage to /boot on the EFI partition.
+    MACHINE_ESSENTIAL_EXTRA_RDEPENDS += "kernel-image"

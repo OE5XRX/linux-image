@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate recipes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install kas + linters
+        run: |
+          pip install --quiet kas
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck yamllint
+
+      - name: Verify kas configs parse (qemux86-64)
+        run: kas dump qemux86-64.yml > /dev/null
+
+      - name: Verify kas configs parse (raspberrypi4-64)
+        run: kas dump raspberrypi4-64.yml > /dev/null
+
+      - name: Lint shell scripts
+        run: |
+          find meta-oe5xrx-remotestation -name '*.sh' -print0 \
+            | xargs -0 -r shellcheck -e SC1091 -e SC2039
+
+      - name: Lint YAML
+        run: |
+          yamllint -d "{extends: default, rules: {line-length: disable, document-start: disable, truthy: disable, comments-indentation: disable, indentation: {check-multi-line-strings: false}}}" \
+            .github/workflows/ *.yml
+
+      - name: Verify wks files have partitions
+        run: |
+          for wks in meta-oe5xrx-remotestation/wic/*.wks.in; do
+            echo "Checking $wks..."
+            grep -q '^part' "$wks" || { echo "  No partitions defined"; exit 1; }
+          done

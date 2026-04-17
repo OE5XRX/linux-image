@@ -1,0 +1,38 @@
+header:
+  version: 15
+
+distro: poky
+
+repos:
+  poky:
+    url: git://git.yoctoproject.org/poky
+    branch: scarthgap
+    layers:
+      meta:
+      meta-poky:
+      meta-yocto-bsp:
+
+  meta-openembedded:
+    url: git://git.openembedded.org/meta-openembedded
+    branch: scarthgap
+    layers:
+      meta-oe:
+      meta-python:
+      meta-networking:
+
+  meta-oe5xrx-remotestation:
+    layers:
+      meta-oe5xrx-remotestation:
+
+local_conf_header:
+  base: |
+    CONF_VERSION = "2"
+    PACKAGE_CLASSES = "package_ipk"
+    INIT_MANAGER = "systemd"
+    # Persistent cache on Hetzner Volume (mounted at /mnt/yocto-cache in CI).
+    # Falls back to build/ local dirs if the mount doesn't exist (local dev).
+    DL_DIR ?= "${@'/mnt/yocto-cache/downloads' if os.path.isdir('/mnt/yocto-cache') else '${TOPDIR}/downloads'}"
+    SSTATE_DIR ?= "${@'/mnt/yocto-cache/sstate-cache' if os.path.isdir('/mnt/yocto-cache') else '${TOPDIR}/sstate-cache'}"
+
+target:
+  - oe5xrx-remotestation-image
