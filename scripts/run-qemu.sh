@@ -86,27 +86,37 @@ fetch_release() {
     RELEASE_DIR="${CACHE_DIR}/release-${tag}"
     mkdir -p "${RELEASE_DIR}"
 
-    echo "==> Downloading release ${tag} (qemux86-64 assets)..."
-    gh release download "${tag}" -R "${REPO}" \
-        --pattern "${RELEASE_ASSET_GLOB}.wic.bz2" \
-        --pattern "${RELEASE_ASSET_GLOB}.wic.bz2.sha256" \
-        -D "${RELEASE_DIR}" --clobber
-
-    local bz2
+    local bz2 sha
     bz2=$(find "${RELEASE_DIR}" -maxdepth 1 -name '*.wic.bz2' -print -quit)
-    [ -n "${bz2}" ] || { echo "ERROR: release ${tag} has no qemux86-64 wic asset" >&2; exit 1; }
+    sha="${bz2:-}${bz2:+.sha256}"
 
-    # Verify checksum if the sidecar is there — cheap integrity check.
-    local sha="${bz2}.sha256"
-    if [ -f "${sha}" ]; then
-        echo "==> Verifying sha256..."
-        (cd "${RELEASE_DIR}" && sha256sum -c "$(basename "${sha}")")
+    # Cache hit: both archive and sidecar already on disk. Skip the download.
+    if [ -n "${bz2}" ] && [ -f "${sha}" ]; then
+        echo "==> Release ${tag} already cached, skipping download."
+    else
+        echo "==> Downloading release ${tag} (qemux86-64 assets)..."
+        gh release download "${tag}" -R "${REPO}" \
+            --pattern "${RELEASE_ASSET_GLOB}.wic.bz2" \
+            --pattern "${RELEASE_ASSET_GLOB}.wic.bz2.sha256" \
+            -D "${RELEASE_DIR}" --clobber
+        bz2=$(find "${RELEASE_DIR}" -maxdepth 1 -name '*.wic.bz2' -print -quit)
+        [ -n "${bz2}" ] || { echo "ERROR: release ${tag} has no qemux86-64 wic asset" >&2; exit 1; }
+        sha="${bz2}.sha256"
     fi
 
-    # Decompress once; keep the archive so we don't re-download next run.
-    if [ ! -f "${bz2%.bz2}" ]; then
+    # Always verify — release.yml publishes the sidecar for every asset, so
+    # a missing .sha256 means something is wrong. Refuse to boot unverified.
+    [ -f "${sha}" ] || { echo "ERROR: missing ${sha} — refusing to boot unverified image" >&2; exit 1; }
+    echo "==> Verifying sha256..."
+    (cd "${RELEASE_DIR}" && sha256sum -c "$(basename "${sha}")")
+
+    # Decompress once, but to a temp file first so an interrupted run
+    # can't leave a partial .wic that a later run would silently reuse.
+    local wic="${bz2%.bz2}"
+    if [ ! -f "${wic}" ]; then
         echo "==> Decompressing $(basename "${bz2}")..."
-        bzip2 -dk "${bz2}"
+        bzip2 -dkc "${bz2}" > "${wic}.tmp"
+        mv "${wic}.tmp" "${wic}"
     fi
 }
 
@@ -147,7 +157,7 @@ for search_dir in \
     "${RELEASE_DIR}"; do
     [ -n "${search_dir}" ] && [ -d "${search_dir}" ] || continue
     WIC=$(find "${search_dir}" -maxdepth 2 \
-        \( -name '*.rootfs.wic' -o -name 'oe5xrx-qemux86-64-*.wic' \) \
+        \( -name '*.rootfs.wic' -o -name "${RELEASE_ASSET_GLOB}.wic" \) \
         -not -name '*.bz2' -not -name '*.xz' -not -name '*.gz' \
         -print -quit 2>/dev/null || true)
     [ -n "${WIC}" ] && break
