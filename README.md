@@ -147,13 +147,19 @@ Outputs land in `build/tmp/deploy/images/<machine>/`.
 A helper script is included: [`scripts/run-qemu.sh`](scripts/run-qemu.sh).
 
 ```bash
-# Pulls the latest CI-built image and boots it
-./scripts/run-qemu.sh --fetch
-
-# Or, if you already have an artifact (or a local build)
+# Boot a local build, or whatever's already in the cache
 ./scripts/run-qemu.sh
 
-# Pick a specific GitHub Actions run
+# Pull the latest published release (verifies sha256 + decompresses)
+./scripts/run-qemu.sh --release
+
+# Pick a specific release tag
+./scripts/run-qemu.sh --release v1-alpha
+
+# Pull the latest CI artifact instead (unreleased, last 7 days)
+./scripts/run-qemu.sh --fetch
+
+# Or a specific GitHub Actions run
 ./scripts/run-qemu.sh --fetch 24543210987
 ```
 
