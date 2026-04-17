@@ -71,19 +71,46 @@ Outputs land in `build/tmp/deploy/images/<machine>/`.
 
 ### Booting the qemux86-64 image in QEMU
 
+A helper script is included: [`scripts/run-qemu.sh`](scripts/run-qemu.sh).
+
 ```bash
-IMG=$(ls build/tmp/deploy/images/qemux86-64/*.wic | head -1)
-qemu-system-x86_64 \
-    -enable-kvm -cpu IvyBridge -machine q35 \
-    -m 2048 -smp 2 -nographic -serial mon:stdio \
-    -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
-    -drive if=pflash,format=raw,file=ovmf-vars.fd \
-    -drive file="$IMG",if=virtio,format=raw \
-    -netdev user,id=n0,hostfwd=tcp::2222-:22 \
-    -device virtio-net-pci,netdev=n0
+# Pulls the latest CI-built image and boots it
+./scripts/run-qemu.sh --fetch
+
+# Or, if you already have an artifact (or a local build)
+./scripts/run-qemu.sh
+
+# Pick a specific GitHub Actions run
+./scripts/run-qemu.sh --fetch 24543210987
 ```
 
-SSH in once booted: `ssh -p 2222 root@localhost`
+The script handles OVMF UEFI firmware, KVM acceleration, user-mode
+networking with SSH port-forward on `2222`, and A/B rootfs layout.
+
+SSH in once booted:
+
+```bash
+ssh -p 2222 root@localhost
+```
+
+Test the A/B boot-switch / rollback from inside the guest:
+
+```bash
+grub-editenv /boot/EFI/BOOT/grubenv list
+grub-editenv /boot/EFI/BOOT/grubenv set boot_part=b upgrade_available=1 bootcount=0
+reboot
+# After 3 failed boots of the (empty) slot B, GRUB rolls back to slot A
+```
+
+Prerequisites on the host: `qemu-system-x86`, `ovmf`, membership in
+the `kvm` group. On Debian/Ubuntu: `sudo apt install qemu-system-x86
+ovmf && sudo usermod -aG kvm "$USER"` (log out and back in).
+
+Only the `qemux86-64` target is supported by the script. The
+`raspberrypi4-64` image is designed to be flashed to real CM4
+hardware — QEMU's `raspi4b` emulation lacks working Ethernet and
+has no serial-getty path in our image, so it's not practical for
+end-to-end testing.
 
 ---
 
@@ -146,6 +173,8 @@ Each image ships with:
 │   │   ├── images/                      production + development images
 │   │   └── station-agent/               agent recipe
 │   └── wic/                             partition layouts (x64 + RPi)
+├── scripts/
+│   └── run-qemu.sh                      local QEMU launcher for qemux86-64
 └── .github/workflows/
     ├── ci.yml                           fast PR / main checks
     └── build.yml                        full Hetzner build (tags + dispatch)
