@@ -1,6 +1,36 @@
+# Yocto build outputs + caches
 build/
 sstate-cache/
 downloads/
+tmp/
+deploy/
+
+# Editor temp files
 *.swp
 *.swo
 *~
+.*.swp
+.*.swo
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# IDE / editor folders
+.vscode/
+.idea/
+*.code-workspace
+.~lock.*
+
+# Python (tooling scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+*.env.local
+
+# Local overrides / scratch
+*.local
+.cache/
