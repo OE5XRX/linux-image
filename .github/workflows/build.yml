@@ -234,7 +234,7 @@ jobs:
           ls -lh artifacts/
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: yocto-image-${{ env.KAS_MACHINE }}
           path: artifacts/
