@@ -1,11 +1,9 @@
 name: Build Yocto Image
 
+# Full Yocto builds. Routine pushes go through ci.yml (parse checks only).
+# Invoked either manually (workflow_dispatch) or as a reusable workflow
+# from release.yml (workflow_call) — the latter builds both targets.
 on:
-  # Full builds run only when explicitly needed — on a release tag or via
-  # manual dispatch. Routine pushes go through ci.yml (parse-check only,
-  # no Hetzner server, no artifact).
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       machine:
@@ -15,13 +13,21 @@ on:
           - qemux86-64
           - raspberrypi4-64
         default: qemux86-64
+  workflow_call:
+    inputs:
+      machine:
+        description: "Target machine"
+        type: string
+        required: true
 
 concurrency:
+  # Serialize across all callers — the Hetzner cache volume can only be
+  # attached to one build server at a time.
   group: yocto-build
   cancel-in-progress: false
 
 env:
-  KAS_MACHINE: ${{ github.event.inputs.machine || 'qemux86-64' }}
+  KAS_MACHINE: ${{ inputs.machine }}
   CACHE_VOLUME_NAME: oe5xrx-yocto-cache
 
 jobs:

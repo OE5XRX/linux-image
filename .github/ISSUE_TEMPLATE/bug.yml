@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in the image or build misbehaves.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security issues:** please use
+        [security advisories](https://github.com/OE5XRX/linux-image/security/advisories/new)
+        instead of an issue.
+
+  - type: dropdown
+    id: target
+    attributes:
+      label: Target
+      options:
+        - qemux86-64
+        - raspberrypi4-64
+        - both
+        - unsure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Image version / commit
+      description: "Tag (e.g. `v0.3.0`), short commit SHA, or build timestamp."
+      placeholder: "v0.3.0 or 1f81399"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      placeholder: "Describe the observed behavior. Paste console output if useful."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Flashed image X to card Y
+        2. Booted, waited 30s
+        3. ...
+    validations:
+      required: true

@@ -1,0 +1,118 @@
+name: Release
+
+# Runs on `vX.Y.Z` tag push. Builds BOTH images (x86-64 + Raspberry Pi),
+# checksums them, signs the bundles with cosign keyless (Sigstore + OIDC),
+# and publishes a GitHub Release with everything attached.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write       # create release, upload assets
+  id-token: write       # cosign keyless OIDC token
+  actions: read         # download-artifact from called workflows
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-x64:
+    name: Build qemux86-64
+    uses: ./.github/workflows/build.yml
+    with:
+      machine: qemux86-64
+    secrets: inherit
+
+  build-rpi:
+    name: Build raspberrypi4-64
+    # Serialize after x64: both targets share the same Hetzner cache volume.
+    needs: build-x64
+    uses: ./.github/workflows/build.yml
+    with:
+      machine: raspberrypi4-64
+    secrets: inherit
+
+  release:
+    name: Sign & Publish Release
+    needs: [build-x64, build-rpi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download x86-64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: yocto-image-qemux86-64
+          path: staging/qemux86-64
+
+      - name: Download Raspberry Pi artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: yocto-image-raspberrypi4-64
+          path: staging/raspberrypi4-64
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Package, checksum, sign
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          for machine in qemux86-64 raspberrypi4-64; do
+            # Prefer compressed wic, fall back to raw wic. CI uploads both
+            # if the image recipe emits them — we only ship one.
+            src=""
+            srcext=""
+            for ext in wic.bz2 wic.xz wic.gz wic; do
+              match=$(ls "staging/${machine}"/*.${ext} 2>/dev/null | head -1 || true)
+              if [ -n "${match}" ]; then
+                src="${match}"
+                srcext="${ext}"
+                break
+              fi
+            done
+            if [ -z "${src}" ]; then
+              echo "No image artifact for ${machine}" >&2
+              exit 1
+            fi
+
+            dest="release/oe5xrx-${machine}-${TAG}.${srcext}"
+            cp "${src}" "${dest}"
+            (cd release && sha256sum "$(basename "${dest}")" > "$(basename "${dest}").sha256")
+
+            # Keyless signing — binds the signature to this repo + workflow +
+            # tag via the GitHub Actions OIDC token. Verifiable later with
+            # `cosign verify-blob` (see SECURITY.md for the exact command).
+            cosign sign-blob --yes \
+              --bundle "${dest}.bundle" \
+              "${dest}"
+          done
+          ls -lh release/
+
+      - name: Create GitHub Release
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/oe5xrx-*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            ## OE5XRX Linux Image ${{ env.TAG }}
+
+            Pre-built Yocto images for both supported targets.
+
+            | Target | File |
+            |---|---|
+            | Raspberry Pi CM4 | `oe5xrx-raspberrypi4-64-${{ env.TAG }}.wic.bz2` |
+            | QEMU x86-64 | `oe5xrx-qemux86-64-${{ env.TAG }}.wic.bz2` |
+
+            Each image ships with a `.sha256` checksum and a `.bundle`
+            cosign signature. Verification instructions are in
+            [SECURITY.md](https://github.com/${{ env.REPO }}/blob/main/SECURITY.md).

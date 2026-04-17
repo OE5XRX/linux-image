@@ -38,6 +38,79 @@ remote terminal.
 
 ---
 
+## Architecture
+
+### A/B boot with automatic rollback
+
+Both targets run the same logic — GRUB on x86-64, U-Boot on the Pi —
+around three shared env variables: `boot_part`, `bootcount`,
+`upgrade_available`.
+
+```mermaid
+flowchart TD
+    Boot[Power-on] --> BL[Bootloader reads env]
+    BL --> Check{bootcount &lt; 3?}
+    Check -->|yes| Inc[bootcount++]
+    Inc --> Load[Boot rootfs<br/>from boot_part slot]
+    Check -->|no| Flip[Flip boot_part A↔B<br/>reset bootcount]
+    Flip --> Load
+    Load --> US[systemd + station-agent]
+    US --> HC{Health check OK?}
+    HC -->|yes| Commit[Agent clears bootcount<br/>= update committed]
+    HC -->|no| Reboot[Reboot — bootcount stays set]
+    Reboot --> Boot
+```
+
+After three bad boots of the new slot, the bootloader flips back to the
+previous known-good slot on its own. No network, no server, no agent
+required for rollback to work.
+
+### Storage layout
+
+Active slot is read-only; everything that changes lives on a dedicated
+`data` partition, bind-mounted into the running rootfs.
+
+```mermaid
+flowchart LR
+    subgraph disk[" on-disk partitions "]
+        EFI[EFI / boot]
+        A[rootfs A<br/>read-only]
+        B[rootfs B<br/>read-only]
+        DATA[data<br/>read-write]
+    end
+    subgraph runtime[" active runtime view "]
+        root[/ read-only/]
+        var[/var/]
+        home[/home/]
+        agent[/etc/station-agent/]
+    end
+    A -.active slot.-> root
+    DATA --> var
+    DATA --> home
+    DATA --> agent
+```
+
+### Release pipeline
+
+```mermaid
+flowchart LR
+    PR[Pull Request] --> CI[ci.yml<br/>parse + lint]
+    CI --> Merge[Merge to main]
+    Merge --> Tag[git tag vX.Y.Z]
+    Tag --> Rel[release.yml]
+    Rel --> B1[build.yml<br/>qemux86-64]
+    B1 --> B2[build.yml<br/>raspberrypi4-64]
+    B2 --> Sign[cosign keyless]
+    Sign --> GH[GitHub Release<br/>.wic.bz2 · .sha256 · .bundle]
+```
+
+Each `build.yml` invocation creates a fresh Hetzner CX43, attaches the
+persistent sstate-cache volume, builds, uploads the artifact, and is
+deleted. The two calls run serially because they share that cache
+volume.
+
+---
+
 ## Targets
 
 | Machine | Config | Purpose |
@@ -116,14 +189,20 @@ end-to-end testing.
 
 ## CI
 
-Two workflows:
+Three workflows:
 
-- **`ci.yml`** — runs on every pull request and push to `main`. Parses
-  all kas configs with `kas dump`, shellchecks the scripts, yamllints
-  the YAML, sanity-checks the wks files. No Hetzner, no artifact.
-- **`build.yml`** — runs on tag pushes (`v*`) and manual dispatch.
-  Full Yocto build on an on-demand Hetzner CX43. Uploads the image
-  artifact with 7-day retention.
+- **`ci.yml`** — every pull request and push to `main`. Parses all kas
+  configs with `kas dump`, shellchecks the scripts, yamllints the YAML,
+  sanity-checks the wks files. No Hetzner, no artifact.
+- **`build.yml`** — reusable + manually dispatchable. Full Yocto build
+  on an on-demand Hetzner CX43 for a single machine. Uploads the image
+  artifact with 7-day retention. Used ad-hoc or called by `release.yml`.
+- **`release.yml`** — triggered on `vX.Y.Z` tag push. Calls `build.yml`
+  for **both** targets in sequence, then signs each image with
+  [cosign keyless][cosign] and publishes a GitHub Release with the
+  images, SHA256 checksums, and `.bundle` signatures attached.
+
+[cosign]: https://docs.sigstore.dev/cosign/signing/overview/
 
 ### Required GitHub Secrets
 
@@ -175,9 +254,15 @@ Each image ships with:
 │   └── wic/                             partition layouts (x64 + RPi)
 ├── scripts/
 │   └── run-qemu.sh                      local QEMU launcher for qemux86-64
-└── .github/workflows/
-    ├── ci.yml                           fast PR / main checks
-    └── build.yml                        full Hetzner build (tags + dispatch)
+└── .github/
+    ├── workflows/
+    │   ├── ci.yml                       fast PR / main checks
+    │   ├── build.yml                    reusable Hetzner build (single target)
+    │   └── release.yml                  tag-driven: build both + cosign + GH Release
+    ├── ISSUE_TEMPLATE/bug.yml
+    ├── PULL_REQUEST_TEMPLATE.md
+    ├── CODEOWNERS
+    └── dependabot.yml
 ```
 
 ---
@@ -195,13 +280,18 @@ change goes through PR review.
 
 ### Releases
 
-Tags `vX.Y.Z` trigger a full build + artifact upload. That's how you
-ship a stable image.
+Pushing a `vX.Y.Z` tag triggers `release.yml`:
 
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
+
+This builds **both** machine images (qemux86-64 + raspberrypi4-64),
+signs them with cosign keyless (Sigstore + GitHub Actions OIDC), and
+publishes a GitHub Release with the images, SHA256 checksums, and
+signature bundles. See [SECURITY.md](SECURITY.md) for how to verify a
+release before flashing it.
 
 ---
 
