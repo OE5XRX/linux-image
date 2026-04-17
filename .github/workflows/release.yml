@@ -38,7 +38,7 @@ jobs:
     needs: [build-x64, build-rpi]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download x86-64 artifact
         uses: actions/download-artifact@v8
