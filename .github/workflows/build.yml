@@ -13,6 +13,10 @@ on:
           - qemux86-64
           - raspberrypi4-64
         default: qemux86-64
+      release_tag:
+        description: "Release tag for /etc/issue + /etc/os-release stamp (empty -> dev)"
+        type: string
+        default: ""
   workflow_call:
     inputs:
       machine:
@@ -33,9 +37,6 @@ concurrency:
 env:
   KAS_MACHINE: ${{ inputs.machine }}
   OE5XRX_RELEASE_TAG: ${{ inputs.release_tag || 'dev' }}
-  # bitbake sanitizes its environment; tell it to let our release-tag var
-  # through. The image recipe reads it in a ROOTFS_POSTPROCESS_COMMAND.
-  BB_ENV_PASSTHROUGH_ADDITIONS: OE5XRX_RELEASE_TAG
   CACHE_VOLUME_NAME: oe5xrx-yocto-cache
 
 jobs:
@@ -220,6 +221,12 @@ jobs:
 
       - name: Build with Kas
         run: |
+          # bitbake sanitizes its environment; extend the passthrough list
+          # with our release-tag var, preserving anything the runner may
+          # already have set (belt-and-braces: OE5XRX_RELEASE_TAG is also
+          # declared in oe5xrx.yml's local_conf_header).
+          export BB_ENV_PASSTHROUGH_ADDITIONS="${BB_ENV_PASSTHROUGH_ADDITIONS:+$BB_ENV_PASSTHROUGH_ADDITIONS }OE5XRX_RELEASE_TAG"
+
           if [ "${KAS_MACHINE}" = "qemux86-64" ]; then
             kas build qemux86-64.yml
           elif [ "${KAS_MACHINE}" = "raspberrypi4-64" ]; then
