@@ -67,18 +67,26 @@ ROOTFS_POSTPROCESS_COMMAND += "create_agent_dirs;"
 OE5XRX_RELEASE_TAG ??= "dev"
 
 python stamp_release() {
-    # Python so we don't have to worry about sed-special chars in the
-    # tag (tags come from git refs — reasonably constrained, but still),
-    # and so rewriting an existing OE5XRX_RELEASE line on a rebuild is
-    # trivial instead of risking duplicate keys in /etc/os-release.
+    # Python so we don't have to worry about shell quoting at all — we
+    # just write the file directly. Also handles idempotent rewrite of
+    # /etc/os-release on incremental rebuilds (no appended duplicates).
     import os
+    import re
 
     rootfs = d.getVar('IMAGE_ROOTFS')
     tag = d.getVar('OE5XRX_RELEASE_TAG') or 'dev'
-    # Escape for inclusion inside double-quoted os-release values.
-    # Release tags in practice contain only [A-Za-z0-9._-], but a stray
-    # quote would generate an unparseable /etc/os-release.
-    quoted_tag = tag.replace('\\', '\\\\').replace('"', '\\"')
+
+    # Reject anything that isn't a plain release tag. Our tags come from
+    # `git tag vX.Y.Z` pushed into github.ref_name — disciplined input.
+    # Blocking everything outside this charset means downstream code
+    # (os-release parsers, shells that source it, /etc/issue, the
+    # station-agent's heartbeat) never has to reason about escaping:
+    # no quotes, no backslashes, no $, no backticks, no newlines.
+    if not re.fullmatch(r'[A-Za-z0-9._-]+', tag):
+        bb.fatal(
+            f"OE5XRX_RELEASE_TAG={tag!r} contains characters outside "
+            "[A-Za-z0-9._-]; pick a cleaner git tag."
+        )
 
     etc_dir = os.path.join(rootfs, 'etc')
     os.makedirs(etc_dir, exist_ok=True)
@@ -97,10 +105,10 @@ python stamp_release() {
         return
 
     overrides = {
-        'PRETTY_NAME': f'OE5XRX Remote Station {quoted_tag}',
-        'VERSION': quoted_tag,
-        'VERSION_ID': quoted_tag,
-        'OE5XRX_RELEASE': quoted_tag,
+        'PRETTY_NAME': f'OE5XRX Remote Station {tag}',
+        'VERSION': tag,
+        'VERSION_ID': tag,
+        'OE5XRX_RELEASE': tag,
     }
 
     with open(os_release) as f:
