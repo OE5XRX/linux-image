@@ -41,6 +41,25 @@ chmod 0755 "${DATA}/etc-overlay/upper" "${DATA}/etc-overlay/work"
 AGENT_ETC="${DATA}/etc-overlay/stationagent"
 mkdir -p "${AGENT_ETC}"
 chmod 0755 "${AGENT_ETC}"
+
+# One-time migration from the old dashed path (pre-rename). Idempotent:
+# once the new dir has config.yml, subsequent boots do nothing. No-op
+# on freshly provisioned stations where the old dir never existed.
+OLD_AGENT_ETC="${DATA}/etc-overlay/station-agent"
+if [ ! -f "${AGENT_ETC}/config.yml" ] && [ -f "${OLD_AGENT_ETC}/config.yml" ]; then
+    mv "${OLD_AGENT_ETC}/config.yml" "${AGENT_ETC}/config.yml"
+    chown 0:0 "${AGENT_ETC}/config.yml"
+    chmod 0600 "${AGENT_ETC}/config.yml"
+    # Guard the key move: don't clobber a key that was already provisioned
+    # under the new path (e.g. partially migrated state).
+    if [ -f "${OLD_AGENT_ETC}/device_key.pem" ] && [ ! -f "${AGENT_ETC}/device_key.pem" ]; then
+        mv "${OLD_AGENT_ETC}/device_key.pem" "${AGENT_ETC}/device_key.pem"
+        chown 0:0 "${AGENT_ETC}/device_key.pem"
+        chmod 0600 "${AGENT_ETC}/device_key.pem"
+    fi
+    rmdir "${OLD_AGENT_ETC}" 2>/dev/null || true
+fi
+
 if [ ! -f "${AGENT_ETC}/config.yml" ] && [ -f /etc/stationagent/config.yml ]; then
     cp /etc/stationagent/config.yml "${AGENT_ETC}/config.yml"
     chmod 0600 "${AGENT_ETC}/config.yml"
