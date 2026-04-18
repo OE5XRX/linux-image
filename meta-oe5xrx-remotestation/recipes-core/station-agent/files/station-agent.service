@@ -10,7 +10,7 @@ WorkingDirectory=/var/lib/station-agent
 Restart=on-failure
 RestartSec=10
 User=root
-Environment=STATION_AGENT_CONFIG=/etc/station-agent/config.yml
+Environment=STATION_AGENT_CONFIG=/etc/stationagent/config.yml
 
 [Install]
 WantedBy=multi-user.target

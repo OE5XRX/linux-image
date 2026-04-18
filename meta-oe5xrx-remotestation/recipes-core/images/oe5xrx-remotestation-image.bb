@@ -54,7 +54,7 @@ WKS_FILE:raspberrypi4-64 = "oe5xrx-remotestation-ab.wks.in"
 # ---- Station agent dirs ---------------------------------------------------
 
 create_agent_dirs() {
-    install -d ${IMAGE_ROOTFS}/etc/station-agent
+    install -d ${IMAGE_ROOTFS}/etc/stationagent
 }
 ROOTFS_POSTPROCESS_COMMAND += "create_agent_dirs;"
 
