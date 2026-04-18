@@ -33,12 +33,16 @@ local_conf_header:
     # Falls back to build/ local dirs if the mount doesn't exist (local dev).
     DL_DIR ?= "${@'/mnt/yocto-cache/downloads' if os.path.isdir('/mnt/yocto-cache') else '${TOPDIR}/downloads'}"
     SSTATE_DIR ?= "${@'/mnt/yocto-cache/sstate-cache' if os.path.isdir('/mnt/yocto-cache') else '${TOPDIR}/sstate-cache'}"
-    # Pass the release tag through to the rootfs stamp (consumed by the
-    # image recipe's postprocess — writes /etc/issue and /etc/os-release).
-    # release.yml -> build.yml -> kas sets OE5XRX_RELEASE_TAG from the
-    # pushed tag; local `kas build` defaults to "dev".
-    BB_ENV_PASSTHROUGH_ADDITIONS:append = " OE5XRX_RELEASE_TAG"
-    OE5XRX_RELEASE_TAG ??= "dev"
+
+# Environment variables kas forwards into the bitbake invocation. kas
+# scrubs the shell env by default, so setting OE5XRX_RELEASE_TAG at the
+# workflow level alone does nothing — it has to be listed here.
+#
+# Format: `NAME: default`. If the variable is set in the parent
+# environment (e.g. by release.yml -> build.yml) that value wins; else
+# the default below is used (covers local `kas build`).
+env:
+  OE5XRX_RELEASE_TAG: "dev"
 
 target:
   - oe5xrx-remotestation-image
