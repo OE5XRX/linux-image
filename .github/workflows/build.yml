@@ -19,6 +19,10 @@ on:
         description: "Target machine"
         type: string
         required: true
+      release_tag:
+        description: "Release tag for /etc/issue + /etc/os-release stamp (empty -> dev)"
+        type: string
+        default: ""
 
 concurrency:
   # Serialize across all callers — the Hetzner cache volume can only be
@@ -28,6 +32,10 @@ concurrency:
 
 env:
   KAS_MACHINE: ${{ inputs.machine }}
+  OE5XRX_RELEASE_TAG: ${{ inputs.release_tag || 'dev' }}
+  # bitbake sanitizes its environment; tell it to let our release-tag var
+  # through. The image recipe reads it in a ROOTFS_POSTPROCESS_COMMAND.
+  BB_ENV_PASSTHROUGH_ADDITIONS: OE5XRX_RELEASE_TAG
   CACHE_VOLUME_NAME: oe5xrx-yocto-cache
 
 jobs:

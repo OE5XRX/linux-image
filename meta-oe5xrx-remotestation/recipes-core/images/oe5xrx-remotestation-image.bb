@@ -58,6 +58,36 @@ create_agent_dirs() {
 }
 ROOTFS_POSTPROCESS_COMMAND += "create_agent_dirs;"
 
+# ---- Release branding -----------------------------------------------------
+# OE5XRX_RELEASE_TAG comes from the release workflow (e.g. "v1-beta") via
+# BB_ENV_PASSTHROUGH_ADDITIONS in oe5xrx.yml, or defaults to "dev" for local
+# builds. The station agent reads PRETTY_NAME from /etc/os-release for its
+# heartbeat's os_version field, so replacing the Yocto/Poky defaults here
+# surfaces the release in the web UI.
+OE5XRX_RELEASE_TAG ??= "dev"
+
+stamp_release() {
+    install -d ${IMAGE_ROOTFS}/etc
+
+    cat > ${IMAGE_ROOTFS}/etc/issue <<EOF
+OE5XRX Remote Station ${OE5XRX_RELEASE_TAG}
+Kernel \r on an \m (\l)
+
+EOF
+
+    if [ -f ${IMAGE_ROOTFS}/etc/os-release ]; then
+        sed -i \
+            -e 's|^PRETTY_NAME=.*|PRETTY_NAME="OE5XRX Remote Station ${OE5XRX_RELEASE_TAG}"|' \
+            -e 's|^VERSION=.*|VERSION="${OE5XRX_RELEASE_TAG}"|' \
+            -e 's|^VERSION_ID=.*|VERSION_ID="${OE5XRX_RELEASE_TAG}"|' \
+            ${IMAGE_ROOTFS}/etc/os-release
+        # Additional field for consumers that want the raw tag without the
+        # "OE5XRX Remote Station " prefix stripping ceremony.
+        echo 'OE5XRX_RELEASE="${OE5XRX_RELEASE_TAG}"' >> ${IMAGE_ROOTFS}/etc/os-release
+    fi
+}
+ROOTFS_POSTPROCESS_COMMAND += "stamp_release;"
+
 # fstab fix for RPi: rewrite /dev/mmcblk0p1 -> PARTLABEL=firmware.
 # (Belt-and-suspenders alongside the boot-firmware.mount override in ab-layout.)
 python fix_firmware_fstab() {
