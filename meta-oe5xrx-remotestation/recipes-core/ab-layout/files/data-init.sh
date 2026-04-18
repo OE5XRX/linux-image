@@ -48,8 +48,14 @@ chmod 0755 "${AGENT_ETC}"
 OLD_AGENT_ETC="${DATA}/etc-overlay/station-agent"
 if [ ! -f "${AGENT_ETC}/config.yml" ] && [ -f "${OLD_AGENT_ETC}/config.yml" ]; then
     mv "${OLD_AGENT_ETC}/config.yml" "${AGENT_ETC}/config.yml"
-    if [ -f "${OLD_AGENT_ETC}/device_key.pem" ]; then
+    chown 0:0 "${AGENT_ETC}/config.yml"
+    chmod 0600 "${AGENT_ETC}/config.yml"
+    # Guard the key move: don't clobber a key that was already provisioned
+    # under the new path (e.g. partially migrated state).
+    if [ -f "${OLD_AGENT_ETC}/device_key.pem" ] && [ ! -f "${AGENT_ETC}/device_key.pem" ]; then
         mv "${OLD_AGENT_ETC}/device_key.pem" "${AGENT_ETC}/device_key.pem"
+        chown 0:0 "${AGENT_ETC}/device_key.pem"
+        chmod 0600 "${AGENT_ETC}/device_key.pem"
     fi
     rmdir "${OLD_AGENT_ETC}" 2>/dev/null || true
 fi
