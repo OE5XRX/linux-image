@@ -66,33 +66,61 @@ ROOTFS_POSTPROCESS_COMMAND += "create_agent_dirs;"
 # surfaces the release in the web UI.
 OE5XRX_RELEASE_TAG ??= "dev"
 
-stamp_release() {
-    install -d ${IMAGE_ROOTFS}/etc
+python stamp_release() {
+    # Python so we don't have to worry about sed-special chars in the
+    # tag (tags come from git refs — reasonably constrained, but still),
+    # and so rewriting an existing OE5XRX_RELEASE line on a rebuild is
+    # trivial instead of risking duplicate keys in /etc/os-release.
+    import os
 
-    # Bitbake expands ${OE5XRX_RELEASE_TAG} at recipe-parse time before
-    # handing this function to /bin/sh, so quoting-vs-expansion is a
-    # non-issue. Landing the tag in a shell variable up-front makes that
-    # explicit (readers don't have to reason about which ${} is bitbake
-    # and which is shell) and lets us pick a pipe-safe sed delimiter.
-    TAG="${OE5XRX_RELEASE_TAG}"
-    ROOTFS="${IMAGE_ROOTFS}"
+    rootfs = d.getVar('IMAGE_ROOTFS')
+    tag = d.getVar('OE5XRX_RELEASE_TAG') or 'dev'
 
-    cat > "${ROOTFS}/etc/issue" <<EOF
-OE5XRX Remote Station ${TAG}
-Kernel \r on an \m (\l)
+    etc_dir = os.path.join(rootfs, 'etc')
+    os.makedirs(etc_dir, exist_ok=True)
 
-EOF
+    # /etc/issue — console banner. \r, \m, \l are getty escape codes for
+    # kernel release / machine / terminal line. Kept as literal
+    # backslash-letter pairs for getty to expand at login time.
+    with open(os.path.join(etc_dir, 'issue'), 'w') as f:
+        f.write(f"OE5XRX Remote Station {tag}\n")
+        f.write("Kernel \\r on an \\m (\\l)\n\n")
 
-    if [ -f "${ROOTFS}/etc/os-release" ]; then
-        sed -i \
-            -e "s|^PRETTY_NAME=.*|PRETTY_NAME=\"OE5XRX Remote Station ${TAG}\"|" \
-            -e "s|^VERSION=.*|VERSION=\"${TAG}\"|" \
-            -e "s|^VERSION_ID=.*|VERSION_ID=\"${TAG}\"|" \
-            "${ROOTFS}/etc/os-release"
-        # Additional field for consumers that want the raw tag without
-        # the "OE5XRX Remote Station " prefix stripping ceremony.
-        echo "OE5XRX_RELEASE=\"${TAG}\"" >> "${ROOTFS}/etc/os-release"
-    fi
+    # /etc/os-release — replace Poky defaults in-place, then ensure the
+    # OE5XRX_RELEASE field is set exactly once.
+    os_release = os.path.join(etc_dir, 'os-release')
+    if not os.path.exists(os_release):
+        return
+
+    overrides = {
+        'PRETTY_NAME': f'OE5XRX Remote Station {tag}',
+        'VERSION': tag,
+        'VERSION_ID': tag,
+        'OE5XRX_RELEASE': tag,
+    }
+
+    with open(os_release) as f:
+        lines = f.readlines()
+
+    seen = set()
+    out = []
+    for line in lines:
+        replaced = False
+        for key, value in overrides.items():
+            if line.startswith(key + '='):
+                out.append(f'{key}="{value}"\n')
+                seen.add(key)
+                replaced = True
+                break
+        if not replaced:
+            out.append(line)
+
+    for key, value in overrides.items():
+        if key not in seen:
+            out.append(f'{key}="{value}"\n')
+
+    with open(os_release, 'w') as f:
+        f.writelines(out)
 }
 ROOTFS_POSTPROCESS_COMMAND += "stamp_release;"
 
