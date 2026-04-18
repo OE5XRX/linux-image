@@ -58,6 +58,84 @@ create_agent_dirs() {
 }
 ROOTFS_POSTPROCESS_COMMAND += "create_agent_dirs;"
 
+# ---- Release branding -----------------------------------------------------
+# OE5XRX_RELEASE_TAG comes from the release workflow (e.g. "v1-beta") via
+# BB_ENV_PASSTHROUGH_ADDITIONS in oe5xrx.yml, or defaults to "dev" for local
+# builds. The station agent reads PRETTY_NAME from /etc/os-release for its
+# heartbeat's os_version field, so replacing the Yocto/Poky defaults here
+# surfaces the release in the web UI.
+OE5XRX_RELEASE_TAG ??= "dev"
+
+python stamp_release() {
+    # Python so we don't have to worry about shell quoting at all — we
+    # just write the file directly. Also handles idempotent rewrite of
+    # /etc/os-release on incremental rebuilds (no appended duplicates).
+    import os
+    import re
+
+    rootfs = d.getVar('IMAGE_ROOTFS')
+    tag = d.getVar('OE5XRX_RELEASE_TAG') or 'dev'
+
+    # Reject anything that isn't a plain release tag. Our tags come from
+    # `git tag vX.Y.Z` pushed into github.ref_name — disciplined input.
+    # Blocking everything outside this charset means downstream code
+    # (os-release parsers, shells that source it, /etc/issue, the
+    # station-agent's heartbeat) never has to reason about escaping:
+    # no quotes, no backslashes, no $, no backticks, no newlines.
+    if not re.fullmatch(r'[A-Za-z0-9._-]+', tag):
+        bb.fatal(
+            f"OE5XRX_RELEASE_TAG={tag!r} contains characters outside "
+            "[A-Za-z0-9._-]; pick a cleaner git tag."
+        )
+
+    etc_dir = os.path.join(rootfs, 'etc')
+    os.makedirs(etc_dir, exist_ok=True)
+
+    # /etc/issue — console banner. \r, \m, \l are getty escape codes for
+    # kernel release / machine / terminal line. Kept as literal
+    # backslash-letter pairs for getty to expand at login time.
+    with open(os.path.join(etc_dir, 'issue'), 'w') as f:
+        f.write(f"OE5XRX Remote Station {tag}\n")
+        f.write("Kernel \\r on an \\m (\\l)\n\n")
+
+    # /etc/os-release — replace Poky defaults in-place, then ensure the
+    # OE5XRX_RELEASE field is set exactly once.
+    os_release = os.path.join(etc_dir, 'os-release')
+    if not os.path.exists(os_release):
+        return
+
+    overrides = {
+        'PRETTY_NAME': f'OE5XRX Remote Station {tag}',
+        'VERSION': tag,
+        'VERSION_ID': tag,
+        'OE5XRX_RELEASE': tag,
+    }
+
+    with open(os_release) as f:
+        lines = f.readlines()
+
+    seen = set()
+    out = []
+    for line in lines:
+        replaced = False
+        for key, value in overrides.items():
+            if line.startswith(key + '='):
+                out.append(f'{key}="{value}"\n')
+                seen.add(key)
+                replaced = True
+                break
+        if not replaced:
+            out.append(line)
+
+    for key, value in overrides.items():
+        if key not in seen:
+            out.append(f'{key}="{value}"\n')
+
+    with open(os_release, 'w') as f:
+        f.writelines(out)
+}
+ROOTFS_POSTPROCESS_COMMAND += "stamp_release;"
+
 # fstab fix for RPi: rewrite /dev/mmcblk0p1 -> PARTLABEL=firmware.
 # (Belt-and-suspenders alongside the boot-firmware.mount override in ab-layout.)
 python fix_firmware_fstab() {

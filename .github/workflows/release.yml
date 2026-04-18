@@ -22,6 +22,7 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       machine: qemux86-64
+      release_tag: ${{ github.ref_name }}
     secrets: inherit
 
   build-rpi:
@@ -31,6 +32,7 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       machine: raspberrypi4-64
+      release_tag: ${{ github.ref_name }}
     secrets: inherit
 
   release:
