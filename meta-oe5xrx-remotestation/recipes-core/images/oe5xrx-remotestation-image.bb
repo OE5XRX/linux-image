@@ -69,21 +69,29 @@ OE5XRX_RELEASE_TAG ??= "dev"
 stamp_release() {
     install -d ${IMAGE_ROOTFS}/etc
 
-    cat > ${IMAGE_ROOTFS}/etc/issue <<EOF
-OE5XRX Remote Station ${OE5XRX_RELEASE_TAG}
+    # Bitbake expands ${OE5XRX_RELEASE_TAG} at recipe-parse time before
+    # handing this function to /bin/sh, so quoting-vs-expansion is a
+    # non-issue. Landing the tag in a shell variable up-front makes that
+    # explicit (readers don't have to reason about which ${} is bitbake
+    # and which is shell) and lets us pick a pipe-safe sed delimiter.
+    TAG="${OE5XRX_RELEASE_TAG}"
+    ROOTFS="${IMAGE_ROOTFS}"
+
+    cat > "${ROOTFS}/etc/issue" <<EOF
+OE5XRX Remote Station ${TAG}
 Kernel \r on an \m (\l)
 
 EOF
 
-    if [ -f ${IMAGE_ROOTFS}/etc/os-release ]; then
+    if [ -f "${ROOTFS}/etc/os-release" ]; then
         sed -i \
-            -e 's|^PRETTY_NAME=.*|PRETTY_NAME="OE5XRX Remote Station ${OE5XRX_RELEASE_TAG}"|' \
-            -e 's|^VERSION=.*|VERSION="${OE5XRX_RELEASE_TAG}"|' \
-            -e 's|^VERSION_ID=.*|VERSION_ID="${OE5XRX_RELEASE_TAG}"|' \
-            ${IMAGE_ROOTFS}/etc/os-release
-        # Additional field for consumers that want the raw tag without the
-        # "OE5XRX Remote Station " prefix stripping ceremony.
-        echo 'OE5XRX_RELEASE="${OE5XRX_RELEASE_TAG}"' >> ${IMAGE_ROOTFS}/etc/os-release
+            -e "s|^PRETTY_NAME=.*|PRETTY_NAME=\"OE5XRX Remote Station ${TAG}\"|" \
+            -e "s|^VERSION=.*|VERSION=\"${TAG}\"|" \
+            -e "s|^VERSION_ID=.*|VERSION_ID=\"${TAG}\"|" \
+            "${ROOTFS}/etc/os-release"
+        # Additional field for consumers that want the raw tag without
+        # the "OE5XRX Remote Station " prefix stripping ceremony.
+        echo "OE5XRX_RELEASE=\"${TAG}\"" >> "${ROOTFS}/etc/os-release"
     fi
 }
 ROOTFS_POSTPROCESS_COMMAND += "stamp_release;"
