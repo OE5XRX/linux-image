@@ -221,12 +221,9 @@ jobs:
 
       - name: Build with Kas
         run: |
-          # bitbake sanitizes its environment; extend the passthrough list
-          # with our release-tag var, preserving anything the runner may
-          # already have set (belt-and-braces: OE5XRX_RELEASE_TAG is also
-          # declared in oe5xrx.yml's local_conf_header).
-          export BB_ENV_PASSTHROUGH_ADDITIONS="${BB_ENV_PASSTHROUGH_ADDITIONS:+$BB_ENV_PASSTHROUGH_ADDITIONS }OE5XRX_RELEASE_TAG"
-
+          # OE5XRX_RELEASE_TAG is listed in oe5xrx.yml's `env:` block, so
+          # kas picks it up from this workflow's environment and forwards
+          # it into bitbake. No BB_ENV_PASSTHROUGH_ADDITIONS dance needed.
           if [ "${KAS_MACHINE}" = "qemux86-64" ]; then
             kas build qemux86-64.yml
           elif [ "${KAS_MACHINE}" = "raspberrypi4-64" ]; then
