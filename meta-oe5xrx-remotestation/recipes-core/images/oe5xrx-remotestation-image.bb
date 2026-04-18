@@ -75,6 +75,10 @@ python stamp_release() {
 
     rootfs = d.getVar('IMAGE_ROOTFS')
     tag = d.getVar('OE5XRX_RELEASE_TAG') or 'dev'
+    # Escape for inclusion inside double-quoted os-release values.
+    # Release tags in practice contain only [A-Za-z0-9._-], but a stray
+    # quote would generate an unparseable /etc/os-release.
+    quoted_tag = tag.replace('\\', '\\\\').replace('"', '\\"')
 
     etc_dir = os.path.join(rootfs, 'etc')
     os.makedirs(etc_dir, exist_ok=True)
@@ -93,10 +97,10 @@ python stamp_release() {
         return
 
     overrides = {
-        'PRETTY_NAME': f'OE5XRX Remote Station {tag}',
-        'VERSION': tag,
-        'VERSION_ID': tag,
-        'OE5XRX_RELEASE': tag,
+        'PRETTY_NAME': f'OE5XRX Remote Station {quoted_tag}',
+        'VERSION': quoted_tag,
+        'VERSION_ID': quoted_tag,
+        'OE5XRX_RELEASE': quoted_tag,
     }
 
     with open(os_release) as f:
