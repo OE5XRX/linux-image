@@ -1,5 +1,5 @@
 [Unit]
-Description=Bind /etc/station-agent to persistent data partition
+Description=Bind /etc/stationagent to persistent data partition
 Requires=mnt-data.mount data-init.service
 After=mnt-data.mount data-init.service
 Before=local-fs.target station-agent.service umount.target
@@ -7,8 +7,8 @@ DefaultDependencies=no
 Conflicts=umount.target
 
 [Mount]
-What=/mnt/data/etc-overlay/station-agent
-Where=/etc/station-agent
+What=/mnt/data/etc-overlay/stationagent
+Where=/etc/stationagent
 Type=none
 Options=bind
 

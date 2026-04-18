@@ -10,7 +10,7 @@ SRC_URI = " \
     file://var.mount \
     file://home.mount \
     file://root.mount \
-    file://etc-station-agent.mount \
+    file://etc-stationagent.mount \
     file://data-init.service \
     file://data-init.sh \
 "
@@ -24,7 +24,7 @@ SYSTEMD_SERVICE:${PN} = " \
     var.mount \
     home.mount \
     root.mount \
-    etc-station-agent.mount \
+    etc-stationagent.mount \
     data-init.service \
 "
 # boot-firmware.mount is NOT listed here — we install it to /etc/ and wire the
@@ -42,7 +42,7 @@ do_install() {
     install -m 0644 ${WORKDIR}/var.mount           ${D}${systemd_system_unitdir}/
     install -m 0644 ${WORKDIR}/home.mount          ${D}${systemd_system_unitdir}/
     install -m 0644 ${WORKDIR}/root.mount          ${D}${systemd_system_unitdir}/
-    install -m 0644 ${WORKDIR}/etc-station-agent.mount ${D}${systemd_system_unitdir}/
+    install -m 0644 ${WORKDIR}/etc-stationagent.mount ${D}${systemd_system_unitdir}/
     install -m 0644 ${WORKDIR}/data-init.service   ${D}${systemd_system_unitdir}/
 
     install -d ${D}${sysconfdir}/systemd/system

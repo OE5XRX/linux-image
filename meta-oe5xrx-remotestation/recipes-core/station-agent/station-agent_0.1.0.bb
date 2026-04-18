@@ -31,9 +31,11 @@ do_install:append() {
     install -d ${D}${systemd_system_unitdir}
     install -m 0644 ${WORKDIR}/station-agent.service ${D}${systemd_system_unitdir}/
 
-    # Default config (operator-editable)
-    install -d ${D}${sysconfdir}/station-agent
-    install -m 0600 ${WORKDIR}/config.yml ${D}${sysconfdir}/station-agent/config.yml
+    # Default config (operator-editable). Directory name is "stationagent"
+    # without a dash so the etc-stationagent.mount unit doesn't need the
+    # systemd \x2d path escape.
+    install -d ${D}${sysconfdir}/stationagent
+    install -m 0600 ${WORKDIR}/config.yml ${D}${sysconfdir}/stationagent/config.yml
 }
 
-CONFFILES:${PN} = "${sysconfdir}/station-agent/config.yml"
+CONFFILES:${PN} = "${sysconfdir}/stationagent/config.yml"

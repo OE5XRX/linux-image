@@ -30,15 +30,19 @@ chmod 0700 "${DATA}/root"
 chown 0:0 "${DATA}/root"
 chmod 0755 "${DATA}/etc-overlay/upper" "${DATA}/etc-overlay/work"
 
-# /etc/station-agent — bind-mount target for the station-agent config dir.
+# /etc/stationagent — bind-mount target for the station-agent config dir.
+# (Named "stationagent" without a hyphen because systemd mount-unit file
+# names must match the mount path and dashes in paths need to be escaped
+# as \x2d — a readability footgun we avoid by not having a dash here.)
+#
 # On first boot, seed from the shipped default (from the read-only rootfs)
 # if the overlay copy is empty. Later boots keep whatever the operator
 # (or provisioning flow) has written.
-AGENT_ETC="${DATA}/etc-overlay/station-agent"
+AGENT_ETC="${DATA}/etc-overlay/stationagent"
 mkdir -p "${AGENT_ETC}"
 chmod 0755 "${AGENT_ETC}"
-if [ ! -f "${AGENT_ETC}/config.yml" ] && [ -f /etc/station-agent/config.yml ]; then
-    cp /etc/station-agent/config.yml "${AGENT_ETC}/config.yml"
+if [ ! -f "${AGENT_ETC}/config.yml" ] && [ -f /etc/stationagent/config.yml ]; then
+    cp /etc/stationagent/config.yml "${AGENT_ETC}/config.yml"
     chmod 0600 "${AGENT_ETC}/config.yml"
 fi
 
