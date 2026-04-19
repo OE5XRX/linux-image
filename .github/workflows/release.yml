@@ -10,7 +10,11 @@ name: Release
 on:
   push:
     tags:
-      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9]*'
+      # YYYY.MM.DD-HH (no suffix) — the common case
+      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9]'
+      # YYYY.MM.DD-HH[a-z] — same-hour hotfix
+      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9][a-z]'
+      # Legacy v* tags (v1-alpha ... v1-delta) still build.
       - 'v*'
 
 permissions:

@@ -7,42 +7,53 @@
 # builds both images (qemux86-64 + raspberrypi4-64), signs them with
 # cosign keyless, and publishes a GitHub Release with the artifacts.
 #
+# Valid tag formats:
+#   YYYY.MM.DD-HH        — normal release (default)
+#   YYYY.MM.DD-HH[a-z]   — same-hour hotfix, bump the letter each time
+#
+# The script enforces this shape so a typo can't push a tag that the
+# release.yml workflow silently refuses to build.
+#
 # Usage:
-#   scripts/release.sh                   # auto-tag as UTC YYYY.MM.DD-HH
-#   scripts/release.sh --tag 2026.04.19-14b   # override (hotfix inside the same hour)
-#   scripts/release.sh --dry-run         # preview; don't tag or push
-#   scripts/release.sh --yes             # skip the confirmation prompt
+#   scripts/release.sh                  # auto-tag YYYY.MM.DD-HH (UTC)
+#   scripts/release.sh --suffix a       # hotfix inside the same UTC hour
+#   scripts/release.sh --dry-run        # preview; don't tag or push
+#   scripts/release.sh --yes            # skip the confirmation prompt
 
 set -euo pipefail
 
+readonly TAG_RE='^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9]{2}[a-z]?$'
+
 usage() {
     cat <<EOF
-Usage: scripts/release.sh [--tag <tag>] [--dry-run] [--yes]
+Usage: scripts/release.sh [--suffix <a-z>] [--dry-run] [--yes]
 
 Creates a timestamped tag (UTC, hour granularity) and pushes it.
 The release.yml workflow takes over from there.
 
 Options:
-  --tag <tag>   Override auto-generated tag. Use this only when you
-                need a hotfix in the same hour as a prior release
-                (e.g. "2026.04.19-14b").
-  --dry-run     Print what would happen; make no changes.
-  --yes         Skip the interactive confirmation prompt.
-  -h, --help    Show this help.
+  --suffix <letter>  Append a single lowercase letter [a-z] to the base
+                     tag. Use this only when a prior release already
+                     fired in the same UTC hour (e.g. 2026.04.19-14
+                     exists -> --suffix a -> 2026.04.19-14a). Bump the
+                     letter if 14a is also taken.
+  --dry-run          Print what would happen; make no changes.
+  --yes              Skip the interactive confirmation prompt.
+  -h, --help         Show this help.
 EOF
 }
 
 DRY_RUN=0
 ASSUME_YES=0
-CUSTOM_TAG=""
+SUFFIX=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
     -n | --dry-run) DRY_RUN=1; shift ;;
     -y | --yes) ASSUME_YES=1; shift ;;
-    --tag)
-        [[ $# -ge 2 ]] || { echo "--tag requires a value" >&2; exit 2; }
-        CUSTOM_TAG="$2"
+    --suffix)
+        [[ $# -ge 2 ]] || { echo "--suffix requires a value [a-z]" >&2; exit 2; }
+        SUFFIX="$2"
         shift 2
         ;;
     -h | --help) usage; exit 0 ;;
@@ -50,10 +61,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-command -v gh >/dev/null 2>&1 || {
-    echo "This script expects the 'gh' CLI (only to check auth state)." >&2
-    exit 1
-}
+if [[ -n "$SUFFIX" ]] && ! [[ "$SUFFIX" =~ ^[a-z]$ ]]; then
+    echo "--suffix must be a single lowercase letter [a-z] (got '$SUFFIX')." >&2
+    exit 2
+fi
 
 branch=$(git symbolic-ref --short HEAD)
 if [[ "$branch" != "main" ]]; then
@@ -61,8 +72,13 @@ if [[ "$branch" != "main" ]]; then
     exit 1
 fi
 
-if ! git diff-index --quiet HEAD --; then
-    echo "Working tree is not clean. Commit or stash first." >&2
+# --porcelain surfaces unstaged, staged, and untracked changes — all
+# three block a release because the tagged commit should fully match
+# what's on origin/main.
+if [[ -n "$(git status --porcelain)" ]]; then
+    echo "Working tree is not clean. Commit, stash, or ignore first:" >&2
+    echo >&2
+    git status --short >&2
     exit 1
 fi
 
@@ -75,27 +91,27 @@ if [[ "$local_sha" != "$remote_sha" ]]; then
     exit 1
 fi
 
-if [[ -n "$CUSTOM_TAG" ]]; then
-    tag="$CUSTOM_TAG"
-    # Same charset as OE5XRX_RELEASE_TAG in the image recipe — anything
-    # outside that range breaks os-release parsing downstream.
-    if ! [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]]; then
-        echo "Custom tag '$tag' contains characters outside [A-Za-z0-9._-]." >&2
-        exit 1
+base=$(date -u +%Y.%m.%d-%H)
+tag="${base}${SUFFIX}"
+
+# Paranoia guard — this should never fire since --suffix is validated
+# and `date` emits fixed-width fields, but it keeps the invariant honest.
+if ! [[ "$tag" =~ $TAG_RE ]]; then
+    echo "Internal error: generated tag '$tag' doesn't match $TAG_RE" >&2
+    exit 3
+fi
+
+if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null \
+    || git ls-remote --tags --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
+    echo "Tag '$tag' already exists." >&2
+    if [[ -z "$SUFFIX" ]]; then
+        echo "Re-run with --suffix a for a hotfix in the same UTC hour." >&2
+    elif [[ "$SUFFIX" == "z" ]]; then
+        echo "Out of suffix letters (you've reached z). Wait for the next UTC hour." >&2
+    else
+        next=$(printf "%s" "$SUFFIX" | tr 'a-y' 'b-z')
+        echo "Re-run with --suffix ${next}." >&2
     fi
-else
-    tag=$(date -u +%Y.%m.%d-%H)
-fi
-
-if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
-    echo "Tag '$tag' already exists locally." >&2
-    echo "For a hotfix inside the same hour, re-run with --tag ${tag}b." >&2
-    exit 1
-fi
-
-if git ls-remote --tags --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
-    echo "Tag '$tag' already exists on origin." >&2
-    echo "For a hotfix inside the same hour, re-run with --tag ${tag}b." >&2
     exit 1
 fi
 
@@ -134,4 +150,4 @@ git push origin "$tag"
 
 echo
 echo "Tag pushed. release.yml is now building both images + publishing the release."
-echo "Watch: gh run watch --repo OE5XRX/linux-image \$(gh run list --repo OE5XRX/linux-image --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+echo "Watch: https://github.com/OE5XRX/linux-image/actions"
