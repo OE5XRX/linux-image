@@ -15,6 +15,10 @@ IMAGE_INSTALL = " \
     ab-layout \
 "
 
+# bzip2 CLI is a convenience for manual debugging of downloaded .wic.bz2
+# images on-device. The station-agent uses Python stdlib bz2 internally.
+IMAGE_INSTALL:append = " bzip2"
+
 # ---- Read-only rootfs + overlayfs-etc (all machines) -----------------------
 
 IMAGE_FEATURES += " \
