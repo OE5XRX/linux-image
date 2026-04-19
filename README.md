@@ -302,14 +302,18 @@ Actions OIDC), and publishes a GitHub Release with the images, SHA256
 checksums, and signature bundles. See [SECURITY.md](SECURITY.md) for
 how to verify a release before flashing it.
 
-For a same-hour hotfix (rare), pass an explicit tag with a suffix:
+For a same-hour hotfix (rare), pass a lowercase suffix letter:
 
 ```bash
-./scripts/release.sh --tag 2026.04.19-14b
+./scripts/release.sh --suffix a    # -> 2026.04.19-14a
+./scripts/release.sh --suffix b    # -> 2026.04.19-14b if a is taken too
 ```
 
-Legacy `v*` tags (`v1-alpha` … `v1-delta`) still trigger the workflow
-for compatibility, but new releases should use the timestamp form.
+The helper only emits tags matching `YYYY.MM.DD-HH[a-z]?`, which is
+also the exact set the release workflow triggers on. Legacy `v*`
+releases (`v1-alpha` … `v1-delta`) stay on GitHub as historical
+artifacts — `scripts/run-qemu.sh --release v1-delta` can still fetch
+them — but pushing a new `v*` tag no longer triggers a build.
 
 ---
 

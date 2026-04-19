@@ -6,7 +6,11 @@ name: Release
 #
 # Tag format is YYYY.MM.DD-HH (UTC), with optional single-letter suffix
 # for same-hour hotfixes. See scripts/release.sh.
-# 'v*' is still matched so legacy tags (v1-alpha ... v1-delta) keep working.
+#
+# The legacy v* tags (v1-alpha ... v1-delta) stay on GitHub as
+# historical releases — run-qemu.sh can still fetch them — but pushing
+# a new v* tag will NOT trigger a build. Only the timestamp format is
+# accepted going forward.
 on:
   push:
     tags:
@@ -14,8 +18,6 @@ on:
       - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9]'
       # YYYY.MM.DD-HH[a-z] — same-hour hotfix
       - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9][a-z]'
-      # Legacy v* tags (v1-alpha ... v1-delta) still build.
-      - 'v*'
 
 permissions:
   contents: write       # create release, upload assets
