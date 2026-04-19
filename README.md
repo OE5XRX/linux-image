@@ -286,18 +286,30 @@ change goes through PR review.
 
 ### Releases
 
-Pushing a `vX.Y.Z` tag triggers `release.yml`:
+Rolling releases are tagged as `YYYY.MM.DD-HH` in UTC (e.g.
+`2026.04.19-14`). Use the helper:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+./scripts/release.sh
 ```
 
-This builds **both** machine images (qemux86-64 + raspberrypi4-64),
-signs them with cosign keyless (Sigstore + GitHub Actions OIDC), and
-publishes a GitHub Release with the images, SHA256 checksums, and
-signature bundles. See [SECURITY.md](SECURITY.md) for how to verify a
-release before flashing it.
+It verifies the working tree is clean + in sync with `origin/main`,
+generates the timestamp tag, shows the commits that will be included,
+asks for confirmation, then tags and pushes. The push triggers
+`release.yml`, which builds **both** machine images (qemux86-64 +
+raspberrypi4-64), signs them with cosign keyless (Sigstore + GitHub
+Actions OIDC), and publishes a GitHub Release with the images, SHA256
+checksums, and signature bundles. See [SECURITY.md](SECURITY.md) for
+how to verify a release before flashing it.
+
+For a same-hour hotfix (rare), pass an explicit tag with a suffix:
+
+```bash
+./scripts/release.sh --tag 2026.04.19-14b
+```
+
+Legacy `v*` tags (`v1-alpha` … `v1-delta`) still trigger the workflow
+for compatibility, but new releases should use the timestamp form.
 
 ---
 

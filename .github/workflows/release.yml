@@ -1,11 +1,17 @@
 name: Release
 
-# Runs on `vX.Y.Z` tag push. Builds BOTH images (x86-64 + Raspberry Pi),
+# Runs on release-tag push. Builds BOTH images (x86-64 + Raspberry Pi),
 # checksums them, signs the bundles with cosign keyless (Sigstore + OIDC),
 # and publishes a GitHub Release with everything attached.
+#
+# Tag format is YYYY.MM.DD-HH (UTC), with optional single-letter suffix
+# for same-hour hotfixes. See scripts/release.sh.
+# 'v*' is still matched so legacy tags (v1-alpha ... v1-delta) keep working.
 on:
   push:
-    tags: ['v*']
+    tags:
+      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9]*'
+      - 'v*'
 
 permissions:
   contents: write       # create release, upload assets
