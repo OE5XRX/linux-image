@@ -83,6 +83,16 @@ fetch_release() {
     fi
     [ -n "${tag}" ] || { echo "ERROR: no release found" >&2; exit 1; }
 
+    # Accept either the new timestamp tags (YYYY.MM.DD-HH[a-z]) or
+    # legacy v* tags. Anything else is a typo that would otherwise
+    # waste a `gh release download` round-trip before failing opaquely.
+    if ! [[ "${tag}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9]{2}[a-z]?$ ]] \
+        && ! [[ "${tag}" =~ ^v[A-Za-z0-9._-]+$ ]]; then
+        echo "ERROR: '${tag}' is not a valid release tag." >&2
+        echo "Expected YYYY.MM.DD-HH or YYYY.MM.DD-HH[a-z], or legacy v*." >&2
+        exit 1
+    fi
+
     RELEASE_DIR="${CACHE_DIR}/release-${tag}"
     mkdir -p "${RELEASE_DIR}"
 

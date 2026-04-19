@@ -1,11 +1,23 @@
 name: Release
 
-# Runs on `vX.Y.Z` tag push. Builds BOTH images (x86-64 + Raspberry Pi),
+# Runs on release-tag push. Builds BOTH images (x86-64 + Raspberry Pi),
 # checksums them, signs the bundles with cosign keyless (Sigstore + OIDC),
 # and publishes a GitHub Release with everything attached.
+#
+# Tag format is YYYY.MM.DD-HH (UTC), with an optional single lowercase
+# letter [a-z] suffix for same-hour hotfixes. See scripts/release.sh.
+#
+# The legacy v* tags (v1-alpha ... v1-delta) stay on GitHub as
+# historical releases — run-qemu.sh can still fetch them — but pushing
+# a new v* tag will NOT trigger a build. Only the timestamp format is
+# accepted going forward.
 on:
   push:
-    tags: ['v*']
+    tags:
+      # YYYY.MM.DD-HH (no suffix) — the common case
+      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9]'
+      # YYYY.MM.DD-HH[a-z] — same-hour hotfix
+      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9][a-z]'
 
 permissions:
   contents: write       # create release, upload assets

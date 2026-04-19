@@ -286,18 +286,36 @@ change goes through PR review.
 
 ### Releases
 
-Pushing a `vX.Y.Z` tag triggers `release.yml`:
+Rolling releases are tagged as `YYYY.MM.DD-HH` in UTC (e.g.
+`2026.04.19-14`). Use the helper:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+./scripts/release.sh
 ```
 
-This builds **both** machine images (qemux86-64 + raspberrypi4-64),
-signs them with cosign keyless (Sigstore + GitHub Actions OIDC), and
-publishes a GitHub Release with the images, SHA256 checksums, and
-signature bundles. See [SECURITY.md](SECURITY.md) for how to verify a
-release before flashing it.
+It verifies the working tree is clean + in sync with `origin/main`,
+generates the timestamp tag, shows the commits that will be included,
+asks for confirmation, then tags and pushes. The push triggers
+`release.yml`, which builds **both** machine images (qemux86-64 +
+raspberrypi4-64), signs them with cosign keyless (Sigstore + GitHub
+Actions OIDC), and publishes a GitHub Release with the images, SHA256
+checksums, and signature bundles. See [SECURITY.md](SECURITY.md) for
+how to verify a release before flashing it.
+
+For a same-hour hotfix (rare), pass a lowercase suffix letter:
+
+```bash
+./scripts/release.sh --suffix a    # -> 2026.04.19-14a
+./scripts/release.sh --suffix b    # -> 2026.04.19-14b if a is taken too
+```
+
+The helper only emits tags in the form `YYYY.MM.DD-HH` or
+`YYYY.MM.DD-HH<suffix>` where `<suffix>` is a single lowercase letter
+`a`–`z`; this is also the exact set the release workflow triggers on.
+Legacy `v*` releases (`v1-alpha` … `v1-delta`) stay on GitHub as
+historical artifacts — `scripts/run-qemu.sh --release v1-delta` can
+still fetch them — but pushing a new `v*` tag no longer triggers a
+build.
 
 ---
 
