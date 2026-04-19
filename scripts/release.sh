@@ -66,7 +66,7 @@ if [[ -n "$SUFFIX" ]] && ! [[ "$SUFFIX" =~ ^[a-z]$ ]]; then
     exit 2
 fi
 
-branch=$(git symbolic-ref --short HEAD)
+branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "<detached>")
 if [[ "$branch" != "main" ]]; then
     echo "Must be on main to release (currently on: $branch)." >&2
     exit 1
