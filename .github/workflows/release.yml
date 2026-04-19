@@ -4,8 +4,8 @@ name: Release
 # checksums them, signs the bundles with cosign keyless (Sigstore + OIDC),
 # and publishes a GitHub Release with everything attached.
 #
-# Tag format is YYYY.MM.DD-HH (UTC), with optional single-letter suffix
-# for same-hour hotfixes. See scripts/release.sh.
+# Tag format is YYYY.MM.DD-HH (UTC), with an optional single lowercase
+# letter [a-z] suffix for same-hour hotfixes. See scripts/release.sh.
 #
 # The legacy v* tags (v1-alpha ... v1-delta) stay on GitHub as
 # historical releases — run-qemu.sh can still fetch them — but pushing

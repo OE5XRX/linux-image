@@ -139,8 +139,10 @@ fi
 if [[ $ASSUME_YES -eq 0 ]]; then
     echo
     read -r -p "Create and push this release? [y/N] " answer
-    case "${answer,,}" in
-    y | yes) ;;
+    # Match y/Y/yes/YES/Yes without ${var,,} — that's bash 4+, and
+    # macOS still ships bash 3.2 by default.
+    case "$answer" in
+    [yY] | [yY][eE][sS]) ;;
     *) echo "Aborted."; exit 1 ;;
     esac
 fi

@@ -309,11 +309,13 @@ For a same-hour hotfix (rare), pass a lowercase suffix letter:
 ./scripts/release.sh --suffix b    # -> 2026.04.19-14b if a is taken too
 ```
 
-The helper only emits tags matching `YYYY.MM.DD-HH[a-z]?`, which is
-also the exact set the release workflow triggers on. Legacy `v*`
-releases (`v1-alpha` … `v1-delta`) stay on GitHub as historical
-artifacts — `scripts/run-qemu.sh --release v1-delta` can still fetch
-them — but pushing a new `v*` tag no longer triggers a build.
+The helper only emits tags in the form `YYYY.MM.DD-HH` or
+`YYYY.MM.DD-HH<suffix>` where `<suffix>` is a single lowercase letter
+`a`–`z`; this is also the exact set the release workflow triggers on.
+Legacy `v*` releases (`v1-alpha` … `v1-delta`) stay on GitHub as
+historical artifacts — `scripts/run-qemu.sh --release v1-delta` can
+still fetch them — but pushing a new `v*` tag no longer triggers a
+build.
 
 ---
 

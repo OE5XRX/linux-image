@@ -89,7 +89,7 @@ fetch_release() {
     if ! [[ "${tag}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9]{2}[a-z]?$ ]] \
         && ! [[ "${tag}" =~ ^v[A-Za-z0-9._-]+$ ]]; then
         echo "ERROR: '${tag}' is not a valid release tag." >&2
-        echo "Expected YYYY.MM.DD-HH[a-z] or legacy v*." >&2
+        echo "Expected YYYY.MM.DD-HH or YYYY.MM.DD-HH[a-z], or legacy v*." >&2
         exit 1
     fi
 
