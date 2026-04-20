@@ -121,9 +121,17 @@ awk -v new="$new_line" '
 cat "$tmp" > "$RECIPE"
 
 echo
-echo "Recipe updated. Diff:"
-git --no-pager diff -- "$RECIPE" | sed 's/^/  /'
-echo
-echo "Next: commit the lock bump."
-echo "  git add $RECIPE"
-echo "  git commit -m \"Bump station-agent to ${sha:0:8}\""
+# `git diff` fails under `set -e` if we're not in a git worktree (e.g.
+# the script was unpacked from a tarball). The recipe is already
+# rewritten at this point — don't punish the caller with a non-zero
+# exit just because the nicety at the end can't run.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Recipe updated. Diff:"
+    git --no-pager diff -- "$RECIPE" | sed 's/^/  /'
+    echo
+    echo "Next: commit the lock bump."
+    echo "  git add $RECIPE"
+    echo "  git commit -m \"Bump station-agent to ${sha:0:8}\""
+else
+    echo "Recipe updated (git diff unavailable: not inside a git worktree)."
+fi
