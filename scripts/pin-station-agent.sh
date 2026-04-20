@@ -65,12 +65,15 @@ if [[ ! -f "$RECIPE" ]]; then
 fi
 
 if [[ -n "$EXPLICIT_SHA" ]]; then
-    if ! [[ "$EXPLICIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-        echo "SHA must be a full 40-char lowercase hex string." >&2
+    if ! [[ "$EXPLICIT_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+        echo "SHA must be a full 40-char hex string." >&2
         echo "Got: $EXPLICIT_SHA" >&2
         exit 2
     fi
-    sha="$EXPLICIT_SHA"
+    # Normalize to lowercase so the recipe stays consistent regardless
+    # of where the user copy-pasted the SHA from. `tr` keeps this
+    # compatible with bash 3.2 (macOS), ${var,,} wouldn't.
+    sha=$(printf '%s' "$EXPLICIT_SHA" | tr 'A-F' 'a-f')
 else
     echo "Resolving ${BRANCH} HEAD of ${UPSTREAM} ..." >&2
     sha=$(git ls-remote "$UPSTREAM" "refs/heads/${BRANCH}" | awk '{print $1}')
@@ -81,7 +84,7 @@ else
 fi
 new_line="SRCREV = \"${sha}\""
 
-current_line=$(grep -E '^SRCREV\s*=' "$RECIPE" || true)
+current_line=$(grep -E '^SRCREV[[:space:]]*=' "$RECIPE" || true)
 if [[ -z "$current_line" ]]; then
     echo "No SRCREV line found in $RECIPE — unexpected recipe layout." >&2
     exit 1
@@ -104,11 +107,15 @@ fi
 # In-place edit without GNU vs BSD sed headaches. Only the first match is
 # rewritten, which is the top-of-file SRCREV assignment.
 tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
 awk -v new="$new_line" '
     !done && /^SRCREV[[:space:]]*=/ { print new; done=1; next }
     { print }
 ' "$RECIPE" > "$tmp"
-mv "$tmp" "$RECIPE"
+# Write back via redirection to the existing recipe path so the file's
+# tracked mode (0644) is preserved. `mv "$tmp" "$RECIPE"` would replace
+# $RECIPE with the tmp file's 0600 mode and flip git's recorded mode.
+cat "$tmp" > "$RECIPE"
 
 echo
 echo "Recipe updated. Diff:"
