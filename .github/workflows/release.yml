@@ -29,8 +29,45 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Cheap preflight gate: makes the build fail within seconds (no Yocto
+  # spin-up) if the station-agent recipe still uses ${AUTOREV}. On a
+  # release tag we require a pinned SHA so the image is reproducible —
+  # otherwise a later rebuild of the same tag could silently pick up a
+  # different agent revision. See scripts/pin-station-agent.sh.
+  preflight:
+    name: Preflight — require pinned SRCREV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Fail if station-agent SRCREV is AUTOREV
+        run: |
+          set -euo pipefail
+          recipe=meta-oe5xrx-remotestation/recipes-core/station-agent/station-agent_0.1.0.bb
+          if [ ! -f "$recipe" ]; then
+            echo "::error file=$recipe::Recipe not found"
+            exit 1
+          fi
+          line=$(grep -E '^SRCREV[[:space:]]*=' "$recipe" || true)
+          if [ -z "$line" ]; then
+            echo "::error file=$recipe::No SRCREV line found"
+            exit 1
+          fi
+          echo "Found: $line"
+          if printf '%s' "$line" | grep -qF '${AUTOREV}'; then
+            echo "::error file=$recipe::SRCREV is \${AUTOREV} on a release tag — run scripts/pin-station-agent.sh before tagging"
+            exit 1
+          fi
+          sha=$(printf '%s' "$line" | sed -E 's/^SRCREV[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/')
+          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error file=$recipe::SRCREV '$sha' is not a full 40-char SHA"
+            exit 1
+          fi
+          echo "OK — station-agent pinned to $sha"
+
   build-x64:
     name: Build qemux86-64
+    needs: preflight
     uses: ./.github/workflows/build.yml
     with:
       machine: qemux86-64

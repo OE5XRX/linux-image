@@ -8,8 +8,10 @@ SRC_URI = " \
     file://station-agent.service \
     file://config.yml \
 "
-# FIXME(srcrev-pin): Pin to a specific commit before first production rollout.
-SRCREV = "${AUTOREV}"
+# Lockfile-style pin: SRCREV is always a specific commit, never ${AUTOREV}.
+# Bump via scripts/pin-station-agent.sh, commit like any dependency update.
+# The release workflow's preflight job refuses to build with AUTOREV.
+SRCREV = "138fbac2c005f20cb819cad0cb18067627f7fc2c"
 PV = "0.1.0+git${SRCPV}"
 
 S = "${WORKDIR}/station_agent"
