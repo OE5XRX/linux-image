@@ -24,18 +24,18 @@ readonly BRANCH="main"
 
 usage() {
     cat <<EOF
-Usage: scripts/pin-station-agent.sh [<sha>] [--dry-run]
+Usage: scripts/pin-station-agent.sh [<sha>] [-n | --dry-run]
 
 Rewrites SRCREV in the station-agent Yocto recipe to a specific commit.
 The recipe is treated as a lockfile — a real SHA is always committed.
 
 Arguments:
-  <sha>        Full 40-char SHA. Defaults to HEAD of
-               OE5XRX/station-manager@${BRANCH}.
+  <sha>              Full 40-char SHA. Defaults to HEAD of
+                     OE5XRX/station-manager@${BRANCH}.
 
 Options:
-  --dry-run    Print the resulting recipe change; don't modify files.
-  -h, --help   Show this help.
+  -n, --dry-run      Print the resulting recipe change; don't modify files.
+  -h, --help         Show this help.
 EOF
 }
 
@@ -106,7 +106,10 @@ fi
 
 # In-place edit without GNU vs BSD sed headaches. Only the first match is
 # rewritten, which is the top-of-file SRCREV assignment.
-tmp=$(mktemp)
+# Pass an explicit template — `mktemp` without one works on GNU coreutils
+# but fails on BSD/macOS, and we claim bash 3.2 compatibility elsewhere
+# in this script.
+tmp=$(mktemp "${TMPDIR:-/tmp}/pin-station-agent.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
 awk -v new="$new_line" '
     !done && /^SRCREV[[:space:]]*=/ { print new; done=1; next }
