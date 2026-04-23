@@ -220,7 +220,10 @@ Three workflows:
 | `GH_PAT` | `build.yml` | Personal access token with `repo` scope — used to fetch a short-lived runner registration token |
 
 The build server is disposable; only sstate-cache and download caches
-are persisted via a named Hetzner volume (`oe5xrx-yocto-cache`).
+are persisted via per-target named Hetzner volumes
+(`oe5xrx-yocto-cache-qemux86-64`, `oe5xrx-yocto-cache-raspberrypi4-64`).
+Each target has its own volume so both builds can run in parallel on a
+release.
 
 ---
 
