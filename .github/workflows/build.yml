@@ -48,6 +48,22 @@ jobs:
     outputs:
       server-id: ${{ steps.create.outputs.server-id }}
     steps:
+      - name: Validate machine input
+        # workflow_dispatch has a choice enum; workflow_call only has
+        # `type: string`. Fail fast here so a typo or new caller can't
+        # reach `hcloud server create` before exploding on the missing
+        # volume.
+        env:
+          MACHINE: ${{ inputs.machine }}
+        run: |
+          case "$MACHINE" in
+            qemux86-64|raspberrypi4-64) ;;
+            *)
+              echo "::error::Unsupported machine '$MACHINE'. Must be qemux86-64 or raspberrypi4-64." >&2
+              exit 1
+              ;;
+          esac
+
       - name: Generate Runner Registration Token via API
         id: runner-token
         env:
