@@ -280,7 +280,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GH_REPO: ${{ github.repository }}
-          RUNNER_LABEL: oe5xrx-yocto-builder-${{ inputs.machine }}
+          RUNNER_LABEL: ${{ env.BUILDER_LABEL }}
         run: |
           # Find and remove the runner if it's still registered
           RUNNER_ID=$(curl -s \

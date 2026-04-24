@@ -203,10 +203,12 @@ Three workflows:
 - **`build.yml`** — reusable + manually dispatchable. Full Yocto build
   on an on-demand Hetzner CX43 for a single machine. Uploads the image
   artifact with 7-day retention. Used ad-hoc or called by `release.yml`.
-- **`release.yml`** — triggered on `vX.Y.Z` tag push. Calls `build.yml`
-  for **both** targets in sequence, then signs each image with
-  [cosign keyless][cosign] and publishes a GitHub Release with the
-  images, SHA256 checksums, and `.bundle` signatures attached.
+- **`release.yml`** — triggered on a timestamped tag push
+  (`YYYY.MM.DD-HH[a-z]`, see `scripts/release.sh`). Calls `build.yml`
+  for **both** targets in parallel — each has its own cache volume —
+  then signs each image with [cosign keyless][cosign] and publishes a
+  GitHub Release with the images, SHA256 checksums, and `.bundle`
+  signatures attached.
 
 [cosign]: https://docs.sigstore.dev/cosign/signing/overview/
 
