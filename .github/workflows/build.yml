@@ -29,15 +29,17 @@ on:
         default: ""
 
 concurrency:
-  # Serialize across all callers — the Hetzner cache volume can only be
-  # attached to one build server at a time.
-  group: yocto-build
+  # Serialize per target — each target has its own Hetzner cache volume
+  # (a volume can only attach to one server at a time), but the two
+  # targets can build in parallel.
+  group: yocto-build-${{ inputs.machine }}
   cancel-in-progress: false
 
 env:
   KAS_MACHINE: ${{ inputs.machine }}
   OE5XRX_RELEASE_TAG: ${{ inputs.release_tag || 'dev' }}
-  CACHE_VOLUME_NAME: oe5xrx-yocto-cache
+  CACHE_VOLUME_NAME: oe5xrx-yocto-cache-${{ inputs.machine }}
+  BUILDER_LABEL: oe5xrx-yocto-builder-${{ inputs.machine }}
 
 jobs:
   create-runner:
@@ -46,6 +48,22 @@ jobs:
     outputs:
       server-id: ${{ steps.create.outputs.server-id }}
     steps:
+      - name: Validate machine input
+        # workflow_dispatch has a choice enum; workflow_call only has
+        # `type: string`. Fail fast here so a typo or new caller can't
+        # reach `hcloud server create` before exploding on the missing
+        # volume.
+        env:
+          MACHINE: ${{ inputs.machine }}
+        run: |
+          case "$MACHINE" in
+            qemux86-64|raspberrypi4-64) ;;
+            *)
+              echo "::error::Unsupported machine '$MACHINE'. Must be qemux86-64 or raspberrypi4-64." >&2
+              exit 1
+              ;;
+          esac
+
       - name: Generate Runner Registration Token via API
         id: runner-token
         env:
@@ -95,7 +113,7 @@ jobs:
           HCLOUD_SSH_KEY_NAME: ${{ secrets.HCLOUD_SSH_KEY_NAME }}
         run: |
           SERVER_ID=$(hcloud server create \
-            --name "oe5xrx-yocto-builder" \
+            --name "${BUILDER_LABEL}" \
             --type cx43 \
             --image ubuntu-24.04 \
             --ssh-key "${HCLOUD_SSH_KEY_NAME}" \
@@ -171,7 +189,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           ssh "root@${SERVER_IP}" bash -s -- \
-            "oe5xrx-yocto-builder" "${RUNNER_REG_TOKEN}" "${GH_REPO}" << 'SETUP_SCRIPT'
+            "${BUILDER_LABEL}" "${RUNNER_REG_TOKEN}" "${GH_REPO}" << 'SETUP_SCRIPT'
             set -euo pipefail
             LABEL=$1; TOKEN=$2; REPO=$3
 
@@ -213,7 +231,7 @@ jobs:
   build:
     name: Build Yocto Image
     needs: create-runner
-    runs-on: oe5xrx-yocto-builder
+    runs-on: oe5xrx-yocto-builder-${{ inputs.machine }}
     env:
       LANG: en_US.UTF-8
     steps:
@@ -278,7 +296,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GH_REPO: ${{ github.repository }}
-          RUNNER_LABEL: oe5xrx-yocto-builder
+          RUNNER_LABEL: ${{ env.BUILDER_LABEL }}
         run: |
           # Find and remove the runner if it's still registered
           RUNNER_ID=$(curl -s \
