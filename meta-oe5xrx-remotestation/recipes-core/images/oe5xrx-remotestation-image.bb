@@ -20,7 +20,7 @@ IMAGE_INSTALL = " \
 IMAGE_INSTALL:append = " bzip2"
 
 # D2 slot contract: udev rules that map BusBoard hub ports to /dev/oe5xrx/slotN/control.
-IMAGE_INSTALL:append = " oe5xrx-slot-udev"
+IMAGE_INSTALL:append = " oe5xrx-slot-udev oe5xrx-fm-firmware"
 
 # ---- Read-only rootfs + overlayfs-etc (all machines) -----------------------
 
