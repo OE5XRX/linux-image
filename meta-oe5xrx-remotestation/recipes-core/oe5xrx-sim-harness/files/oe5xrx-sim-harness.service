@@ -1,0 +1,14 @@
+[Unit]
+Description=OE5XRX sim harness (native_sim FM -> slot1/control pty)
+Documentation=https://oe5xrx.org/docs/remote-station/
+After=local-fs.target
+Before=station-agent.service
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/sim-harness.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
