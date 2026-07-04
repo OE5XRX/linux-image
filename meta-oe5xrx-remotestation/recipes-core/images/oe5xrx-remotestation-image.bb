@@ -19,6 +19,9 @@ IMAGE_INSTALL = " \
 # images on-device. The station-agent uses Python stdlib bz2 internally.
 IMAGE_INSTALL:append = " bzip2"
 
+# D2 slot contract: udev rules that map BusBoard hub ports to /dev/oe5xrx/slotN/control.
+IMAGE_INSTALL:append = " oe5xrx-slot-udev"
+
 # ---- Read-only rootfs + overlayfs-etc (all machines) -----------------------
 
 IMAGE_FEATURES += " \
