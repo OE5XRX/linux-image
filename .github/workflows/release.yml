@@ -83,7 +83,9 @@ jobs:
       - name: Fail if FM artifacts are unpinned or unsigned
         run: |
           set -euo pipefail
-          id_re='^https://github.com/OE5XRX/FW-RemoteStation/\.github/workflows/release\.yml@refs/.+$'
+          # FW-RemoteStation signs releases from refs/heads/main (workflow_dispatch);
+          # pin the identity to that exact ref+workflow rather than a wildcard @refs/.+ .
+          id_re='^https://github.com/OE5XRX/FW-RemoteStation/\.github/workflows/release\.yml@refs/heads/main$'
           issuer='https://token.actions.githubusercontent.com'
           recipes="
             meta-oe5xrx-remotestation/recipes-core/oe5xrx-fm-firmware/oe5xrx-fm-firmware_26.07.04.bb
@@ -94,7 +96,7 @@ jobs:
             url="$(sed -nE 's/^SRC_URI = "([^";]*).*/\1/p' "$recipe")"
             sha="$(sed -nE \
               's/^SRC_URI\[sha256sum\] = "([0-9a-fA-F]*)".*/\1/p' \
-              "$recipe")"
+              "$recipe" | tr 'A-F' 'a-f')"
             case "$url" in
               *REPLACE*|"")
                 echo "::error file=$recipe::SRC_URI unpinned"; exit 1;;

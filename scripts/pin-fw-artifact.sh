@@ -19,7 +19,9 @@ URL="${2:-}"
 DRY_RUN=0
 [ "${3:-}" = "--dry-run" ] && DRY_RUN=1
 
-readonly COSIGN_IDENTITY_RE='^https://github.com/OE5XRX/FW-RemoteStation/\.github/workflows/release\.yml@refs/.+$'
+# The FW-RemoteStation release workflow signs from refs/heads/main (workflow_dispatch),
+# so pin the identity to that exact ref+workflow — narrower than a wildcard @refs/.+ .
+readonly COSIGN_IDENTITY_RE='^https://github.com/OE5XRX/FW-RemoteStation/\.github/workflows/release\.yml@refs/heads/main$'
 readonly COSIGN_ISSUER='https://token.actions.githubusercontent.com'
 
 fail() { echo "pin-fw-artifact: $*" >&2; exit 1; }
@@ -31,7 +33,7 @@ command -v cosign >/dev/null 2>&1 || fail "cosign not on PATH"
 asset="$(basename "$URL")"
 base_url="${URL%/*}"
 
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/pin-fw.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 
 echo "Fetching $asset, $asset.bundle, SHA256SUMS ..." >&2
@@ -61,7 +63,7 @@ fi
 
 # Rewrite the two pinned lines. Recipe must already contain SRC_URI = "..." and
 # SRC_URI[sha256sum] = "..." lines (placeholders are fine on first pin).
-tmp_recipe="$(mktemp)"
+tmp_recipe="$(mktemp "${TMPDIR:-/tmp}/pin-fw-recipe.XXXXXX")"
 awk -v url="$URL" -v sha="$sha" '
     /^SRC_URI\[sha256sum\][[:space:]]*=/ { print "SRC_URI[sha256sum] = \"" sha "\""; next }
     /^SRC_URI[[:space:]]*=/              { print "SRC_URI = \"" url "\""; next }
