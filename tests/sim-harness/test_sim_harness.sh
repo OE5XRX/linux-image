@@ -11,7 +11,7 @@ url="$(sed -nE 's/^SRC_URI = "([^";]*).*/\1/p' "$recipe")"
 sha="$(sed -nE 's/^SRC_URI\[sha256sum\] = "([0-9a-f]+)".*/\1/p' "$recipe")"
 if [ -z "$url" ] || [ -z "$sha" ]; then echo "FAIL: could not read pinned URL/sha from recipe"; exit 1; fi
 
-work="$(mktemp -d)"
+work="$(mktemp -d "${TMPDIR:-/tmp}/sim-harness.XXXXXX")"
 trap 'kill "${harness_pid:-}" 2>/dev/null || true; rm -rf "$work"' EXIT
 
 bin="${work}/native-sim-fm"
