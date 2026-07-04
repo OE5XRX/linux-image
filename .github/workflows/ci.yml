@@ -24,7 +24,7 @@ jobs:
         run: |
           pip install --quiet kas
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck yamllint
+          sudo apt-get install -y --no-install-recommends shellcheck yamllint udev
 
       - name: Verify kas configs parse (qemux86-64)
         run: kas dump qemux86-64.yml > /dev/null
@@ -50,9 +50,8 @@ jobs:
           done
 
       - name: Verify udev slot rules syntax
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y udev
-          udevadm verify meta-oe5xrx-remotestation/recipes-core/oe5xrx-slot-udev/files/90-oe5xrx-slots.rules
+        # udev is installed in the "Install kas + linters" step above.
+        run: udevadm verify meta-oe5xrx-remotestation/recipes-core/oe5xrx-slot-udev/files/90-oe5xrx-slots.rules
 
   sim-harness:
     runs-on: ubuntu-latest

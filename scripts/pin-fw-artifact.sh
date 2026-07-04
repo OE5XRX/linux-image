@@ -30,15 +30,19 @@ fail() { echo "pin-fw-artifact: $*" >&2; exit 1; }
 [ -f "$RECIPE" ] || fail "recipe not found: $RECIPE"
 command -v cosign >/dev/null 2>&1 || fail "cosign not on PATH"
 
-asset="$(basename "$URL")"
-base_url="${URL%/*}"
+# Strip any BitBake SRC_URI parameters (e.g. ";downloadfilename=...") for fetching
+# and filename derivation, so passing a recipe's raw SRC_URI value also works.
+# The original $URL (params intact) is still what gets written back to the recipe.
+fetch_url="${URL%%;*}"
+asset="$(basename "$fetch_url")"
+base_url="${fetch_url%/*}"
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/pin-fw.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 
 echo "Fetching $asset, $asset.bundle, SHA256SUMS ..." >&2
-curl -fsSL "$URL"                 -o "$tmp/$asset"
-curl -fsSL "$URL.bundle"          -o "$tmp/$asset.bundle"
+curl -fsSL "$fetch_url"           -o "$tmp/$asset"
+curl -fsSL "$fetch_url.bundle"    -o "$tmp/$asset.bundle"
 curl -fsSL "$base_url/SHA256SUMS" -o "$tmp/SHA256SUMS"
 
 echo "Verifying cosign signature ..." >&2
