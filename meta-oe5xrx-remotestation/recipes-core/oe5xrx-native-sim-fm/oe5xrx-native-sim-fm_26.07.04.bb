@@ -1,7 +1,8 @@
-SUMMARY = "Prebuilt Zephyr native_sim FM binary (dev-only simulation)"
+SUMMARY = "Prebuilt Zephyr native_sim FM binary (qemux86-64 simulation)"
 DESCRIPTION = "Statically-linked native_sim ELF pinned from FW-RemoteStation release 26.07.04-01, \
-cosign-verified. Answers `module fm describe` on a self-created console pty. Consumed by \
-oe5xrx-sim-harness. Never in prod or standard dev builds. Pin/re-pin with scripts/pin-fw-artifact.sh."
+cosign-verified. Answers `module list` / `module <id> describe` on a self-created console pty. \
+Consumed by oe5xrx-sim-harness. x86-only (COMPATIBLE_MACHINE = qemux86-64) so it ships only in the \
+qemux86-64/Proxmox image, never on the RPi hardware image. Pin/re-pin with scripts/pin-fw-artifact.sh."
 LICENSE = "CLOSED"
 
 # Pinned FW-RemoteStation release 26.07.04-01 (URL + sha256 from SHA256SUMS, cosign-verified).

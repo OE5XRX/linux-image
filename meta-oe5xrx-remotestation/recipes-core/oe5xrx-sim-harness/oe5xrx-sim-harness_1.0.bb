@@ -1,4 +1,4 @@
-SUMMARY = "OE5XRX sim harness — native_sim FM behind slot1/control pty (dev-only)"
+SUMMARY = "OE5XRX sim harness — native_sim FM behind slot1/control pty (qemux86-64)"
 DESCRIPTION = "Sim populator of the D2 slot contract. Runs the pinned native_sim FM binary and \
 symlinks its console pty at /dev/oe5xrx/slot1/control. No socat: native_sim owns the pty."
 LICENSE = "MIT"

@@ -1,6 +1,0 @@
-header:
-  version: 15
-  includes:
-    - qemux86-64.yml
-
-target: oe5xrx-remotestation-sim-image

@@ -1,5 +1,5 @@
 #!/bin/sh
-# OE5XRX sim harness (dev-only, D2 camp-slice).
+# OE5XRX sim harness (qemux86-64/Proxmox, D2 camp-slice).
 # Runs the pinned native_sim FM binary. native_sim self-creates two ptys and
 # announces them on stdout:
 #   uart connected to pseudotty: /dev/pts/N     <- console/shell  (slot1/control)
