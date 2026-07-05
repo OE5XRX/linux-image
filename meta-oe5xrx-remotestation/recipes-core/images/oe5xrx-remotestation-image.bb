@@ -19,6 +19,9 @@ IMAGE_INSTALL = " \
 # images on-device. The station-agent uses Python stdlib bz2 internally.
 IMAGE_INSTALL:append = " bzip2"
 
+# D2 slot contract: udev rules that map BusBoard hub ports to /dev/oe5xrx/slotN/control.
+IMAGE_INSTALL:append = " oe5xrx-slot-udev oe5xrx-fm-firmware"
+
 # ---- Read-only rootfs + overlayfs-etc (all machines) -----------------------
 
 IMAGE_FEATURES += " \
@@ -40,6 +43,12 @@ IMAGE_FSTYPES:append = " wic wic.bz2"
 # ---- x86-64: GRUB-EFI A/B -------------------------------------------------
 
 IMAGE_INSTALL:append:qemux86-64 = " grub-ab grub-efi"
+
+# Co-located module simulation stack (native_sim FM + sim-harness). The
+# qemux86-64 image is the Proxmox/VM deployment, which has no real FM hardware,
+# so the simulator IS the module — always built here. native_sim is x86-only
+# (COMPATIBLE_MACHINE = "qemux86-64"), so it never reaches the RPi image.
+IMAGE_INSTALL:append:qemux86-64 = " packagegroup-oe5xrx-sim"
 WKS_FILE:qemux86-64 = "oe5xrx-remotestation-ab-x64.wks.in"
 # grubenv must be on the ESP for load_env/save_env. grub-ab deploys it to
 # DEPLOY_DIR_IMAGE; IMAGE_EFI_BOOT_FILES tells wic to copy it onto the ESP.

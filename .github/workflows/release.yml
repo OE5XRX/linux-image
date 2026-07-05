@@ -77,6 +77,45 @@ jobs:
           fi
           echo "OK — station-agent pinned to $sha"
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Fail if FM artifacts are unpinned or unsigned
+        run: |
+          set -euo pipefail
+          # FW-RemoteStation signs releases from refs/heads/main (workflow_dispatch);
+          # pin the identity to that exact ref+workflow rather than a wildcard @refs/.+ .
+          id_re='^https://github.com/OE5XRX/FW-RemoteStation/\.github/workflows/release\.yml@refs/heads/main$'
+          issuer='https://token.actions.githubusercontent.com'
+          recipes="
+            meta-oe5xrx-remotestation/recipes-core/oe5xrx-fm-firmware/oe5xrx-fm-firmware_26.07.04.bb
+            meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm_26.07.04.bb
+          "
+          for recipe in $recipes; do
+            [ -f "$recipe" ] || { echo "::error::missing $recipe"; exit 1; }
+            url="$(sed -nE 's/^SRC_URI = "([^";]*).*/\1/p' "$recipe")"
+            sha="$(sed -nE \
+              's/^SRC_URI\[sha256sum\] = "([0-9a-fA-F]*)".*/\1/p' \
+              "$recipe" | tr 'A-F' 'a-f')"
+            case "$url" in
+              *REPLACE*|"")
+                echo "::error file=$recipe::SRC_URI unpinned"; exit 1;;
+            esac
+            printf '%s' "$sha" | grep -Eq '^[0-9a-f]{64}$' \
+              || { echo "::error file=$recipe::sha256sum unpinned"
+                   exit 1; }
+            tmp="$(mktemp -d)"
+            curl -fsSL "$url"        -o "$tmp/asset"
+            curl -fsSL "$url.bundle" -o "$tmp/asset.bundle"
+            echo "${sha}  ${tmp}/asset" | sha256sum -c -
+            cosign verify-blob \
+              --certificate-identity-regexp "$id_re" \
+              --certificate-oidc-issuer "$issuer" \
+              --bundle "$tmp/asset.bundle" "$tmp/asset"
+            echo "OK — $recipe pinned + cosign-verified"
+            rm -rf "$tmp"
+          done
+
   build-x64:
     name: Build qemux86-64
     needs: preflight
