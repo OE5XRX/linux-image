@@ -28,7 +28,9 @@ fail() { echo "pin-fw-artifact: $*" >&2; exit 1; }
 
 { [ -n "$RECIPE" ] && [ -n "$URL" ]; } || fail "usage: $0 <recipe-path> <asset-url> [--dry-run]"
 [ -f "$RECIPE" ] || fail "recipe not found: $RECIPE"
-command -v cosign >/dev/null 2>&1 || fail "cosign not on PATH"
+for tool in cosign curl sha256sum; do
+    command -v "$tool" >/dev/null 2>&1 || fail "$tool not on PATH"
+done
 
 # Strip any BitBake SRC_URI parameters (e.g. ";downloadfilename=...") for fetching
 # and filename derivation, so passing a recipe's raw SRC_URI value also works.
