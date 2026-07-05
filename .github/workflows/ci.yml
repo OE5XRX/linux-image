@@ -58,7 +58,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Real-binary harness E2E
-        run: tests/sim-harness/test_sim_harness.sh
+        run: bash tests/sim-harness/test_sim_harness.sh
       - name: Shellcheck harness + pin scripts
         run: |
           sudo apt-get update -qq && sudo apt-get install -y shellcheck

@@ -22,7 +22,8 @@ chmod +x "$bin"
 
 # Run the ACTUAL harness script against a temp slot dir (proves the shipped script).
 slot_dir="${work}/slot1"
-SIM_BIN="$bin" SLOT_DIR="$slot_dir" RUNDIR="${work}/run" "$harness" &
+# Invoke via `sh` so the test doesn't depend on the source file's git exec bit.
+SIM_BIN="$bin" SLOT_DIR="$slot_dir" RUNDIR="${work}/run" sh "$harness" &
 harness_pid=$!
 
 for _ in $(seq 1 100); do
