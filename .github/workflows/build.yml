@@ -106,19 +106,47 @@ jobs:
             echo "Volume is free, nothing to detach."
           fi
 
-      - name: Create Hetzner server (CX43)
+      - name: Create Hetzner server (CCX43)
         id: create
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
           HCLOUD_SSH_KEY_NAME: ${{ secrets.HCLOUD_SSH_KEY_NAME }}
         run: |
-          SERVER_ID=$(hcloud server create \
-            --name "${BUILDER_LABEL}" \
-            --type cx43 \
-            --image ubuntu-24.04 \
-            --ssh-key "${HCLOUD_SSH_KEY_NAME}" \
-            --location fsn1 \
-            --output json | python3 -c "import sys,json; print(json.load(sys.stdin)['server']['id'])")
+          set -euo pipefail
+          # Dedicated-vCPU CCX43: faster + more consistent than the cost-optimized
+          # cx tier, and less exposed to its capacity crunch. Location is fixed to
+          # fsn1 because the persistent cache volume is location-bound (no fallback).
+          # Hetzner can still transiently reject placement (resource_unavailable), so
+          # retry with exponential backoff before giving up.
+          ATTEMPTS=5
+          DELAY=30
+          SERVER_ID=""
+          err="$(mktemp)"
+          for i in $(seq 1 "${ATTEMPTS}"); do
+            echo "hcloud server create attempt ${i}/${ATTEMPTS} (ccx43 @ fsn1)..."
+            if OUT=$(hcloud server create \
+                  --name "${BUILDER_LABEL}" \
+                  --type ccx43 \
+                  --image ubuntu-24.04 \
+                  --ssh-key "${HCLOUD_SSH_KEY_NAME}" \
+                  --location fsn1 \
+                  --output json 2>"${err}"); then
+              SERVER_ID=$(printf '%s' "${OUT}" | python3 -c "import sys,json; print(json.load(sys.stdin)['server']['id'])")
+              echo "Server created: ${SERVER_ID}"
+              break
+            fi
+            echo "::warning::server create failed (attempt ${i}/${ATTEMPTS}): $(cat "${err}")"
+            if [ "${i}" -lt "${ATTEMPTS}" ]; then
+              echo "Retrying in ${DELAY}s (Hetzner capacity may free up)..."
+              sleep "${DELAY}"
+              DELAY=$(( DELAY * 2 ))
+              [ "${DELAY}" -gt 300 ] && DELAY=300
+            fi
+          done
+          if [ -z "${SERVER_ID}" ]; then
+            echo "::error::Could not create ccx43 in fsn1 after ${ATTEMPTS} attempts (likely resource_unavailable). Re-run the job or retry later." >&2
+            exit 1
+          fi
           SERVER_IP=$(hcloud server ip "${SERVER_ID}")
           echo "server-id=${SERVER_ID}" >> "$GITHUB_OUTPUT"
           echo "SERVER_IP=${SERVER_IP}" >> "$GITHUB_ENV"

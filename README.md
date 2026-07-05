@@ -31,7 +31,7 @@ remote terminal.
   doesn't care which board it's running on.
 - **Station-agent integrated** as a Yocto recipe. Pulls directly from
   the `station-manager` repo's `station_agent/` subdir at build time.
-- **On-demand CI builds** on Hetzner Cloud — a fresh CX43 server is
+- **On-demand CI builds** on Hetzner Cloud — a fresh CCX43 server is
   spun up, builds the image into a persistent sstate-cache volume,
   uploads the artifact, and is deleted. About €0.02 per build after
   the cache is warm.
@@ -104,7 +104,7 @@ flowchart LR
     Sign --> GH[GitHub Release<br/>.wic.bz2 · .sha256 · .bundle]
 ```
 
-Each `build.yml` invocation creates a fresh Hetzner CX43, attaches the
+Each `build.yml` invocation creates a fresh Hetzner CCX43, attaches the
 persistent sstate-cache volume, builds, uploads the artifact, and is
 deleted. The two calls run serially because they share that cache
 volume.
@@ -201,7 +201,7 @@ Three workflows:
   configs with `kas dump`, shellchecks the scripts, yamllints the YAML,
   sanity-checks the wks files. No Hetzner, no artifact.
 - **`build.yml`** — reusable + manually dispatchable. Full Yocto build
-  on an on-demand Hetzner CX43 for a single machine. Uploads the image
+  on an on-demand Hetzner CCX43 for a single machine. Uploads the image
   artifact with 7-day retention. Used ad-hoc or called by `release.yml`.
 - **`release.yml`** — triggered on a timestamped tag push
   (`YYYY.MM.DD-HH[a-z]`, see `scripts/release.sh`). Calls `build.yml`
