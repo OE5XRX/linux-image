@@ -50,7 +50,15 @@ fi
 
 echo "  Loading kernel + dtb from rootfs mmc 0:${root_partnum} (/boot)"
 if ext4load mmc 0:${root_partnum} ${kernel_addr_r} /boot/Image; then
-    if ext4load mmc 0:${root_partnum} ${fdt_addr_r} /boot/bcm2711-rpi-cm4.dtb; then
+    # KERNEL_DEVICETREE = "broadcom/bcm2711-rpi-cm4.dtb" installs the dtb under
+    # /boot/broadcom/ in the rootfs; try that first, then fall back to a flat
+    # /boot/ path so we boot regardless of how the build lays the dtb out.
+    setenv fdt_ok 0
+    if ext4load mmc 0:${root_partnum} ${fdt_addr_r} /boot/broadcom/bcm2711-rpi-cm4.dtb; then setenv fdt_ok 1; fi
+    if test "${fdt_ok}" = 0; then
+        if ext4load mmc 0:${root_partnum} ${fdt_addr_r} /boot/bcm2711-rpi-cm4.dtb; then setenv fdt_ok 1; fi
+    fi
+    if test "${fdt_ok}" = 1; then
         setenv bootargs "root=PARTLABEL=root_${boot_part} ro rootwait fsck.repair=yes net.ifnames=0 panic=5 softlockup_panic=1 console=tty1 console=serial0,115200"
         booti ${kernel_addr_r} - ${fdt_addr_r}
     fi

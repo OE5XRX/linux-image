@@ -68,7 +68,9 @@ WKS_FILE_DEPENDS:append:qemux86-64 = " grub-ab"
 IMAGE_INSTALL:append:raspberrypi4-64 = " u-boot-ab u-boot-fw-utils"
 
 # RPi: u-boot ext4load's /boot/Image + the CM4 dtb from the rootfs slot.
-IMAGE_INSTALL:append:raspberrypi4-64 = " kernel-devicetree"
+# kernel-image + kernel-devicetree for RPi already come from
+# include/raspberrypi.yml; the base IMAGE_INSTALL adds kernel-modules for every
+# machine. No RPi-specific kernel install is needed here.
 WKS_FILE:raspberrypi4-64 = "oe5xrx-remotestation-ab.wks.in"
 
 # meta-raspberrypi writes /dev/mmcblk0p1 in fstab for /boot/firmware. Our
