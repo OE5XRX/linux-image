@@ -379,10 +379,11 @@ git commit -m "boot-robustness: hung_task_panic sysctl drop-in"
 
 `watchdog.conf`:
 ```
-# systemd pets /dev/watchdog every RuntimeWatchdogSec; if systemd or the box
+# systemd pets /dev/watchdog every RuntimeWatchdogSec/2; if systemd or the box
 # wedges, the hardware watchdog fires -> reset -> bootcount -> A/B rollback.
+# 14 s stays within the RPi BCM2835/2711 ~15 s hardware ceiling — one value, both platforms.
 [Manager]
-RuntimeWatchdogSec=30
+RuntimeWatchdogSec=14
 ShutdownWatchdogSec=2min
 ```
 

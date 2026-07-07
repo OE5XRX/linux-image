@@ -73,8 +73,10 @@ Consequences:
   - **Fail-fast:** `set timeout=0`, no interactive menu; add a trailing `reboot` so if
     `boot` ever returns (kernel/FS load failed) GRUB reboots instead of dropping to a
     prompt. Guard the `search` so an unreadable/absent slot also reboots.
-- `bzImage` is **removed from the ESP** — no longer copied via `IMAGE_EFI_BOOT_FILES`.
-  ESP now holds only GRUB + `grub.cfg` + `grubenv`.
+- GRUB **no longer relies on the ESP kernel**. As implemented, the `bootimg-efi`
+  wic plugin still copies `bzImage` onto the ESP, but it is now unused dead weight
+  (grub.cfg loads `/boot/bzImage` from the rootfs); we leave it rather than fight the
+  plugin. Functionally the ESP matters only for GRUB + `grub.cfg` + `grubenv`.
 - Requires the **ext4 module** in the grub-efi image (verify `GRUB_MODULES`/build).
 - A stable kernel filename `/boot/bzImage` must exist in the rootfs (symlink or
   `KERNEL_IMAGE_NAME`/link so GRUB has a fixed path).
@@ -99,10 +101,12 @@ Consequences:
 - Ensure the **kernel image + DTB + modules** are installed into the rootfs `/boot` and
   `/lib/modules` (`kernel-image kernel-modules kernel-devicetree`), with a **stable
   kernel path/name** for the bootloader.
-- **Stop** copying `bzImage` into the ESP (x86) and remove the now-unused
-  `boot_a`/`boot_b` partitions (RPi — they were reserved but never populated, so the
-  current RPi image path was effectively non-bootable; this fixes it by loading from
-  the rootfs).
+- x86: the `bootimg-efi` plugin still copies `bzImage` onto the ESP, but GRUB now
+  loads the kernel from the rootfs, so that ESP copy is unused (left in place rather
+  than fighting the plugin — a clean switch to drop it would be preferable if one
+  surfaces). RPi: remove the now-unused `boot_a`/`boot_b` partitions (they were
+  reserved but never populated, so the current RPi image path was effectively
+  non-bootable; this fixes it by loading from the rootfs).
 - **wks updates:**
   - x86 (`oe5xrx-remotestation-ab-x64.wks.in`): partitions unchanged
     (`efi + root_a + root_b + data`); only ESP contents change.
