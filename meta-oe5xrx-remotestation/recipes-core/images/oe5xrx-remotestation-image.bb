@@ -66,6 +66,9 @@ WKS_FILE_DEPENDS:append:qemux86-64 = " grub-ab"
 # ---- Raspberry Pi: U-Boot A/B ----------------------------------------------
 
 IMAGE_INSTALL:append:raspberrypi4-64 = " u-boot-ab u-boot-fw-utils"
+
+# RPi: u-boot ext4load's /boot/Image + the CM4 dtb from the rootfs slot.
+IMAGE_INSTALL:append:raspberrypi4-64 = " kernel-devicetree"
 WKS_FILE:raspberrypi4-64 = "oe5xrx-remotestation-ab.wks.in"
 
 # meta-raspberrypi writes /dev/mmcblk0p1 in fstab for /boot/firmware. Our
