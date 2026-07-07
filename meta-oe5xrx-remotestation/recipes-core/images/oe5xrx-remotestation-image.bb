@@ -30,6 +30,10 @@ IMAGE_INSTALL:append = " bzip2"
 # D2 slot contract: udev rules that map BusBoard hub ports to /dev/oe5xrx/slotN/control.
 IMAGE_INSTALL:append = " oe5xrx-slot-udev oe5xrx-fm-firmware"
 
+# Boot robustness: hung-task -> panic -> reboot -> A/B bootcount rollback.
+# Pairs with cmdline panic=5 softlockup_panic=1 (set in grub.cfg / boot.cmd).
+IMAGE_INSTALL:append = " oe5xrx-boot-robustness"
+
 # ---- Read-only rootfs + overlayfs-etc (all machines) -----------------------
 
 IMAGE_FEATURES += " \
