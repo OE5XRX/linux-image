@@ -464,7 +464,7 @@ git commit -m "watchdog: build in bcm2835/i6300esb drivers + arm SoC wdt in u-bo
 
 **Files:**
 - Modify: `meta-oe5xrx-remotestation/recipes-kernel/linux/linux-yocto_%.bbappend`
-- Modify: `docs/` (a short operator note) and/or `scripts/run-qemu.sh` (add `-watchdog i6300esb -watchdog-action reset` so the dev QEMU exercises it).
+- Modify: `docs/` (a short operator note) and/or `scripts/run-qemu.sh` (add `-device i6300esb -action watchdog=reset` (the legacy `-watchdog` shorthand was removed in QEMU 9+) so the dev QEMU exercises it).
 
 - [ ] **Step 1: Pin the kernel version**
 
@@ -478,7 +478,7 @@ PREFERRED_VERSION_linux-yocto = "6.6.%"
 
 - [ ] **Step 2: Make dev QEMU exercise the watchdog**
 
-In `scripts/run-qemu.sh`, add to the `qemu-system-x86_64` args: `-watchdog i6300esb -watchdog-action reset` (so a guest hang resets the VM in local testing, mirroring Proxmox). Add a one-line operator note in the run-qemu header + a `docs/` note that Proxmox VMs need a watchdog device with `action=reset`.
+In `scripts/run-qemu.sh`, add to the `qemu-system-x86_64` args: `-device i6300esb -action watchdog=reset` (the legacy `-watchdog` shorthand was removed in QEMU 9+) (so a guest hang resets the VM in local testing, mirroring Proxmox). Add a one-line operator note in the run-qemu header + a `docs/` note that Proxmox VMs need a watchdog device with `action=reset`.
 
 - [ ] **Step 3: Verify + commit**
 
