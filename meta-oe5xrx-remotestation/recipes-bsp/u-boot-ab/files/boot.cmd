@@ -23,6 +23,11 @@ if test -z "${bootlimit}"; then setenv bootlimit 3; fi
 setexpr bootcount ${bootcount} + 1
 saveenv
 
+# Arm the SoC watchdog as early as possible so even a pre-systemd hang forces
+# a reset. systemd (RuntimeWatchdogSec) takes over petting once userspace is up.
+wdt dev watchdog@7e100000 || echo "  (no wdt device — continuing)"
+wdt start 15000 || echo "  (wdt start failed — continuing)"
+
 echo "=== OE5XRX A/B boot ==="
 echo "  boot_part=${boot_part}  bootcount=${bootcount}/${bootlimit}  upgrade_available=${upgrade_available}"
 
