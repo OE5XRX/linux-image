@@ -233,9 +233,12 @@ echo "==> SSH:    ssh -p ${SSH_PORT} root@localhost"
 echo "==> Exit:   Ctrl-A X  (or 'poweroff' inside the guest)"
 echo
 
-# -watchdog i6300esb: emulates the same PCI watchdog the guest driver arms;
-# -watchdog-action reset: hangs reset the VM instead of pausing, mirroring
+# -device i6300esb: emulates the same PCI watchdog the guest driver arms
+#   (the legacy -watchdog shorthand was removed in QEMU 9+, so use -device);
+# -action watchdog=reset: a hang resets the VM instead of pausing, mirroring
 # the Proxmox production setup (see docs/operations/watchdog-and-boot-robustness.md).
+# The i6300esb stays disarmed until the guest's i6300esb_wdt driver arms it,
+# so this is safe on images that don't yet enable the watchdog.
 exec qemu-system-x86_64 \
     ${KVM_FLAGS} \
     ${CPU_FLAGS} \
@@ -248,5 +251,5 @@ exec qemu-system-x86_64 \
     -drive file="${WIC}",if=virtio,format=raw \
     -device virtio-net-pci,netdev=n0 \
     -netdev user,id=n0,hostfwd=tcp::"${SSH_PORT}"-:22 \
-    -watchdog i6300esb \
-    -watchdog-action reset
+    -device i6300esb \
+    -action watchdog=reset

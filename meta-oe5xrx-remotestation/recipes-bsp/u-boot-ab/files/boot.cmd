@@ -25,6 +25,15 @@ saveenv
 
 # Arm the SoC watchdog as early as possible so even a pre-systemd hang forces
 # a reset. systemd (RuntimeWatchdogSec) takes over petting once userspace is up.
+# The `|| echo` fallthroughs mean a wrong device name or a failed start can
+# never brick boot (we just continue unprotected).
+#
+# HIL GATE (validate on real CM4): the BCM2835/2711 hardware watchdog maxes out
+# at ~15 s, so 15000 ms is the practical ceiling. The kernel bcm2835_wdt driver
+# (built-in) + systemd must begin petting within that window after handover, or
+# a slow boot could reset-loop. If HIL shows false resets, either confirm the
+# u-boot->kernel watchdog handover keeps it fed, or drop this pre-arm and rely
+# on the kernel+systemd watchdog (which still covers kernel-up and userspace hangs).
 wdt dev watchdog@7e100000 || echo "  (no wdt device — continuing)"
 wdt start 15000 || echo "  (wdt start failed — continuing)"
 

@@ -1,6 +1,7 @@
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 SRC_URI:append = " file://oe5xrx-watchdog.cfg"
 
-# Pin the kernel so version/ext4-format drift is deliberate, not silent.
-# Kernel-in-rootfs makes drift safe; this makes it intentional.
-PREFERRED_VERSION_linux-yocto = "6.6.%"
+# NOTE: the kernel version pin lives in oe5xrx.yml's local_conf_header
+# (PREFERRED_VERSION_linux-yocto / _linux-raspberrypi) — PREFERRED_VERSION is
+# conf-level provider metadata, not per-recipe, and the RPi kernel provider is
+# linux-raspberrypi (not linux-yocto), so pinning must cover both there.
