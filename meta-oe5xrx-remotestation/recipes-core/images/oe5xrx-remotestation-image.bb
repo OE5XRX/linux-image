@@ -15,6 +15,14 @@ IMAGE_INSTALL = " \
     ab-layout \
 "
 
+# Kernel-in-rootfs A/B: the bootloader loads /boot/bzImage (x86) / /boot/Image
+# (RPi) from the ACTIVE root_${slot}, so kernel + modules must live in the
+# rootfs and travel with it through OTA (one artifact, atomic per slot).
+# NOTE: the bootimg-efi wic plugin also copies bzImage onto the ESP; with this
+# change that ESP copy is unused (grub.cfg loads from the rootfs), but it is
+# left as harmless dead weight rather than fighting the plugin.
+IMAGE_INSTALL:append = " kernel-image kernel-modules"
+
 # bzip2 CLI is a convenience for manual debugging of downloaded .wic.bz2
 # images on-device. The station-agent uses Python stdlib bz2 internally.
 IMAGE_INSTALL:append = " bzip2"
