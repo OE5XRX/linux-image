@@ -40,20 +40,23 @@ if test ${upgrade_available} -gt 0 && test ${bootcount} -gt ${bootlimit}; then
     echo "  Retrying from slot ${boot_part}"
 fi
 
-# Resolve active slot → partition numbers (matches wks layout).
-# Partition layout (mmc 0):
-#   1 firmware   4 boot_a   5 boot_b   6 root_a   7 root_b   8 data
-part number mmc 0 boot_${boot_part} active_boot_part
-if test -z "${active_boot_part}"; then
-    echo "  ERROR: could not find boot_${boot_part} partition"
+# Kernel + dtb now live INSIDE the slot's rootfs (ext4), so they always match
+# /lib/modules and travel with the rootfs through OTA.
+part number mmc 0 root_${boot_part} root_partnum
+if test -z "${root_partnum}"; then
+    echo "  ERROR: root_${boot_part} partition not found — resetting"
     reset
 fi
 
-echo "  Loading kernel + dtb from mmc 0:${active_boot_part}"
-load mmc 0:${active_boot_part} ${kernel_addr_r} Image
-load mmc 0:${active_boot_part} ${fdt_addr_r} bcm2711-rpi-cm4.dtb
+echo "  Loading kernel + dtb from rootfs mmc 0:${root_partnum} (/boot)"
+if ext4load mmc 0:${root_partnum} ${kernel_addr_r} /boot/Image; then
+    if ext4load mmc 0:${root_partnum} ${fdt_addr_r} /boot/bcm2711-rpi-cm4.dtb; then
+        setenv bootargs "root=PARTLABEL=root_${boot_part} ro rootwait fsck.repair=yes net.ifnames=0 panic=5 softlockup_panic=1 console=tty1 console=serial0,115200"
+        booti ${kernel_addr_r} - ${fdt_addr_r}
+    fi
+fi
 
-# Kernel cmdline: root from label so it follows A/B without more bookkeeping.
-setenv bootargs "root=PARTLABEL=root_${boot_part} ro rootwait console=serial0,115200 console=tty1 fsck.repair=yes net.ifnames=0"
-
-booti ${kernel_addr_r} - ${fdt_addr_r}
+# Fail-fast: any load failure or a returned booti falls through to reset.
+# bootcount was already incremented+saved, so this progresses to rollback.
+echo "  Kernel/dtb load failed — resetting"
+reset
