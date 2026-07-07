@@ -41,7 +41,9 @@ watchdog handover must complete inside that window — validate on real CM4 HIL.
 ## QEMU (development)
 
 `scripts/run-qemu.sh` passes `-device i6300esb -action watchdog=reset` (the
-legacy `-watchdog`/`-watchdog-action` shorthands were removed in QEMU 9+) so a
-guest hang triggers a VM reset locally, matching Proxmox behaviour. The
+legacy `-watchdog <model>` device shorthand was removed in QEMU 9+, so the
+watchdog is added with `-device`; `-action watchdog=reset` is the modern form
+of the deprecated `-watchdog-action`) so a guest hang triggers a VM reset
+locally, matching Proxmox behaviour. The
 watchdog stays disarmed until the guest driver arms it — running the script
 without a watchdog-aware image is safe.
