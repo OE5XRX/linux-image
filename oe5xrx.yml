@@ -29,6 +29,12 @@ local_conf_header:
     CONF_VERSION = "2"
     PACKAGE_CLASSES = "package_ipk"
     INIT_MANAGER = "systemd"
+    # linux-raspberrypi / u-boot kernel+bootloader bbappends are machine-
+    # specific: linux-raspberrypi only exists on the RPi build, so its
+    # bbappend is "dangling" on qemux86-64 (where linux-yocto is the kernel).
+    # BitBake treats a dangling append as a fatal error by default; downgrade
+    # to a warning so one shared layer can carry both machines' appends.
+    BB_DANGLINGAPPENDS_WARNONLY = "1"
     # Pin the kernel series so version/ext4-format drift is deliberate, not
     # silent. Kernel-in-rootfs A/B makes drift safe; this makes it intentional.
     # Both providers are pinned: x86 uses linux-yocto, RPi uses linux-raspberrypi.
