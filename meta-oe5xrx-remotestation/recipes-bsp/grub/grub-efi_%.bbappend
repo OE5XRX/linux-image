@@ -13,4 +13,6 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 #  - echo: print A/B boot status from our grub.cfg
 #  - ext2 (reads ext4) + part_gpt + search/search_label: locate the active
 #    root_${boot_part} partition and load /boot/bzImage from inside it.
-GRUB_BUILDIN:append = " echo ext2 part_gpt search search_label search_fs_uuid"
+#  - reboot: the grub.cfg fail-fast path calls `reboot` when the kernel/FS
+#    can't be loaded (without this module grub errors "can't find command reboot").
+GRUB_BUILDIN:append = " echo ext2 part_gpt search search_label search_fs_uuid reboot"
