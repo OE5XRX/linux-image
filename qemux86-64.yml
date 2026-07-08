@@ -15,3 +15,8 @@ local_conf_header:
     EFI_PROVIDER = "grub-efi"
     # Ensure the kernel installs bzImage to /boot on the EFI partition.
     MACHINE_ESSENTIAL_EXTRA_RDEPENDS += "kernel-image"
+    # linux-raspberrypi only exists in the RPi build (meta-raspberrypi). Its
+    # machine-specific kernel bbappend in meta-oe5xrx-remotestation would be a
+    # dangling (fatal) append here, so mask JUST that file on x86 — this keeps
+    # strict dangling-append detection on for every other append and both builds.
+    BBMASK += "meta-oe5xrx-remotestation/recipes-kernel/linux/linux-raspberrypi_%.bbappend"
