@@ -9,6 +9,8 @@
 
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 
-# Add 'echo' to the modules compiled into bootx64.efi so our grub.cfg
-# can print A/B boot status messages.
-GRUB_BUILDIN:append = " echo"
+# Modules compiled into bootx64.efi (one :append so all are guaranteed present):
+#  - echo: print A/B boot status from our grub.cfg
+#  - ext2 (reads ext4) + part_gpt + search/search_label: locate the active
+#    root_${boot_part} partition and load /boot/bzImage from inside it.
+GRUB_BUILDIN:append = " echo ext2 part_gpt search search_label search_fs_uuid"

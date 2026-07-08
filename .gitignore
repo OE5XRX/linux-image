@@ -34,3 +34,6 @@ venv/
 # Local overrides / scratch
 *.local
 .cache/
+
+# Superpowers SDD scratch (ledger, briefs, diffs, reports)
+.superpowers/

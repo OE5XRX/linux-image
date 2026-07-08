@@ -29,6 +29,11 @@ local_conf_header:
     CONF_VERSION = "2"
     PACKAGE_CLASSES = "package_ipk"
     INIT_MANAGER = "systemd"
+    # Pin the kernel series so version/ext4-format drift is deliberate, not
+    # silent. Kernel-in-rootfs A/B makes drift safe; this makes it intentional.
+    # Both providers are pinned: x86 uses linux-yocto, RPi uses linux-raspberrypi.
+    PREFERRED_VERSION_linux-yocto = "6.6.%"
+    PREFERRED_VERSION_linux-raspberrypi = "6.6.%"
     # Persistent cache on Hetzner Volume (mounted at /mnt/yocto-cache in CI).
     # Falls back to build/ local dirs if the mount doesn't exist (local dev).
     DL_DIR ?= "${@'/mnt/yocto-cache/downloads' if os.path.isdir('/mnt/yocto-cache') else '${TOPDIR}/downloads'}"

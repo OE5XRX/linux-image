@@ -15,12 +15,24 @@ IMAGE_INSTALL = " \
     ab-layout \
 "
 
+# Kernel-in-rootfs A/B: the bootloader loads /boot/bzImage (x86) / /boot/Image
+# (RPi) from the ACTIVE root_${slot}, so kernel + modules must live in the
+# rootfs and travel with it through OTA (one artifact, atomic per slot).
+# NOTE: the bootimg-efi wic plugin also copies bzImage onto the ESP; with this
+# change that ESP copy is unused (grub.cfg loads from the rootfs), but it is
+# left as harmless dead weight rather than fighting the plugin.
+IMAGE_INSTALL:append = " kernel-image kernel-modules"
+
 # bzip2 CLI is a convenience for manual debugging of downloaded .wic.bz2
 # images on-device. The station-agent uses Python stdlib bz2 internally.
 IMAGE_INSTALL:append = " bzip2"
 
 # D2 slot contract: udev rules that map BusBoard hub ports to /dev/oe5xrx/slotN/control.
 IMAGE_INSTALL:append = " oe5xrx-slot-udev oe5xrx-fm-firmware"
+
+# Boot robustness: hung-task -> panic -> reboot -> A/B bootcount rollback.
+# Pairs with cmdline panic=5 softlockup_panic=1 (set in grub.cfg / boot.cmd).
+IMAGE_INSTALL:append = " oe5xrx-boot-robustness"
 
 # ---- Read-only rootfs + overlayfs-etc (all machines) -----------------------
 
@@ -58,6 +70,11 @@ WKS_FILE_DEPENDS:append:qemux86-64 = " grub-ab"
 # ---- Raspberry Pi: U-Boot A/B ----------------------------------------------
 
 IMAGE_INSTALL:append:raspberrypi4-64 = " u-boot-ab u-boot-fw-utils"
+
+# RPi: u-boot ext4load's /boot/Image + the CM4 dtb from the rootfs slot.
+# kernel-image + kernel-devicetree for RPi already come from
+# include/raspberrypi.yml; the base IMAGE_INSTALL adds kernel-modules for every
+# machine. No RPi-specific kernel install is needed here.
 WKS_FILE:raspberrypi4-64 = "oe5xrx-remotestation-ab.wks.in"
 
 # meta-raspberrypi writes /dev/mmcblk0p1 in fstab for /boot/firmware. Our
