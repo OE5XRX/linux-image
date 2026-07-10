@@ -34,7 +34,12 @@ SYSTEMD_SERVICE:${PN} = " \
 SYSTEMD_AUTO_ENABLE = "enable"
 
 # parted + resize2fs for the first-boot partition/filesystem grow.
-RDEPENDS:${PN} += "parted e2fsprogs-resize2fs util-linux-findmnt util-linux-lsblk"
+# tune2fs so the station-agent can re-stamp a slot's ext4 label to
+# root_<slot> after an OTA write — the served rootfs carries the source
+# label (root_a), and x86 GRUB finds the slot via `search --label`, so an
+# un-relabelled B is unbootable and rolls back. (u-boot boots by PARTLABEL
+# and doesn't need it, but the tool ships on both machines.)
+RDEPENDS:${PN} += "parted e2fsprogs-resize2fs e2fsprogs-tune2fs util-linux-findmnt util-linux-lsblk"
 
 do_install() {
     install -d ${D}${systemd_system_unitdir}
