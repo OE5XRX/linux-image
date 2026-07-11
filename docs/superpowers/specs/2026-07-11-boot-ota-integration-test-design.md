@@ -27,7 +27,7 @@ Two OTA-safety bugs shipped in published releases and only bit at runtime, on a 
 
 ## Non-Goals (documented follow-ups)
 
-- **CM4 / real-hardware HIL bench** — deferred; the serial-first transport abstraction keeps it a drop-in.
+- **CM4 / real-hardware HIL bench** — deferred, but the **`Target` interface is designed CM4-ready now** (flash/seed/power/console/flash-mode/server-url/boot-markers) so `Cm4Target` + the physical bench are a drop-in, not a rewrite. See Future Work for the bench mechanics.
 - **RPi-under-QEMU** (qemu raspi, TCG, slow) — deferred. The release gate therefore tests **x86 only**; a broken RPi image could still publish (known gap).
 - **Full `station-manager` E2E** (real server + agent) — the dummy server covers the agent's OTA contract faithfully (see Dummy Server); a real-server E2E is a heavier, separate future layer.
 - **Auth verification** — the dummy does **not** verify the agent's Ed25519 request signature (test double). See Auth & Payload Fidelity.
@@ -63,18 +63,27 @@ It **records** every agent interaction and exposes it to the test (in-process ha
 
 **Drift guard (cheap, in place of the dependency):** document the mirrored endpoints inline with a pointer to `station-manager` `apps/deployments/api_views.py`, plus a small **contract test in station-manager** asserting the response shapes the dummy relies on. Makes drift visible without coupling build/test envs.
 
-### 2. Serial-driven test harness (pytest + pexpect)
+### 2. `Target` abstraction + serial-driven harness (pytest + pexpect)
 
-A `Transport` abstraction decouples "how we reach the console/disk" from the test logic:
+Test logic is written once against a **`Target` interface** — not merely a "serial transport" (that under-abstracts and forces a CM4 rewrite). Everything device-specific goes through the Target, so the same T1/T2/T3 assertions run on QEMU now and a CM4 bench later:
 
-- **`QemuTransport` (now):** boots the wic with `qemu-system-x86_64` (OVMF/UEFI, the 4-partition A/B disk, `-serial` to a pexpect pty, headless `-nographic`, QEMU user-net). Builds on `scripts/run-qemu.sh`. The agent reaches the host-side dummy server at `http://10.0.2.2:<port>` (QEMU's host alias) — no bridge, no root networking.
-- **`SerialDeviceTransport` (future):** `/dev/ttyUSB0` via pyserial for a CM4 bench. Same pexpect assertions.
+| Capability | `QemuTarget` (x86, now) | `Cm4Target` (future, real hardware) |
+|---|---|---|
+| `flash(wic)` | copy image, point `-drive` at it | **rpiboot/usbboot**: expose eMMC as USB-MSD on the host → `dd`/`bmaptool` |
+| `seed_config(files)` | `losetup --partscan` the data partition of the file | mount the exposed-eMMC data partition (via rpiboot) |
+| `power_on/off/reset()` | start / kill the QEMU process | controllable power — relay / networked PDU / host GPIO (**open**) |
+| `console()` | pexpect pty on `-serial` | UART GPIO14/15 → USB-UART → `/dev/ttyUSB0` (pyserial) |
+| `enter_flash_mode()` | n/a | drive the **nRPIBOOT** pin + power sequence |
+| `dut_server_url()` | `http://10.0.2.2:<port>` (QEMU SLIRP alias) | `http://<bench-host-LAN-IP>:<port>` (real network) |
+| `boot_markers` | GRUB → getty banner | u-boot `OE5XRX: slot=? attempt=?/3` → getty banner |
 
-The harness owns a **per-run copy** of the disk image (never mutates the cached artifact), pre-seeds config, boots, drives/asserts over serial, and queries the dummy's recorded state. **Condition-based waits only** (pexpect `expect` on banner/login/commit, never fixed sleeps) so TCG slowness never flakes.
+`QemuTarget` boots with `qemu-system-x86_64` (OVMF/UEFI, the 4-partition A/B disk, headless `-nographic`, user-net), building on `scripts/run-qemu.sh` but attaching serial to a **clean pty** (not `-serial mon:stdio`, whose monitor multiplexing would confuse pexpect). Verified feasible: the x86 cmdline carries `console=tty0 console=ttyS0,115200`, so systemd runs a getty on ttyS0 and the `/etc/issue` banner + `login:` appear there.
+
+The harness owns a **per-run copy** of the disk image (never mutates the cached artifact), seeds config via `Target.seed_config`, drives/asserts over `Target.console()`, and queries the dummy's recorded state. The dummy binds where `Target.dut_server_url()` points (SLIRP alias for QEMU, bench-host LAN IP for CM4) — "how the DUT reaches the dummy" is never hardcoded to x86. **Condition-based waits only** (pexpect `expect` on banner/login/commit, never fixed sleeps) so TCG slowness never flakes.
 
 ### 3. Config injection — data-partition preseed (image stays unmodified)
 
-We boot the **identical, signed production artifact**. Only the **data partition** carries test config — exactly how a real station is provisioned. Before boot, the harness loop-mounts the disk's data partition (`losetup --find --partscan`, root available on the runner) and writes into `etc-overlay/stationagent/` (the source of the `etc-stationagent.mount` overlay over `/etc/stationagent`):
+We boot the **identical, signed production artifact**. Only the **data partition** carries test config — exactly how a real station is provisioned. This is `Target.seed_config`; the `QemuTarget` implementation loop-mounts the disk's data partition (`losetup --find --partscan`, root available on the runner), `Cm4Target` mounts the rpiboot-exposed eMMC. Either way it writes into `etc-overlay/stationagent/` (the source of the `etc-stationagent.mount` overlay over `/etc/stationagent`):
 
 - `config.yml` — `server_url: http://10.0.2.2:<port>`, `station_id: 1`, `ed25519_key_path: /etc/stationagent/device_key.pem`, `bootloader: grub`, and **tuned-down timers** (`heartbeat_interval: 10`, `ota_check_interval: 1`) so the OTA check + post-reboot commit happen in seconds, not the ~4 min seen in production.
 - `device_key.pem` — a harness-generated Ed25519 private key (the dummy does not verify it).
@@ -174,7 +183,16 @@ Before trusting the harness, prove it *fails* on the very bugs it targets:
 
 ## Future Work
 
-- **CM4 HIL bench** via `SerialDeviceTransport` — the unified serial/UART strategy.
-- **RPi-under-QEMU** target + gate (nightly, once x86 is stable).
+- **CM4 HIL bench** — implement `Cm4Target` against the interface above + build the physical bench: a self-hosted runner on a **bench host** wired to a CM4 carrier. The carrier exposes rpiboot (USB-OTG + nRPIBOOT — confirmed) and a UART header (confirmed). Mechanics:
+  - **Flash:** put the carrier in rpiboot mode (nRPIBOOT low), `rpiboot` exposes the eMMC as `/dev/sdX` on the host, `dd`/`bmaptool` the `raspberrypi4-64` wic; `seed_config` mounts the data partition in the same window.
+  - **Console:** UART GPIO14/15 → USB-UART → `/dev/ttyUSB0`. The image already enables `serial-getty@ttyAMA0` for RPi; confirm the RPi cmdline `console=` targets it.
+  - **Power control (OPEN decision):** needed for rpiboot power-sequencing **and** hard-reset of a hung boot (the emergency case does not reboot itself → no automatic rollback test without it). Options: USB relay on the bench host, networked PDU, or host GPIO + MOSFET; whichever is chosen must also automate the nRPIBOOT pin. To be decided when the bench is built.
+  - **Value:** exercises the **u-boot path + real eMMC + real power-cycle rollback** (things x86-QEMU/GRUB/SLIRP/software-reboot can't) and **closes the RPi release-gate gap**.
+- **RPi-under-QEMU** target + gate (nightly, once x86 is stable) — cheaper partial coverage of the RPi image before the hardware bench exists.
 - **Full `station-manager` E2E** — real server + agent, to also cover server↔agent protocol and the deployment state machine.
 - **Ed25519 verification** in the dummy, if it should double as an auth test.
+
+## Release-Rework Caveats (process)
+
+- **`release.yml` is the production release path.** Verify the new `workflow_dispatch` + `compute-version` flow with the `dry_run` input first (must compute the correct next `YYYY.MM.DD-HH[a-z]` and NOT tag/publish) before relying on it. Sequence: land the harness + gate, then flip the trigger.
+- **Releases get slower:** build (~10 min) + T2 under TCG (~15–30 min) per release. Acceptable and intended (the gate is the point), but a known wall-clock cost.
