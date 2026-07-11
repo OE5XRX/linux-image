@@ -1,0 +1,45 @@
+name: Boot/OTA (boot-critical PRs)
+
+# Shift-left: on PRs that touch boot/OTA-critical paths, build the x86 image and
+# run the boot smoke test (T1). The full cross-build OTA cycle (T2) runs at the
+# release gate (see release.yml) to keep PR wall-clock bounded.
+
+on:
+  pull_request:
+    paths:
+      - 'meta-oe5xrx-remotestation/wic/**'
+      - 'meta-oe5xrx-remotestation/recipes-bsp/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/ab-layout/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/images/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/station-agent/**'
+      - 'tests/ota-integration/**'
+      - '.github/workflows/boot-ota-test.yml'
+      - '.github/workflows/boot-ota-pr.yml'
+
+permissions:
+  contents: read
+  actions: read        # download-artifact from the build job in the same run
+
+concurrency:
+  group: boot-ota-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-x64:
+    name: Build qemux86-64 (dev)
+    uses: ./.github/workflows/build.yml
+    with:
+      machine: qemux86-64
+      release_tag: ""
+    secrets: inherit
+
+  test:
+    name: Boot smoke (T1)
+    needs: build-x64
+    uses: ./.github/workflows/boot-ota-test.yml
+    with:
+      machine: qemux86-64
+      new_artifact: yocto-image-qemux86-64
+      expected_tag: dev
+      last_release_tag: ""
+    secrets: inherit
