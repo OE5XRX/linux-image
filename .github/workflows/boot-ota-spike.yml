@@ -35,7 +35,7 @@ jobs:
       - name: Install QEMU + OVMF + deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf python3-pip
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf grub2-common python3-pip
           sudo pip install --break-system-packages -r tests/ota-integration/requirements.txt
 
       - name: Resolve release tag

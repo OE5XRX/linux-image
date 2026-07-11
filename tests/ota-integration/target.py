@@ -93,7 +93,13 @@ class QemuTarget(Target):
         seed.seed_data_partition(self.disk, config_yaml, key_pem_path)
 
     def reset_ab_state(self) -> None:
-        """Force the ESP grubenv to the committed slot-A default."""
+        """Force the ESP grubenv to the committed slot-A default. The freshly
+        flashed image already ships this default, so a missing grub-editenv is
+        a warning, not a failure."""
+        if not shutil.which("grub-editenv"):
+            print("reset_ab_state: grub-editenv not found; relying on the "
+                  "image's seeded committed-slot-A grubenv")
+            return
         with seed._mount_partition(self.disk, image_ops.EFI_PARTNUM) as mnt:
             grubenv = os.path.join(mnt, "EFI/BOOT/grubenv")
             subprocess.run(
