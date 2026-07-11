@@ -183,3 +183,37 @@ python fix_firmware_fstab() {
         bb.note('fix_firmware_fstab: rewrote mmcblk0p1 -> PARTLABEL=firmware')
 }
 ROOTFS_POSTPROCESS_COMMAND += "fix_firmware_fstab;"
+
+# x86 ESP fstab: mount /boot by PARTLABEL=efi, not the FAT UUID. wic's
+# bootimg-efi (--use-uuid) would bake the build-time FAT UUID into fstab, but
+# OTA rewrites only the rootfs — so an OTA'd slot's UUID never matches the
+# on-disk ESP (from the originally-flashed image) and /boot times out at boot
+# → systemd emergency mode → rollback. The x64 wks sets --no-fstab-update; we
+# add a stable PARTLABEL=efi entry here. nofail: a bad/absent ESP must never
+# brick boot — GRUB reads grubenv from the ESP directly, the Linux mount only
+# exists so the station-agent can grub-editenv on OTA commit. Idempotent:
+# replaces any stray /boot line, else appends.
+python add_efi_fstab() {
+    import os
+    fstab = os.path.join(d.getVar('IMAGE_ROOTFS'), 'etc/fstab')
+    entry = 'PARTLABEL=efi\t/boot\tvfat\tdefaults,nofail\t0\t0\n'
+    lines = []
+    if os.path.exists(fstab):
+        with open(fstab) as f:
+            lines = f.readlines()
+    for i, line in enumerate(lines):
+        fields = line.split()
+        if len(fields) >= 2 and fields[1] == '/boot':
+            bb.note('add_efi_fstab: replacing existing /boot entry: %r' % line.strip())
+            lines[i] = entry
+            break
+    else:
+        # guard against a base fstab whose last line lacks a trailing newline
+        if lines and not lines[-1].endswith('\n'):
+            lines[-1] += '\n'
+        lines.append(entry)
+    with open(fstab, 'w') as f:
+        f.writelines(lines)
+    bb.note('add_efi_fstab: ensured PARTLABEL=efi /boot entry')
+}
+ROOTFS_POSTPROCESS_COMMAND:append:qemux86-64 = " add_efi_fstab;"
