@@ -13,7 +13,12 @@
 
 bootloader --ptable=gpt --configfile=oe5xrx-grub.cfg
 
-part /boot --source bootimg-efi --sourceparams="loader=grub-efi" --ondisk vda --fstype=vfat --label efi --active --align 4 --fixed-size 128 --use-uuid
+# --no-fstab-update: wic would otherwise inject a `/boot` fstab line by the FAT
+# volume UUID, which is regenerated every build. OTA rewrites only the rootfs,
+# so an OTA'd slot's baked UUID never matches the on-disk ESP → /boot times out
+# → emergency mode → rollback. The image recipe adds a stable PARTLABEL=efi
+# entry instead (see add_efi_fstab).
+part /boot --source bootimg-efi --sourceparams="loader=grub-efi" --ondisk vda --fstype=vfat --label efi --active --align 4 --fixed-size 128 --no-fstab-update
 part / --source rootfs --ondisk vda --fstype=ext4 --label root_a --fixed-size 1024 --align 4
 part --ondisk vda --fstype=ext4 --label root_b --fixed-size 1024 --align 4
 part --ondisk vda --fstype=ext4 --label data --fixed-size 2048 --align 4
