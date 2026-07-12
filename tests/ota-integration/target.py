@@ -74,7 +74,11 @@ class Target(ABC):
 
     def boot_markers(self) -> dict:
         # /etc/issue banner (carries the version) then the login prompt.
-        return {"banner_re": r"OE5XRX Remote Station (\S+)", "login_re": r"login:"}
+        # Capture only the tag charset ([A-Za-z0-9._-], enforced by stamp_release)
+        # — NOT \S+, which would swallow trailing ANSI escapes (e.g. "dev\x1b[0m")
+        # the console emits and break the exact version match.
+        return {"banner_re": r"OE5XRX Remote Station ([A-Za-z0-9._-]+)",
+                "login_re": r"login:"}
 
 
 class QemuTarget(Target):
@@ -216,5 +220,6 @@ class Cm4Target(Target):
 
     def boot_markers(self) -> dict:
         # u-boot prints a slot/attempt marker before the kernel + getty banner.
-        return {"banner_re": r"OE5XRX Remote Station (\S+)", "login_re": r"login:",
+        return {"banner_re": r"OE5XRX Remote Station ([A-Za-z0-9._-]+)",
+                "login_re": r"login:",
                 "uboot_re": r"OE5XRX: slot=(\w+) attempt=(\d+)/(\d+)"}
