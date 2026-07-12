@@ -84,6 +84,26 @@ def test_download_serves_payload_bytes(tmp_path):
         s.stop()
 
 
+def test_malformed_json_returns_400():
+    s = DummyOtaServer(payload_path=None, checksum=None, size=None, target_tag="T")
+    s.start()
+    try:
+        req = urllib.request.Request(
+            s.url + "/api/v1/heartbeat/",
+            data=b'{not valid json', method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            urllib.request.urlopen(req)
+            assert False, "expected HTTP 400"
+        except urllib.error.HTTPError as e:
+            assert e.code == 400
+        # a non-drift request still works afterwards
+        assert s.heartbeats == []
+    finally:
+        s.stop()
+
+
 def test_status_and_commit_recorded():
     s = DummyOtaServer(payload_path=None, checksum=None, size=None,
                        target_tag="2026.07.11-15")

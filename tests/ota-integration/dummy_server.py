@@ -25,15 +25,18 @@ class _Handler(BaseHTTPRequestHandler):
     def ctl(self) -> "DummyOtaServer":
         return self.server.ctl  # type: ignore[attr-defined]
 
-    def _read_json(self) -> dict:
+    def _read_json(self):
+        """Return the parsed body dict, {} for an empty body, or None if a
+        non-empty body fails to parse (caller answers 400 — surfacing protocol
+        drift instead of silently treating it as an empty request)."""
         length = int(self.headers.get("Content-Length", 0) or 0)
         if not length:
             return {}
         raw = self.rfile.read(length)
         try:
-            return json.loads(raw or b"{}")
+            return json.loads(raw)
         except json.JSONDecodeError:
-            return {}
+            return None
 
     def _send_json(self, status: int, obj: dict | None) -> None:
         body = b"" if obj is None else json.dumps(obj).encode()
@@ -50,6 +53,8 @@ class _Handler(BaseHTTPRequestHandler):
         ctl = self.ctl
         path = self.path
         body = self._read_json()
+        if body is None:
+            return self._send_json(400, {"detail": "malformed JSON body"})
 
         if path == "/api/v1/heartbeat/":
             ctl.heartbeats.append(body)

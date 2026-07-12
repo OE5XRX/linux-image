@@ -57,7 +57,7 @@ jobs:
           shopt -s nullglob
           # Multiple patterns via an array so a non-matching glob can't fail the
           # step under `set -e` when another pattern does match.
-          cands=(it-artifacts/*.wic.bz2 it-artifacts/*.rootfs.wic it-artifacts/*.wic)
+          cands=(it-artifacts/*.wic.bz2 it-artifacts/*.wic.xz it-artifacts/*.wic.gz it-artifacts/*.rootfs.wic it-artifacts/*.wic)
           wic="${cands[0]:-}"
           [ -n "$wic" ] || { echo "no wic artifact found" >&2; exit 1; }
           echo "wic=$wic" >> "$GITHUB_OUTPUT"
@@ -82,7 +82,11 @@ jobs:
             -D slota
           shopt -s nullglob
           cands=(slota/*.wic.bz2 slota/*.wic.xz slota/*.wic.gz slota/*.wic)
-          echo "wic=${cands[0]:-}" >> "$GITHUB_OUTPUT"
+          wic="${cands[0]:-}"
+          # Fail fast: last_release_tag was set, so a missing slot-A asset must
+          # NOT silently empty the output and make T2 skip (a false-green gate).
+          [ -n "$wic" ] || { echo "last_release_tag='$LAST_RELEASE_TAG' set but no slot-A wic asset was downloaded" >&2; exit 1; }
+          echo "wic=$wic" >> "$GITHUB_OUTPUT"
 
       - name: Run boot + OTA integration tests
         env:
