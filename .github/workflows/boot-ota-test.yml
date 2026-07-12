@@ -1,0 +1,98 @@
+name: Boot & OTA Test
+
+# Reusable boot + cross-build OTA integration test. Boots the built image in
+# QEMU (TCG), drives the real station-agent against a dummy OTA server, and
+# asserts a serial banner+login AND an agent check-in/commit. Called by the
+# boot-critical PR workflow (T1) and by the release gate (T1+T2).
+#
+# Runner is a parameter: default GH-hosted ubuntu-latest (TCG). If a feasibility
+# spike shows GH-hosted is insufficient, pass a self-hosted Hetzner label.
+
+on:
+  workflow_call:
+    inputs:
+      machine:
+        type: string
+        default: qemux86-64
+      runner_label:
+        type: string
+        default: ubuntu-latest
+      new_artifact:
+        description: Artifact name of the build-under-test wic (same run).
+        type: string
+        required: true
+      expected_tag:
+        description: Version stamped into the build-under-test (banner + os-release).
+        type: string
+        required: true
+      last_release_tag:
+        description: Previous release tag = slot A for T2 (empty → T1 only).
+        type: string
+        default: ""
+
+jobs:
+  test:
+    name: Boot & OTA (${{ inputs.machine }})
+    runs-on: ${{ inputs.runner_label }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install QEMU + OVMF + deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf grub-common grub2-common python3-pip
+          sudo python3 -m pip install --break-system-packages -r tests/ota-integration/requirements.txt
+
+      - name: Download build-under-test artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.new_artifact }}
+          path: it-artifacts
+
+      - name: Locate build-under-test wic
+        id: wic
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # Multiple patterns via an array so a non-matching glob can't fail the
+          # step under `set -e` when another pattern does match.
+          cands=(it-artifacts/*.wic.bz2 it-artifacts/*.wic.xz it-artifacts/*.wic.gz it-artifacts/*.rootfs.wic it-artifacts/*.wic)
+          wic="${cands[0]:-}"
+          [ -n "$wic" ] || { echo "no wic artifact found" >&2; exit 1; }
+          echo "wic=$wic" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch last release (slot A)
+        id: slota
+        if: inputs.last_release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LAST_RELEASE_TAG: ${{ inputs.last_release_tag }}
+          MACHINE: ${{ inputs.machine }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Accept the same compression set release.yml may publish, in the same
+          # extension order; sidecars (.sha256/.bundle) don't match these globs.
+          gh release download "$LAST_RELEASE_TAG" -R "$REPO" \
+            --pattern "*${MACHINE}*.wic.bz2" \
+            --pattern "*${MACHINE}*.wic.xz" \
+            --pattern "*${MACHINE}*.wic.gz" \
+            --pattern "*${MACHINE}*.wic" \
+            -D slota
+          shopt -s nullglob
+          cands=(slota/*.wic.bz2 slota/*.wic.xz slota/*.wic.gz slota/*.wic)
+          wic="${cands[0]:-}"
+          # Fail fast: last_release_tag was set, so a missing slot-A asset must
+          # NOT silently empty the output and make T2 skip (a false-green gate).
+          [ -n "$wic" ] || { echo "last_release_tag='$LAST_RELEASE_TAG' set but no slot-A wic asset was downloaded" >&2; exit 1; }
+          echo "wic=$wic" >> "$GITHUB_OUTPUT"
+
+      - name: Run boot + OTA integration tests
+        env:
+          OTA_IT_WIC: ${{ steps.wic.outputs.wic }}
+          OTA_IT_LAST_RELEASE_WIC: ${{ steps.slota.outputs.wic }}
+          OTA_IT_EXPECTED_TAG: ${{ inputs.expected_tag }}
+        run: |
+          sudo -E env "PATH=$PATH" \
+            python3 -m pytest tests/ota-integration -m qemu -v

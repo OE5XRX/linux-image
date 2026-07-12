@@ -36,6 +36,13 @@ jobs:
         run: |
           find meta-oe5xrx-remotestation -name '*.sh' -print0 \
             | xargs -0 -r shellcheck -e SC1091 -e SC2039
+          # New scripts added by the boot/OTA test work (lint explicitly rather
+          # than the whole scripts/ dir, which carries pre-existing intentional
+          # warnings, e.g. run-qemu.sh's word-splitting ${CPU_FLAGS}).
+          shellcheck -e SC1091 -e SC2039 \
+            scripts/l0a-fstab-uuid-lint.sh \
+            scripts/compute-release-version.sh \
+            scripts/release.sh
 
       - name: Lint YAML
         run: |
@@ -52,6 +59,16 @@ jobs:
       - name: Verify udev slot rules syntax
         # udev is installed in the "Install kas + linters" step above.
         run: udevadm verify meta-oe5xrx-remotestation/recipes-core/oe5xrx-slot-udev/files/90-oe5xrx-slots.rules
+
+      - name: L0a — static fstab UUID-mount guard
+        # Fast counterpart to the L0b ROOTFS_POSTPROCESS assertion: flag any
+        # wks --use-uuid mount without --no-fstab-update (the #37 bug class).
+        run: scripts/l0a-fstab-uuid-lint.sh .
+
+      - name: OTA-integration unit tests
+        run: |
+          pip install --quiet -r tests/ota-integration/requirements.txt
+          python -m pytest tests/ota-integration -m unit -q
 
   sim-harness:
     runs-on: ubuntu-latest

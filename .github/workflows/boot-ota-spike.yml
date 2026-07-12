@@ -1,0 +1,89 @@
+name: Boot/OTA Feasibility Spike
+
+# One-off decision aid: does a GH-hosted ubuntu-latest runner boot the image
+# under TCG (no KVM) in acceptable wall-clock and disk? Boots the latest (or a
+# given) release via the T1 harness and reports timing + RAM + disk headroom.
+# If this is too slow / disk-tight, flip boot-ota-test.yml's runner_label to a
+# self-hosted Hetzner label.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release to boot (empty → latest).
+        type: string
+        default: ""
+
+permissions:
+  contents: read        # gh release download
+
+jobs:
+  spike:
+    name: TCG boot timing
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Host capacity (before)
+        run: |
+          echo "== nproc =="; nproc
+          echo "== free -m =="; free -m
+          echo "== df -h / =="; df -h /
+          echo "== /dev/kvm present? =="; ls -l /dev/kvm || echo "no KVM (expected → TCG)"
+
+      - name: Install QEMU + OVMF + deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf grub-common grub2-common python3-pip
+          sudo python3 -m pip install --break-system-packages -r tests/ota-integration/requirements.txt
+
+      - name: Resolve release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REQ_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="$REQ_TAG"
+          if [ -z "$tag" ]; then
+            tag=$(gh release list -R "$REPO" -L 1 --exclude-drafts --exclude-pre-releases --json tagName -q '.[0].tagName')
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download release wic
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" -R "$REPO" \
+            --pattern "*qemux86-64*.wic.bz2" \
+            --pattern "*qemux86-64*.wic.xz" \
+            --pattern "*qemux86-64*.wic.gz" \
+            --pattern "*qemux86-64*.wic" \
+            -D spike
+
+      - name: Timed TCG boot (T1)
+        env:
+          OTA_IT_WIC: spike
+          OTA_IT_EXPECTED_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cands=(spike/*.wic.bz2 spike/*.wic.xz spike/*.wic.gz spike/*.wic)
+          OTA_IT_WIC="${cands[0]:-}"
+          [ -n "$OTA_IT_WIC" ] || { echo "no wic asset downloaded" >&2; exit 1; }
+          export OTA_IT_WIC
+          start=$(date +%s)
+          sudo -E env "PATH=$PATH" \
+            python3 -m pytest tests/ota-integration/test_boot.py -m qemu -v
+          end=$(date +%s)
+          echo "T1 boot wall-clock: $((end - start))s"
+
+      - name: Host capacity (after)
+        run: |
+          echo "== free -m =="; free -m
+          echo "== df -h / =="; df -h /

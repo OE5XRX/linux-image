@@ -217,3 +217,29 @@ python add_efi_fstab() {
     bb.note('add_efi_fstab: ensured PARTLABEL=efi /boot entry')
 }
 ROOTFS_POSTPROCESS_COMMAND:append:qemux86-64 = " add_efi_fstab;"
+
+# L0b — authoritative guard against the #37 bug class: fail the build if the
+# baked /etc/fstab mounts any filesystem by a build-unstable device UUID.
+# OTA rewrites only the rootfs, so a UUID= (or /dev/disk/by-uuid/) mount never
+# matches the on-disk device after a cross-build OTA → boot hang / emergency
+# mode → rollback. Only PARTLABEL / LABEL / kernel-cmdline root are OTA-safe.
+# The fast static counterpart is scripts/l0a-fstab-uuid-lint.sh (every PR).
+python assert_no_uuid_fstab() {
+    import os
+    fstab = os.path.join(d.getVar('IMAGE_ROOTFS'), 'etc/fstab')
+    if not os.path.exists(fstab):
+        return
+    with open(fstab) as f:
+        for lineno, line in enumerate(f, 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+            device = stripped.split()[0]
+            if device.startswith('UUID=') or device.startswith('/dev/disk/by-uuid/'):
+                bb.fatal(
+                    'assert_no_uuid_fstab: /etc/fstab line %d mounts by device UUID '
+                    '(%r) — not OTA-safe. Mount by PARTLABEL=<label> (or '
+                    'LABEL=<label>) instead. See #37.' % (lineno, stripped)
+                )
+}
+ROOTFS_POSTPROCESS_COMMAND += "assert_no_uuid_fstab;"

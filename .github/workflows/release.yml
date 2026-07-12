@@ -1,39 +1,36 @@
 name: Release
 
-# Runs on release-tag push. Builds BOTH images (x86-64 + Raspberry Pi),
-# checksums them, signs the bundles with cosign keyless (Sigstore + OIDC),
-# and publishes a GitHub Release with everything attached.
+# One-button release (workflow_dispatch). The workflow computes its own next
+# version (YYYY.MM.DD-HH[a-z], UTC hour, letter suffix on collision), builds
+# BOTH images, GATES publication on the boot + cross-build OTA integration
+# test (x86), signs the bundles with cosign keyless, and publishes a GitHub
+# Release. The action creates the tag from the computed version — there is no
+# tag-push trigger anymore (mirrors FW-RemoteStation).
 #
-# Tag format is YYYY.MM.DD-HH (UTC), with an optional single lowercase
-# letter [a-z] suffix for same-hour hotfixes. See scripts/release.sh.
-#
-# The legacy v* tags (v1-alpha ... v1-delta) stay on GitHub as
-# historical releases — run-qemu.sh can still fetch them — but pushing
-# a new v* tag will NOT trigger a build. Only the timestamp format is
-# accepted going forward.
+# dry_run=true: run preflight + version + build + gate, but do NOT sign, tag,
+# or publish (use it to validate the pipeline from a feature branch).
+
 on:
-  push:
-    tags:
-      # YYYY.MM.DD-HH (no suffix) — the common case
-      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9]'
-      # YYYY.MM.DD-HH[a-z] — same-hour hotfix
-      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]-[0-9][0-9][a-z]'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build + gate only; do not sign/tag/publish"
+        type: boolean
+        default: false
 
 permissions:
-  contents: write       # create release, upload assets
+  contents: write       # create release + tag, upload assets
   id-token: write       # cosign keyless OIDC token
   actions: read         # download-artifact from called workflows
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
-  # Cheap preflight gate: makes the build fail within seconds (no Yocto
-  # spin-up) if the station-agent recipe still uses ${AUTOREV}. On a
-  # release tag we require a pinned SHA so the image is reproducible —
-  # otherwise a later rebuild of the same tag could silently pick up a
-  # different agent revision. See scripts/pin-station-agent.sh.
+  # Cheap preflight gate: fails within seconds (no Yocto spin-up) if the
+  # station-agent recipe still uses ${AUTOREV}, or FM artifacts are unpinned /
+  # unsigned. A release must be reproducible.
   preflight:
     name: Preflight — require pinned SRCREV
     runs-on: ubuntu-latest
@@ -57,20 +54,11 @@ jobs:
           fi
           echo "Found: $line"
           if printf '%s' "$line" | grep -qF '${AUTOREV}'; then
-            echo "::error file=$recipe::SRCREV is \${AUTOREV} on a release tag — run scripts/pin-station-agent.sh before tagging"
+            echo "::error file=$recipe::SRCREV is \${AUTOREV} — run scripts/pin-station-agent.sh before releasing"
             exit 1
           fi
-          # Strip the `SRCREV =` prefix, then peel off surrounding
-          # quotes — accept both " and ' since BitBake allows either.
-          # Using sed -n+p so a non-match yields empty output and the
-          # 40-char regex check below surfaces a clear error rather
-          # than the whole unparsed line.
           raw=$(printf '%s\n' "$line" | sed -nE 's/^[[:space:]]*SRCREV[[:space:]]*=[[:space:]]*(.*)$/\1/p')
           sha=$(printf '%s' "$raw" | sed -E 's/^"([^"]*)".*$/\1/; s/^'"'"'([^'"'"']*)'"'"'.*$/\1/')
-          # Git accepts mixed-case hex for commit IDs (the Yocto fetcher
-          # doesn't care either). Reject anything that isn't exactly 40
-          # hex chars, but allow upper/lowercase — otherwise a human-pasted
-          # SHA from GitHub's UI could fail preflight despite being valid.
           if ! printf '%s' "$sha" | grep -Eq '^[0-9a-fA-F]{40}$'; then
             echo "::error file=$recipe::SRCREV value '$sha' is not a full 40-char SHA"
             exit 1
@@ -83,8 +71,6 @@ jobs:
       - name: Fail if FM artifacts are unpinned or unsigned
         run: |
           set -euo pipefail
-          # FW-RemoteStation signs releases from refs/heads/main (workflow_dispatch);
-          # pin the identity to that exact ref+workflow rather than a wildcard @refs/.+ .
           id_re='^https://github.com/OE5XRX/FW-RemoteStation/\.github/workflows/release\.yml@refs/heads/main$'
           issuer='https://token.actions.githubusercontent.com'
           recipes="
@@ -116,29 +102,84 @@ jobs:
             rm -rf "$tmp"
           done
 
+  # Compute the next version + resolve the previous release (slot A for the
+  # gate's cross-build OTA test). Since nothing is tagged yet, the latest
+  # existing release IS the previous one.
+  version:
+    name: Compute version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.cv.outputs.version }}
+      last_release: ${{ steps.last.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Guard — real releases only on the default branch
+        if: ${{ !inputs.dry_run }}
+        env:
+          REF: ${{ github.ref_name }}
+          DEFAULT: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$REF" != "$DEFAULT" ]; then
+            echo "::error::real release must run on '$DEFAULT'; use dry_run=true on a feature branch" >&2
+            exit 1
+          fi
+
+      - name: Compute next version
+        id: cv
+        uses: ./.github/actions/compute-version
+
+      - name: Resolve previous release (slot A)
+        id: last
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag=$(gh release list -R "$REPO" -L 1 --exclude-drafts --exclude-pre-releases --json tagName -q '.[0].tagName' || true)
+          echo "Previous release: ${tag:-<none>}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
   build-x64:
     name: Build qemux86-64
-    needs: preflight
+    needs: [preflight, version]
     uses: ./.github/workflows/build.yml
     with:
       machine: qemux86-64
-      release_tag: ${{ github.ref_name }}
+      release_tag: ${{ needs.version.outputs.version }}
     secrets: inherit
 
   build-rpi:
     name: Build raspberrypi4-64
     # Each target has its own cache volume, so the two builds run in
-    # parallel. Both still gate on preflight.
-    needs: preflight
+    # parallel. Both still gate on preflight + version.
+    needs: [preflight, version]
     uses: ./.github/workflows/build.yml
     with:
       machine: raspberrypi4-64
-      release_tag: ${{ github.ref_name }}
+      release_tag: ${{ needs.version.outputs.version }}
+    secrets: inherit
+
+  gate:
+    name: Boot & OTA gate (x64)
+    # The publish gate: boot the freshly built x86 image and run the
+    # cross-build OTA cycle (slot A = previous release). Publication depends
+    # on this passing — the two shipped OTA bugs (#36, #37) would fail here.
+    needs: [version, build-x64]
+    uses: ./.github/workflows/boot-ota-test.yml
+    with:
+      machine: qemux86-64
+      new_artifact: yocto-image-qemux86-64
+      expected_tag: ${{ needs.version.outputs.version }}
+      last_release_tag: ${{ needs.version.outputs.last_release }}
     secrets: inherit
 
   release:
     name: Sign & Publish Release
-    needs: [build-x64, build-rpi]
+    needs: [version, build-x64, build-rpi, gate]
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -160,13 +201,11 @@ jobs:
 
       - name: Package, checksum, sign
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p release
           for machine in qemux86-64 raspberrypi4-64; do
-            # Prefer compressed wic, fall back to raw wic. CI uploads both
-            # if the image recipe emits them — we only ship one.
             src=""
             srcext=""
             for ext in wic.bz2 wic.xz wic.gz wic; do
@@ -186,9 +225,6 @@ jobs:
             cp "${src}" "${dest}"
             (cd release && sha256sum "$(basename "${dest}")" > "$(basename "${dest}").sha256")
 
-            # Keyless signing — binds the signature to this repo + workflow +
-            # tag via the GitHub Actions OIDC token. Verifiable later with
-            # `cosign verify-blob` (see SECURITY.md for the exact command).
             cosign sign-blob --yes \
               --bundle "${dest}.bundle" \
               "${dest}"
@@ -197,10 +233,12 @@ jobs:
 
       - name: Create GitHub Release
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.version.outputs.version }}
           REPO: ${{ github.repository }}
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
           files: |
             release/oe5xrx-*
           generate_release_notes: true
@@ -209,7 +247,8 @@ jobs:
           body: |
             ## OE5XRX Linux Image ${{ env.TAG }}
 
-            Pre-built Yocto images for both supported targets.
+            Pre-built Yocto images for both supported targets. Published only
+            after passing the boot + cross-build OTA integration gate.
 
             | Target | File |
             |---|---|

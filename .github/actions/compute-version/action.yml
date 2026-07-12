@@ -1,0 +1,25 @@
+name: Compute release version
+description: >
+  Compute the next OE5XRX linux-image release version (YYYY.MM.DD-HH[a-z], UTC
+  hour, letter suffix on collision) from existing git tags. Mirrors the FW
+  one-button-release pattern.
+
+outputs:
+  version:
+    description: The computed release version.
+    value: ${{ steps.compute.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch tags
+      shell: bash
+      run: git fetch --tags --quiet
+
+    - name: Compute
+      id: compute
+      shell: bash
+      run: |
+        version="$(scripts/compute-release-version.sh)"
+        echo "Computed release version: ${version}"
+        echo "version=${version}" >> "$GITHUB_OUTPUT"
