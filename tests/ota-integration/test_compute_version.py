@@ -30,3 +30,9 @@ def test_second_suffix_when_a_taken():
 
 def test_ignores_unrelated_tags():
     assert _run("2026.07.11-15", "2026.07.10-21\n2025.01.01-00") == "2026.07.11-15"
+
+
+def test_missing_option_value_errors_cleanly():
+    r = subprocess.run([_SCRIPT, "--now"], capture_output=True, text=True)
+    assert r.returncode == 2
+    assert "requires a value" in r.stderr

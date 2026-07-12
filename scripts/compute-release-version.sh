@@ -23,8 +23,12 @@ have_existing=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --now)      now="$2"; shift 2 ;;
-        --existing) existing="$2"; have_existing=1; shift 2 ;;
+        --now)
+            [[ $# -ge 2 ]] || { echo "--now requires a value (YYYY.MM.DD-HH)" >&2; exit 2; }
+            now="$2"; shift 2 ;;
+        --existing)
+            [[ $# -ge 2 ]] || { echo "--existing requires a value (newline-separated tags)" >&2; exit 2; }
+            existing="$2"; have_existing=1; shift 2 ;;
         -h|--help)  sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
     esac

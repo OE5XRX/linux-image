@@ -41,6 +41,14 @@ def test_passes_for_non_mountpoint_part(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
 
 
+def test_flags_recipe_writing_by_uuid_fstab(tmp_path):
+    r = tmp_path / "foo.bb"
+    r.write_text('do_install() { echo "/dev/disk/by-uuid/1234 /boot vfat defaults 0 2" >> ${D}/etc/fstab; }\n')
+    res = _run(str(tmp_path))
+    assert res.returncode != 0
+    assert "device-UUID fstab entry" in res.stdout
+
+
 def test_current_repo_is_clean():
     # The #37 fix already added --no-fstab-update to the real x64 wks.
     r = _run(_REPO)

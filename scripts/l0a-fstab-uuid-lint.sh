@@ -59,9 +59,9 @@ done
 for recipe in "${recipe_files[@]}"; do
     [ -f "$recipe" ] || continue
     while IFS= read -r hit; do
-        echo "::error file=${recipe}::recipe writes a UUID= fstab entry (use PARTLABEL): ${hit}"
+        echo "::error file=${recipe}::recipe writes a device-UUID fstab entry (use PARTLABEL): ${hit}"
         rc=1
-    done < <(grep -nE 'UUID=' "$recipe" 2>/dev/null | grep -i 'fstab' || true)
+    done < <(grep -nE 'UUID=|/dev/disk/by-uuid/' "$recipe" 2>/dev/null | grep -i 'fstab' || true)
 done
 
 if [[ "$rc" -eq 0 ]]; then
