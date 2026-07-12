@@ -34,8 +34,15 @@ jobs:
 
       - name: Lint shell scripts
         run: |
-          find meta-oe5xrx-remotestation scripts -name '*.sh' -print0 \
+          find meta-oe5xrx-remotestation -name '*.sh' -print0 \
             | xargs -0 -r shellcheck -e SC1091 -e SC2039
+          # New scripts added by the boot/OTA test work (lint explicitly rather
+          # than the whole scripts/ dir, which carries pre-existing intentional
+          # warnings, e.g. run-qemu.sh's word-splitting ${CPU_FLAGS}).
+          shellcheck -e SC1091 -e SC2039 \
+            scripts/l0a-fstab-uuid-lint.sh \
+            scripts/compute-release-version.sh \
+            scripts/release.sh
 
       - name: Lint YAML
         run: |
