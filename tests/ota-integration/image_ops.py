@@ -40,14 +40,23 @@ def bz2_compress(src: str, dst: str) -> None:
 
 
 def decompress_wic(src: str, out_wic: str) -> str:
-    """Return a path to a decompressed .wic. If src is .bz2, stream-decompress;
-    otherwise copy verbatim (qemu -drive needs a raw, uncompressed image)."""
+    """Return a path to a decompressed .wic. Handles the compression formats
+    release.yml may publish (.wic.bz2 / .wic.xz / .wic.gz); a plain .wic is
+    copied verbatim (qemu -drive needs a raw, uncompressed image)."""
     if src.endswith(".bz2"):
-        with bz2.open(src, "rb") as fin, open(out_wic, "wb") as fout:
-            for chunk in iter(lambda: fin.read(_CHUNK), b""):
-                fout.write(chunk)
+        opener = bz2.open
+    elif src.endswith(".xz"):
+        import lzma
+        opener = lzma.open
+    elif src.endswith(".gz"):
+        import gzip
+        opener = gzip.open
     else:
         shutil.copyfile(src, out_wic)
+        return out_wic
+    with opener(src, "rb") as fin, open(out_wic, "wb") as fout:
+        for chunk in iter(lambda: fin.read(_CHUNK), b""):
+            fout.write(chunk)
     return out_wic
 
 

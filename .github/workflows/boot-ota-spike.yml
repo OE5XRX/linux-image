@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           tag="$REQ_TAG"
           if [ -z "$tag" ]; then
-            tag=$(gh release list -R "$REPO" -L 1 --json tagName -q '.[0].tagName')
+            tag=$(gh release list -R "$REPO" -L 1 --exclude-drafts --exclude-pre-releases --json tagName -q '.[0].tagName')
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
@@ -60,7 +60,11 @@ jobs:
         run: |
           set -euo pipefail
           gh release download "$TAG" -R "$REPO" \
-            --pattern "*qemux86-64*.wic.bz2" -D spike
+            --pattern "*qemux86-64*.wic.bz2" \
+            --pattern "*qemux86-64*.wic.xz" \
+            --pattern "*qemux86-64*.wic.gz" \
+            --pattern "*qemux86-64*.wic" \
+            -D spike
 
       - name: Timed TCG boot (T1)
         env:
@@ -68,7 +72,10 @@ jobs:
           OTA_IT_EXPECTED_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          OTA_IT_WIC="$(ls spike/*.wic.bz2 | head -1)"
+          shopt -s nullglob
+          cands=(spike/*.wic.bz2 spike/*.wic.xz spike/*.wic.gz spike/*.wic)
+          OTA_IT_WIC="${cands[0]:-}"
+          [ -n "$OTA_IT_WIC" ] || { echo "no wic asset downloaded" >&2; exit 1; }
           export OTA_IT_WIC
           start=$(date +%s)
           sudo -E env "PATH=$PATH" \

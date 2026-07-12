@@ -36,6 +36,21 @@ def test_decompress_wic_passthrough_and_bz2(tmp_path):
     assert open(out2, "rb").read() == b"WIC2"
 
 
+def test_decompress_wic_xz_and_gz(tmp_path):
+    import gzip
+    import lzma
+
+    xz = tmp_path / "c.wic.xz"
+    xz.write_bytes(lzma.compress(b"XZDATA"))
+    outx = image_ops.decompress_wic(str(xz), str(tmp_path / "ox.wic"))
+    assert open(outx, "rb").read() == b"XZDATA"
+
+    gz = tmp_path / "d.wic.gz"
+    gz.write_bytes(gzip.compress(b"GZDATA"))
+    outg = image_ops.decompress_wic(str(gz), str(tmp_path / "og.wic"))
+    assert open(outg, "rb").read() == b"GZDATA"
+
+
 def test_render_config_yaml_has_tuned_timers():
     txt = seed.render_config_yaml("http://10.0.2.2:8080")
     d = yaml.safe_load(txt)

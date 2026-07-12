@@ -138,7 +138,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          tag=$(gh release list -R "$REPO" -L 1 --json tagName -q '.[0].tagName' || true)
+          tag=$(gh release list -R "$REPO" -L 1 --exclude-drafts --exclude-pre-releases --json tagName -q '.[0].tagName' || true)
           echo "Previous release: ${tag:-<none>}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 

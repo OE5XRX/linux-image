@@ -72,9 +72,17 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # Accept the same compression set release.yml may publish, in the same
+          # extension order; sidecars (.sha256/.bundle) don't match these globs.
           gh release download "$LAST_RELEASE_TAG" -R "$REPO" \
-            --pattern "*${MACHINE}*.wic.bz2" -D slota
-          echo "wic=$(ls slota/*.wic.bz2 | head -1)" >> "$GITHUB_OUTPUT"
+            --pattern "*${MACHINE}*.wic.bz2" \
+            --pattern "*${MACHINE}*.wic.xz" \
+            --pattern "*${MACHINE}*.wic.gz" \
+            --pattern "*${MACHINE}*.wic" \
+            -D slota
+          shopt -s nullglob
+          cands=(slota/*.wic.bz2 slota/*.wic.xz slota/*.wic.gz slota/*.wic)
+          echo "wic=${cands[0]:-}" >> "$GITHUB_OUTPUT"
 
       - name: Run boot + OTA integration tests
         env:
