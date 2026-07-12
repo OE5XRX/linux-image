@@ -119,3 +119,16 @@ def test_status_and_commit_recorded():
         assert s.last_reported_version() == "2026.07.11-15"
     finally:
         s.stop()
+
+
+def test_status_path_pk_is_authoritative():
+    s = DummyOtaServer(payload_path=None, checksum=None, size=None, target_tag="T")
+    s.start()
+    try:
+        # A malicious/malformed body carrying result_pk must not override the
+        # path-derived pk.
+        _post(s.url + "/api/v1/deployments/7/status/",
+              {"status": "installing", "result_pk": "999"})
+        assert s.status_updates[-1]["result_pk"] == "7"
+    finally:
+        s.stop()

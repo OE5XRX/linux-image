@@ -12,6 +12,8 @@ responses beyond the HTTP status code, so this server IGNORES all auth headers.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -72,7 +74,8 @@ class _Handler(BaseHTTPRequestHandler):
         # POST /api/v1/deployments/<pk>/status/
         parts = path.strip("/").split("/")
         if len(parts) == 5 and parts[:3] == ["api", "v1", "deployments"] and parts[4] == "status":
-            ctl.status_updates.append({"result_pk": parts[3], **body})
+            # Merge the path-derived pk LAST so a client body can't override it.
+            ctl.status_updates.append({**body, "result_pk": parts[3]})
             return self._send_json(200, {"status": "ok"})
 
         return self._send_json(404, {"detail": "not found"})
@@ -84,14 +87,16 @@ class _Handler(BaseHTTPRequestHandler):
         if len(parts) == 5 and parts[:3] == ["api", "v1", "deployments"] and parts[4] == "download":
             if not ctl.payload_path:
                 return self._send_json(404, {"detail": "no payload configured"})
-            with open(ctl.payload_path, "rb") as fh:
-                data = fh.read()
-            ctl.downloads += 1
+            # Stream the payload (a real rootfs is hundreds of MB) rather than
+            # reading it all into memory — with an accurate Content-Length.
+            size = os.path.getsize(ctl.payload_path)
             self.send_response(200)
             self.send_header("Content-Type", "application/x-bzip2")
-            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Length", str(size))
             self.end_headers()
-            self.wfile.write(data)
+            with open(ctl.payload_path, "rb") as fh:
+                shutil.copyfileobj(fh, self.wfile)
+            ctl.downloads += 1
             return
         return self._send_json(404, {"detail": "not found"})
 
