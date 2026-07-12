@@ -19,7 +19,9 @@ REF=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -n|--dry-run) DRY_RUN=1; shift ;;
-        --ref)        REF="$2"; shift 2 ;;
+        --ref)
+            [[ $# -ge 2 ]] || { echo "--ref requires a branch name" >&2; exit 2; }
+            REF="$2"; shift 2 ;;
         -h|--help)
             sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
             exit 0 ;;

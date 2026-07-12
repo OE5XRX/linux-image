@@ -67,8 +67,13 @@ def _mount_partition(wic_path: str, partnum: int):
         try:
             yield mnt
         finally:
+            # Best-effort teardown: never let cleanup mask the original error.
+            # If umount fails (busy), the rmdir would fail too — tolerate it.
             subprocess.run(["umount", mnt], check=False)
-            os.rmdir(mnt)
+            try:
+                os.rmdir(mnt)
+            except OSError:
+                pass
 
 
 def seed_data_partition(wic_path: str, config_yaml_text: str, key_pem_path: str) -> None:

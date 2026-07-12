@@ -42,7 +42,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf grub2-common python3-pip
-          sudo pip install --break-system-packages -r tests/ota-integration/requirements.txt
+          sudo python3 -m pip install --break-system-packages -r tests/ota-integration/requirements.txt
 
       - name: Download build-under-test artifact
         uses: actions/download-artifact@v8
@@ -54,7 +54,11 @@ jobs:
         id: wic
         run: |
           set -euo pipefail
-          wic=$(ls it-artifacts/*.wic.bz2 it-artifacts/*.rootfs.wic it-artifacts/*.wic 2>/dev/null | head -1)
+          shopt -s nullglob
+          # Multiple patterns via an array so a non-matching glob can't fail the
+          # step under `set -e` when another pattern does match.
+          cands=(it-artifacts/*.wic.bz2 it-artifacts/*.rootfs.wic it-artifacts/*.wic)
+          wic="${cands[0]:-}"
           [ -n "$wic" ] || { echo "no wic artifact found" >&2; exit 1; }
           echo "wic=$wic" >> "$GITHUB_OUTPUT"
 

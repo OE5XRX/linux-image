@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import os
 import re
+import select
 import shutil
 import socket
 import subprocess
 import tempfile
+import time
 from abc import ABC, abstractmethod
 
 import image_ops
@@ -136,9 +138,17 @@ class QemuTarget(Target):
         self._proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
+        # Discover the serial pty QEMU allocated. readline() on the pipe blocks,
+        # so bound the discovery with a deadline via select() — otherwise a QEMU
+        # that never prints the line (bad args, crash) would hang the test.
         pts = None
-        for _ in range(50):
-            line = self._proc.stdout.readline()
+        deadline = time.monotonic() + 60
+        stdout = self._proc.stdout
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([stdout], [], [], 1.0)
+            if not ready:
+                continue
+            line = stdout.readline()
             if not line:
                 break
             m = _PTS_RE.search(line)
@@ -147,7 +157,7 @@ class QemuTarget(Target):
                 break
         if not pts:
             self.power_off()
-            raise RuntimeError("could not determine QEMU serial pty")
+            raise RuntimeError("could not determine QEMU serial pty within 60s")
         fd = os.open(pts, os.O_RDWR | os.O_NOCTTY)
         self._console = pexpect.fdpexpect.fdspawn(fd, timeout=900, encoding="utf-8")
         return self._console
@@ -156,6 +166,14 @@ class QemuTarget(Target):
         return self._console
 
     def power_off(self) -> None:
+        # Close the console first so the underlying pty FD is not leaked across
+        # resets / long CI runs.
+        if self._console is not None:
+            try:
+                self._console.close()
+            except Exception:
+                pass
+            self._console = None
         if self._proc is not None:
             self._proc.terminate()
             try:
@@ -165,10 +183,11 @@ class QemuTarget(Target):
             self._proc = None
 
     def reset(self) -> None:
-        """Hard power-cycle: on QEMU this is kill + relaunch (fresh boot of the
-        same disk, preserving on-disk grubenv/A-B state)."""
+        """Hard power-cycle: on QEMU, kill + relaunch (fresh boot of the same
+        disk, preserving on-disk grubenv/A-B state). Read the fresh console via
+        console() afterwards."""
         self.power_off()
-        return self.power_on()
+        self.power_on()
 
     def dut_server_url(self, dummy_port: int) -> str:
         return f"http://10.0.2.2:{dummy_port}"

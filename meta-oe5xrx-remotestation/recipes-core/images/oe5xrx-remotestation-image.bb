@@ -238,7 +238,8 @@ python assert_no_uuid_fstab() {
             if device.startswith('UUID=') or device.startswith('/dev/disk/by-uuid/'):
                 bb.fatal(
                     'assert_no_uuid_fstab: /etc/fstab line %d mounts by device UUID '
-                    '(%r) — not OTA-safe. Use PARTLABEL=. See #37.' % (lineno, stripped)
+                    '(%r) — not OTA-safe. Mount by PARTLABEL=<label> (or '
+                    'LABEL=<label>) instead. See #37.' % (lineno, stripped)
                 )
 }
 ROOTFS_POSTPROCESS_COMMAND += "assert_no_uuid_fstab;"
