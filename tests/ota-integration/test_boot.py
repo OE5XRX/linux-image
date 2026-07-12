@@ -35,6 +35,8 @@ def test_t1_boots_and_agent_checks_in(qemu_target, dummy_factory, built_wic, exp
         timeout=300,
     )
     assert got, "agent never checked in with the expected version"
-    assert expected_tag in banner_ver or banner_ver in expected_tag, (
+    # banner_re captures exactly the tag token, so require an exact match — a
+    # substring check would false-pass e.g. "2026.07.11-15" vs "2026.07.11-15a".
+    assert banner_ver == expected_tag, (
         f"serial banner version {banner_ver!r} != expected {expected_tag!r}"
     )

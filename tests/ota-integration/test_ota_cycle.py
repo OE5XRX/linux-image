@@ -62,7 +62,9 @@ def test_t2_cross_build_ota_boots_new_slot_and_commits(
     con.expect(markers["banner_re"], timeout=900)
     slot_b_ver = con.match.group(1)
     con.expect(markers["login_re"], timeout=180)
-    assert expected_tag in slot_b_ver or slot_b_ver in expected_tag, (
+    # Exact match: banner_re captures the tag token, so a substring check could
+    # false-green a truncated/suffixed tag and weaken the release gate.
+    assert slot_b_ver == expected_tag, (
         f"post-OTA banner {slot_b_ver!r} != expected {expected_tag!r} (rolled back?)"
     )
 
