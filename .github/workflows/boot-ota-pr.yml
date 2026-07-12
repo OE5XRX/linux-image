@@ -6,8 +6,12 @@ name: Boot/OTA (boot-critical PRs)
 # same test again as the publish barrier. If no release exists yet (bootstrap),
 # T2 skips gracefully and only T1 runs.
 
+# Draft PRs do NOT trigger the (expensive) Hetzner build + QEMU test — so
+# Copilot-loop / WIP pushes on a draft don't re-run everything. Mark the PR
+# ready for review to run it (that also fires `ready_for_review`).
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'meta-oe5xrx-remotestation/wic/**'
       - 'meta-oe5xrx-remotestation/recipes-bsp/**'
@@ -29,6 +33,7 @@ concurrency:
 jobs:
   resolve-slot-a:
     name: Resolve slot A (last release)
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.last.outputs.tag }}
@@ -46,6 +51,7 @@ jobs:
 
   build-x64:
     name: Build qemux86-64 (dev)
+    if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/build.yml
     with:
       machine: qemux86-64
@@ -54,6 +60,7 @@ jobs:
 
   test:
     name: Boot + cross-build OTA (T1+T2)
+    if: ${{ !github.event.pull_request.draft }}
     needs: [build-x64, resolve-slot-a]
     uses: ./.github/workflows/boot-ota-test.yml
     with:
