@@ -38,7 +38,9 @@ sudo -E env "PATH=$PATH" python -m pytest tests/ota-integration -m qemu -v
 ## CI cadence
 
 - **Every PR:** L0a static UUID-mount lint + the `unit` tests (`ci.yml`, seconds).
-- **Boot-critical PRs** (`boot-ota-pr.yml`, path-filtered): build x86 + **T1**.
+- **Boot-critical PRs** (`boot-ota-pr.yml`, path-filtered): build x86 + **T1+T2**
+  (slot A = latest published release; T2 skips on the bootstrap case with no
+  release yet).
 - **Release** (`release.yml`, `workflow_dispatch`): build both + **T1+T2 gate** →
   publish only if green. Version is computed server-side.
 
