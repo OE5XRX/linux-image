@@ -75,7 +75,7 @@ jobs:
           issuer='https://token.actions.githubusercontent.com'
           recipes="
             meta-oe5xrx-remotestation/recipes-core/oe5xrx-fm-firmware/oe5xrx-fm-firmware_26.07.04.bb
-            meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm_26.07.04.bb
+            meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm_26.07.21.bb
           "
           for recipe in $recipes; do
             [ -f "$recipe" ] || { echo "::error::missing $recipe"; exit 1; }

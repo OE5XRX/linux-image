@@ -4,13 +4,20 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
-recipe="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm_26.07.04.bb"
+recipe="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm_26.07.21.bb"
+harness_recipe="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/oe5xrx-sim-harness_1.0.bb"
 harness="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/files/sim-harness.sh"
-sa818_sim="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/files/sa818-sim.py"
 
 url="$(sed -nE 's/^SRC_URI = "([^";]*).*/\1/p' "$recipe")"
 sha="$(sed -nE 's/^SRC_URI\[sha256sum\] = "([0-9a-f]+)".*/\1/p' "$recipe")"
 if [ -z "$url" ] || [ -z "$sha" ]; then echo "FAIL: could not read pinned URL/sha from recipe"; exit 1; fi
+
+# The SA818 emulator is no longer vendored — it is pinned as a co-versioned FW
+# release asset in the harness recipe. Download the EXACT pinned asset (URL + sha
+# from that recipe) so the test exercises the same bytes the image ships.
+sa818_url="$(sed -nE 's#.*(https://[^";[:space:]]*sa818-sim\.py)[;[:space:]].*#\1#p' "$harness_recipe" | head -n1)"
+sa818_sha="$(sed -nE 's/^SRC_URI\[sa818sim\.sha256sum\] = "([0-9a-f]+)".*/\1/p' "$harness_recipe")"
+if [ -z "$sa818_url" ] || [ -z "$sa818_sha" ]; then echo "FAIL: could not read pinned SA818 URL/sha from harness recipe"; exit 1; fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/sim-harness.XXXXXX")"
 trap 'kill "${harness_pid:-}" 2>/dev/null || true; rm -rf "$work"' EXIT
@@ -20,6 +27,11 @@ echo "Downloading pinned native_sim ..."
 curl -fsSL "$url" -o "$bin"
 echo "${sha}  ${bin}" | sha256sum -c - || { echo "FAIL: sha256 mismatch vs recipe pin"; exit 1; }
 chmod +x "$bin"
+
+sa818_sim="${work}/sa818-sim.py"
+echo "Downloading pinned SA818 emulator ..."
+curl -fsSL "$sa818_url" -o "$sa818_sim"
+echo "${sa818_sha}  ${sa818_sim}" | sha256sum -c - || { echo "FAIL: sha256 mismatch vs harness recipe pin"; exit 1; }
 
 # Run the ACTUAL harness script against a temp slot dir (proves the shipped script).
 # Point SA818_SIM at the shipped emulator so the harness attaches it to uart_1 —

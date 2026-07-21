@@ -3,15 +3,23 @@ DESCRIPTION = "Sim populator of the D2 slot contract. Runs the pinned native_sim
 symlinks its console pty at /dev/oe5xrx/slot1/control, and attaches exactly one SA818 AT-emulator \
 to the radio-link pty (uart_1) so set-type commands are answered instead of driver_error'ing on an \
 unanswered UART. Both children are owned by the harness (systemd) — no stray/duplicate emulator. \
+The emulator is pinned from the co-versioned FW-RemoteStation release asset (not vendored). \
 No socat: native_sim owns the ptys."
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
+# The SA818 AT-emulator is NOT vendored — it is pinned from the co-versioned
+# FW-RemoteStation release asset (fm-sa818-2m.sa818-sim.py), the same canonical,
+# unit-tested source the native_sim binary is built from. This keeps the emulator
+# and the sim binary in lockstep: bump both together when re-pinning a release.
+# Re-pin: fetch <tag>/fm-sa818-2m.sa818-sim.py, cosign-verify, update the URL +
+# SRC_URI[sa818sim.sha256sum] below (scripts/pin-fw-artifact.sh does the verify).
 SRC_URI = " \
     file://sim-harness.sh \
-    file://sa818-sim.py \
     file://oe5xrx-sim-harness.service \
+    https://github.com/OE5XRX/FW-RemoteStation/releases/download/26.07.21-01/fm-sa818-2m.sa818-sim.py;name=sa818sim;downloadfilename=sa818-sim.py \
 "
+SRC_URI[sa818sim.sha256sum] = "cb35b4ef54e9f71ddcae8f912a9184172dac7a621c4d0ebb5c5e7a8f5229c085"
 
 S = "${WORKDIR}"
 
