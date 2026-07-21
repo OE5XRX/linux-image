@@ -77,7 +77,11 @@ class Target(ABC):
         # Capture only the tag charset ([A-Za-z0-9._-], enforced by stamp_release)
         # — NOT \S+, which would swallow trailing ANSI escapes (e.g. "dev\x1b[0m")
         # the console emits and break the exact version match.
-        return {"banner_re": r"OE5XRX Remote Station ([A-Za-z0-9._-]+)",
+        # The trailing (?=[^A-Za-z0-9._-]) lookahead REQUIRES a non-tag terminator
+        # (ANSI ESC / CR / LF) after the tag, so pexpect can't match on a partial
+        # tag that has only half-streamed over the serial console (which truncated
+        # e.g. "2026.07.21-22" to "20" / "2026.07.2" and failed the exact match).
+        return {"banner_re": r"OE5XRX Remote Station ([A-Za-z0-9._-]+)(?=[^A-Za-z0-9._-])",
                 "login_re": r"login:"}
 
 
@@ -220,6 +224,8 @@ class Cm4Target(Target):
 
     def boot_markers(self) -> dict:
         # u-boot prints a slot/attempt marker before the kernel + getty banner.
-        return {"banner_re": r"OE5XRX Remote Station ([A-Za-z0-9._-]+)",
+        # Trailing lookahead requires a non-tag terminator so a half-streamed tag
+        # can't match early (see QemuTarget.boot_markers for the full rationale).
+        return {"banner_re": r"OE5XRX Remote Station ([A-Za-z0-9._-]+)(?=[^A-Za-z0-9._-])",
                 "login_re": r"login:",
                 "uboot_re": r"OE5XRX: slot=(\w+) attempt=(\d+)/(\d+)"}

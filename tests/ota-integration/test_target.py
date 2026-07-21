@@ -25,6 +25,23 @@ def test_banner_re_captures_only_the_tag_not_trailing_ansi():
         assert re.search(banner, line).group(1) == tag
 
 
+def test_banner_re_does_not_match_a_half_streamed_tag():
+    # Regression: over a real serial console the banner arrives byte-by-byte.
+    # Without a trailing terminator the regex must NOT match yet, so pexpect keeps
+    # reading instead of capturing a truncated tag (the bug that read "2026.07.21-22"
+    # as "20" / "2026.07.2" and failed the exact version assertion in the OTA gate).
+    import re
+    banner = QemuTarget().boot_markers()["banner_re"]
+    for partial in [
+        "OE5XRX Remote Station 20",
+        "OE5XRX Remote Station 2026.07.2",
+        "OE5XRX Remote Station 2026.07.21-22",  # full tag but terminator not yet streamed
+    ]:
+        assert re.search(banner, partial) is None, partial
+    # Once the terminator arrives, the FULL tag is captured (not a prefix).
+    assert re.search(banner, "OE5XRX Remote Station 2026.07.21-22\r\n").group(1) == "2026.07.21-22"
+
+
 def test_qemu_dut_server_url_uses_slirp_alias():
     t = QemuTarget()
     assert t.dut_server_url(8080) == "http://10.0.2.2:8080"
