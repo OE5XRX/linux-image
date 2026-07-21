@@ -10,14 +10,15 @@ LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda
 
 # The SA818 AT-emulator is NOT vendored — it is pinned from the co-versioned
 # FW-RemoteStation release asset (fm-sa818-2m.sa818-sim.py), the same canonical,
-# unit-tested source the native_sim binary is built from. This keeps the emulator
-# and the sim binary in lockstep: bump both together when re-pinning a release.
-# Re-pin: fetch <tag>/fm-sa818-2m.sa818-sim.py, cosign-verify, update the URL +
-# SRC_URI[sa818sim.sha256sum] below (scripts/pin-fw-artifact.sh does the verify).
+# unit-tested source the native_sim binary is built from. It shares the layer-wide
+# release tag (FW_RELEASE_TAG, single source of truth in the include below), so
+# emulator and sim binary stay in lockstep. Only the sha256 is per-asset; re-pin the
+# whole layer with: scripts/bump-fw-release.sh <tag>  (rewrites tag + all shas).
+require conf/oe5xrx-fw-release.inc
 SRC_URI = " \
     file://sim-harness.sh \
     file://oe5xrx-sim-harness.service \
-    https://github.com/OE5XRX/FW-RemoteStation/releases/download/26.07.21-01/fm-sa818-2m.sa818-sim.py;name=sa818sim;downloadfilename=sa818-sim.py \
+    ${FW_RELEASE_URL_BASE}/${FW_RELEASE_TAG}/fm-sa818-2m.sa818-sim.py;name=sa818sim;downloadfilename=sa818-sim.py \
 "
 SRC_URI[sa818sim.sha256sum] = "cb35b4ef54e9f71ddcae8f912a9184172dac7a621c4d0ebb5c5e7a8f5229c085"
 

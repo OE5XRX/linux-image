@@ -4,20 +4,26 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
-recipe="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm_26.07.21.bb"
+recipe="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm.bb"
 harness_recipe="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/oe5xrx-sim-harness_1.0.bb"
 harness="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/files/sim-harness.sh"
+inc="${repo_root}/meta-oe5xrx-remotestation/conf/oe5xrx-fw-release.inc"
 
-url="$(sed -nE 's/^SRC_URI = "([^";]*).*/\1/p' "$recipe")"
+# The release tag is single-sourced in the include; recipe SRC_URIs interpolate it,
+# so reconstruct the asset URLs here the same way BitBake would (base/tag/asset).
+url_base="$(sed -nE 's/^FW_RELEASE_URL_BASE[[:space:]]*\?=[[:space:]]*"([^"]+)".*/\1/p' "$inc")"
+tag="$(sed -nE 's/^FW_RELEASE_TAG[[:space:]]*\?=[[:space:]]*"([^"]+)".*/\1/p' "$inc")"
+if [ -z "$url_base" ] || [ -z "$tag" ]; then echo "FAIL: could not read FW_RELEASE_URL_BASE/TAG from $inc"; exit 1; fi
+
+url="${url_base}/${tag}/fm-sa818-2m.native_sim"
 sha="$(sed -nE 's/^SRC_URI\[sha256sum\] = "([0-9a-f]+)".*/\1/p' "$recipe")"
-if [ -z "$url" ] || [ -z "$sha" ]; then echo "FAIL: could not read pinned URL/sha from recipe"; exit 1; fi
+if [ -z "$sha" ]; then echo "FAIL: could not read native_sim sha from recipe"; exit 1; fi
 
-# The SA818 emulator is no longer vendored — it is pinned as a co-versioned FW
-# release asset in the harness recipe. Download the EXACT pinned asset (URL + sha
-# from that recipe) so the test exercises the same bytes the image ships.
-sa818_url="$(sed -nE 's#.*(https://[^";[:space:]]*sa818-sim\.py)[;[:space:]].*#\1#p' "$harness_recipe" | head -n1)"
+# The SA818 emulator is pinned as a co-versioned FW release asset (same tag). Download
+# the EXACT pinned bytes so the test exercises what the image ships.
+sa818_url="${url_base}/${tag}/fm-sa818-2m.sa818-sim.py"
 sa818_sha="$(sed -nE 's/^SRC_URI\[sa818sim\.sha256sum\] = "([0-9a-f]+)".*/\1/p' "$harness_recipe")"
-if [ -z "$sa818_url" ] || [ -z "$sa818_sha" ]; then echo "FAIL: could not read pinned SA818 URL/sha from harness recipe"; exit 1; fi
+if [ -z "$sa818_sha" ]; then echo "FAIL: could not read SA818 sha from harness recipe"; exit 1; fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/sim-harness.XXXXXX")"
 trap 'kill "${harness_pid:-}" 2>/dev/null || true; rm -rf "$work"' EXIT

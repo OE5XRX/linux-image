@@ -69,38 +69,12 @@ jobs:
         uses: sigstore/cosign-installer@v3
 
       - name: Fail if FM artifacts are unpinned or unsigned
-        run: |
-          set -euo pipefail
-          id_re='^https://github.com/OE5XRX/FW-RemoteStation/\.github/workflows/release\.yml@refs/heads/main$'
-          issuer='https://token.actions.githubusercontent.com'
-          recipes="
-            meta-oe5xrx-remotestation/recipes-core/oe5xrx-fm-firmware/oe5xrx-fm-firmware_26.07.04.bb
-            meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm_26.07.21.bb
-          "
-          for recipe in $recipes; do
-            [ -f "$recipe" ] || { echo "::error::missing $recipe"; exit 1; }
-            url="$(sed -nE 's/^SRC_URI = "([^";]*).*/\1/p' "$recipe")"
-            sha="$(sed -nE \
-              's/^SRC_URI\[sha256sum\] = "([0-9a-fA-F]*)".*/\1/p' \
-              "$recipe" | tr 'A-F' 'a-f')"
-            case "$url" in
-              *REPLACE*|"")
-                echo "::error file=$recipe::SRC_URI unpinned"; exit 1;;
-            esac
-            printf '%s' "$sha" | grep -Eq '^[0-9a-f]{64}$' \
-              || { echo "::error file=$recipe::sha256sum unpinned"
-                   exit 1; }
-            tmp="$(mktemp -d)"
-            curl -fsSL "$url"        -o "$tmp/asset"
-            curl -fsSL "$url.bundle" -o "$tmp/asset.bundle"
-            echo "${sha}  ${tmp}/asset" | sha256sum -c -
-            cosign verify-blob \
-              --certificate-identity-regexp "$id_re" \
-              --certificate-oidc-issuer "$issuer" \
-              --bundle "$tmp/asset.bundle" "$tmp/asset"
-            echo "OK — $recipe pinned + cosign-verified"
-            rm -rf "$tmp"
-          done
+        # Single source of truth: bump-fw-release.sh --check re-fetches every pinned
+        # FW-RemoteStation asset (native_sim, SA818 emulator, real .bin) at the tag
+        # in conf/oe5xrx-fw-release.inc, cosign-verifies each and asserts the recipe
+        # sha256 still matches the release SHA256SUMS. Same verify logic the pin path
+        # uses — no duplicated bash-in-yaml, and it covers all three assets.
+        run: scripts/bump-fw-release.sh --check
 
   # Compute the next version + resolve the previous release (slot A for the
   # gate's cross-build OTA test). Since nothing is tagged yet, the latest
