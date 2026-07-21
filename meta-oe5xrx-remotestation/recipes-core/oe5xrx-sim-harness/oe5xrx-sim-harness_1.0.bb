@@ -26,16 +26,18 @@ S = "${WORKDIR}"
 
 inherit systemd
 
-# native_sim binary + a python3 interpreter with the stdlib modules the SA818
-# emulator uses (os/re/signal/dataclasses/typing are python3-core; the rest are
-# their own OE-core module packages). These are already present in the image
-# via station-agent, listed here explicitly so the sim-harness is self-contained.
+# native_sim binary + the python3 stdlib split-packages the SA818 emulator imports:
+#   os, re, sys, select, signal, dataclasses, typing, argparse -> python3-core
+#   termios, tty                                               -> python3-terminal
+#   threading                                                  -> python3-threading
+# (argparse lives in python3-core in current OE-core — there is NO python3-argparse
+# package; RDEPENDing on it made oe5xrx-sim-harness unbuildable. python3-io is kept
+# as a belt-and-suspenders provider for select on manifests that split it out.)
 RDEPENDS:${PN} += "oe5xrx-native-sim-fm \
     python3-core \
     python3-io \
     python3-terminal \
     python3-threading \
-    python3-argparse \
 "
 
 SYSTEMD_SERVICE:${PN} = "oe5xrx-sim-harness.service"
