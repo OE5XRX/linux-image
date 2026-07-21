@@ -4,13 +4,28 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
-recipe="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm_26.07.04.bb"
+recipe="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm.bb"
+harness_recipe="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/oe5xrx-sim-harness_1.0.bb"
 harness="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/files/sim-harness.sh"
-sa818_sim="${repo_root}/meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/files/sa818-sim.py"
+inc="${repo_root}/meta-oe5xrx-remotestation/conf/oe5xrx-fw-release.inc"
 
-url="$(sed -nE 's/^SRC_URI = "([^";]*).*/\1/p' "$recipe")"
-sha="$(sed -nE 's/^SRC_URI\[sha256sum\] = "([0-9a-f]+)".*/\1/p' "$recipe")"
-if [ -z "$url" ] || [ -z "$sha" ]; then echo "FAIL: could not read pinned URL/sha from recipe"; exit 1; fi
+# The release tag is single-sourced in the include; recipe SRC_URIs interpolate it,
+# so reconstruct the asset URLs here the same way BitBake would (base/tag/asset).
+url_base="$(sed -nE 's/^FW_RELEASE_URL_BASE[[:space:]]*\?=[[:space:]]*"([^"]+)".*/\1/p' "$inc")"
+tag="$(sed -nE 's/^FW_RELEASE_TAG[[:space:]]*\?=[[:space:]]*"([^"]+)".*/\1/p' "$inc")"
+if [ -z "$url_base" ] || [ -z "$tag" ]; then echo "FAIL: could not read FW_RELEASE_URL_BASE/TAG from $inc"; exit 1; fi
+
+# sha regexes tolerate flexible spacing and hex case (normalized to lowercase) so a
+# harmless recipe reformat never false-fails the test.
+url="${url_base}/${tag}/fm-sa818-2m.native_sim"
+sha="$(sed -nE 's/^SRC_URI\[sha256sum\][[:space:]]*=[[:space:]]*"([0-9a-fA-F]+)".*/\1/p' "$recipe" | tr 'A-F' 'a-f')"
+if [ -z "$sha" ]; then echo "FAIL: could not read native_sim sha from recipe"; exit 1; fi
+
+# The SA818 emulator is pinned as a co-versioned FW release asset (same tag). Download
+# the EXACT pinned bytes so the test exercises what the image ships.
+sa818_url="${url_base}/${tag}/fm-sa818-2m.sa818-sim.py"
+sa818_sha="$(sed -nE 's/^SRC_URI\[sa818sim\.sha256sum\][[:space:]]*=[[:space:]]*"([0-9a-fA-F]+)".*/\1/p' "$harness_recipe" | tr 'A-F' 'a-f')"
+if [ -z "$sa818_sha" ]; then echo "FAIL: could not read SA818 sha from harness recipe"; exit 1; fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/sim-harness.XXXXXX")"
 trap 'kill "${harness_pid:-}" 2>/dev/null || true; rm -rf "$work"' EXIT
@@ -20,6 +35,11 @@ echo "Downloading pinned native_sim ..."
 curl -fsSL "$url" -o "$bin"
 echo "${sha}  ${bin}" | sha256sum -c - || { echo "FAIL: sha256 mismatch vs recipe pin"; exit 1; }
 chmod +x "$bin"
+
+sa818_sim="${work}/sa818-sim.py"
+echo "Downloading pinned SA818 emulator ..."
+curl -fsSL "$sa818_url" -o "$sa818_sim"
+echo "${sa818_sha}  ${sa818_sim}" | sha256sum -c - || { echo "FAIL: sha256 mismatch vs harness recipe pin"; exit 1; }
 
 # Run the ACTUAL harness script against a temp slot dir (proves the shipped script).
 # Point SA818_SIM at the shipped emulator so the harness attaches it to uart_1 —

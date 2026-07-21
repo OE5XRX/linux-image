@@ -1,7 +1,8 @@
 # Run a sim station in Proxmox (2 minutes)
 
 The qemux86-64 image boots the RemoteStation rootfs and starts a simulated FM
-module (the pinned `native_sim` from FW-RemoteStation release 26.07.04-01) behind
+module (the pinned `native_sim` from the FW-RemoteStation release in
+`conf/oe5xrx-fw-release.inc`) behind
 the canonical slot contract `/dev/oe5xrx/slot1/control` — no hardware required.
 The station_agent discovers it exactly as it would a real USB module.
 

@@ -82,4 +82,4 @@ jobs:
           shellcheck -e SC1091 -e SC2039 \
             meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/files/sim-harness.sh \
             tests/sim-harness/test_sim_harness.sh \
-            scripts/pin-fw-artifact.sh
+            scripts/bump-fw-release.sh
