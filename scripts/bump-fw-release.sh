@@ -47,7 +47,7 @@ inc_tag() {
 
 set_inc_tag() {
     grep -qE '^FW_RELEASE_TAG[[:space:]]*\?=' "$inc" || fail "FW_RELEASE_TAG not in $inc"
-    _t="$(mktemp)"
+    _t="$(mktemp "${TMPDIR:-/tmp}/bump-fw.XXXXXX")"
     awk -v val="$1" '
         /^FW_RELEASE_TAG[[:space:]]*\?=/ { print "FW_RELEASE_TAG ?= \"" val "\""; next }
         { print }
@@ -57,7 +57,9 @@ set_inc_tag() {
 
 recipe_sha() {
     _recipe="$1"; _esc="$(printf '%s' "$2" | sed 's/\./\\./g')"
-    sed -nE "s/^SRC_URI\\[${_esc}\\][[:space:]]*=[[:space:]]*\"([0-9a-f]+)\".*/\\1/p" "$_recipe"
+    # Tolerant of hex case; normalize to lowercase so --check never false-negatives
+    # on an uppercase or reformatted sha.
+    sed -nE "s/^SRC_URI\\[${_esc}\\][[:space:]]*=[[:space:]]*\"([0-9a-fA-F]+)\".*/\\1/p" "$_recipe" | tr 'A-F' 'a-f'
 }
 
 set_recipe_sha() {
@@ -65,7 +67,7 @@ set_recipe_sha() {
     _esc="$(printf '%s' "$_key" | sed 's/\./\\./g')"
     grep -qE "^SRC_URI\\[${_esc}\\][[:space:]]*=" "$_recipe" \
         || fail "SRC_URI[$_key] not in $_recipe"
-    _t="$(mktemp)"
+    _t="$(mktemp "${TMPDIR:-/tmp}/bump-fw.XXXXXX")"
     awk -v key="$_key" -v sha="$_sha" '
         index($0, "SRC_URI[" key "]") == 1 { print "SRC_URI[" key "] = \"" sha "\""; next }
         { print }
@@ -77,7 +79,7 @@ set_recipe_sha() {
 verify_asset() {
     _tag="$1"; _asset="$2"
     _base="$(url_base)/${_tag}"
-    _tmp="$(mktemp -d)"
+    _tmp="$(mktemp -d "${TMPDIR:-/tmp}/bump-fw.XXXXXX")"
     curl -fsSL "${_base}/${_asset}"        -o "${_tmp}/${_asset}"        || fail "download failed: ${_base}/${_asset}"
     curl -fsSL "${_base}/${_asset}.bundle" -o "${_tmp}/${_asset}.bundle" || fail "download failed: ${_base}/${_asset}.bundle"
     curl -fsSL "${_base}/SHA256SUMS"       -o "${_tmp}/SHA256SUMS"       || fail "download failed: ${_base}/SHA256SUMS"
@@ -98,13 +100,31 @@ verify_asset() {
 bump() {
     _tag="$1"
     echo "Re-pinning FW_RELEASE_TAG -> ${_tag}" >&2
-    printf '%s\n' "$ASSETS" | while IFS=: read -r asset recipe key; do
+    # Phase 1: verify EVERY asset and collect its sha BEFORE writing anything.
+    # A here-doc (not a pipe) keeps the loop in the current shell, so verify_asset's
+    # fail()->exit aborts the whole run — and since no recipe has been touched yet,
+    # a mid-run download/cosign/sha failure leaves the worktree untouched (no partial
+    # update where some recipes/tag are new and others old).
+    _pins=""
+    while IFS=: read -r asset recipe key; do
         [ -n "$asset" ] || continue
         echo "  verify ${asset}@${_tag} ..." >&2
         sha="$(verify_asset "$_tag" "$asset")"
+        echo "  OK  ${asset}  sha256=${sha}  (cosign verified)" >&2
+        _pins="${_pins}${recipe}:${key}:${sha}
+"
+    done <<EOF
+${ASSETS}
+EOF
+    # Phase 2: all verified — commit the shas, then the tag. Here-doc again so a
+    # set_recipe_sha failure (missing key) still aborts instead of dying in a subshell.
+    while IFS=: read -r recipe key sha; do
+        [ -n "$recipe" ] || continue
         set_recipe_sha "$recipe" "$key" "$sha"
-        echo "  OK  ${asset}  sha256=${sha}  (cosign verified) -> $(basename "$recipe")" >&2
-    done
+        echo "  pinned $(basename "$recipe")  SRC_URI[$key]" >&2
+    done <<EOF
+${_pins}
+EOF
     set_inc_tag "$_tag"
     echo "Pinned FW_RELEASE_TAG=${_tag}" >&2
 }

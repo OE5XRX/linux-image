@@ -15,14 +15,16 @@ url_base="$(sed -nE 's/^FW_RELEASE_URL_BASE[[:space:]]*\?=[[:space:]]*"([^"]+)".
 tag="$(sed -nE 's/^FW_RELEASE_TAG[[:space:]]*\?=[[:space:]]*"([^"]+)".*/\1/p' "$inc")"
 if [ -z "$url_base" ] || [ -z "$tag" ]; then echo "FAIL: could not read FW_RELEASE_URL_BASE/TAG from $inc"; exit 1; fi
 
+# sha regexes tolerate flexible spacing and hex case (normalized to lowercase) so a
+# harmless recipe reformat never false-fails the test.
 url="${url_base}/${tag}/fm-sa818-2m.native_sim"
-sha="$(sed -nE 's/^SRC_URI\[sha256sum\] = "([0-9a-f]+)".*/\1/p' "$recipe")"
+sha="$(sed -nE 's/^SRC_URI\[sha256sum\][[:space:]]*=[[:space:]]*"([0-9a-fA-F]+)".*/\1/p' "$recipe" | tr 'A-F' 'a-f')"
 if [ -z "$sha" ]; then echo "FAIL: could not read native_sim sha from recipe"; exit 1; fi
 
 # The SA818 emulator is pinned as a co-versioned FW release asset (same tag). Download
 # the EXACT pinned bytes so the test exercises what the image ships.
 sa818_url="${url_base}/${tag}/fm-sa818-2m.sa818-sim.py"
-sa818_sha="$(sed -nE 's/^SRC_URI\[sa818sim\.sha256sum\] = "([0-9a-f]+)".*/\1/p' "$harness_recipe")"
+sa818_sha="$(sed -nE 's/^SRC_URI\[sa818sim\.sha256sum\][[:space:]]*=[[:space:]]*"([0-9a-fA-F]+)".*/\1/p' "$harness_recipe" | tr 'A-F' 'a-f')"
 if [ -z "$sa818_sha" ]; then echo "FAIL: could not read SA818 sha from harness recipe"; exit 1; fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/sim-harness.XXXXXX")"
