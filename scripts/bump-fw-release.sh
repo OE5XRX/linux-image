@@ -37,6 +37,12 @@ for tool in cosign curl sha256sum; do
 done
 [ -f "$inc" ] || fail "include not found: $inc"
 
+# One temp root under this dir, cleaned on EVERY exit path — including fail()->exit —
+# so a mid-run download/cosign failure never leaks a temp dir. All mktemps below live
+# under it (full-path templates: portable across GNU and BSD userlands).
+_tmproot="$(mktemp -d "${TMPDIR:-/tmp}/bump-fw.XXXXXX")"
+trap 'rm -rf "$_tmproot"' EXIT
+
 url_base() {
     sed -nE 's/^FW_RELEASE_URL_BASE[[:space:]]*\?=[[:space:]]*"([^"]+)".*/\1/p' "$inc"
 }
@@ -47,7 +53,7 @@ inc_tag() {
 
 set_inc_tag() {
     grep -qE '^FW_RELEASE_TAG[[:space:]]*\?=' "$inc" || fail "FW_RELEASE_TAG not in $inc"
-    _t="$(mktemp "${TMPDIR:-/tmp}/bump-fw.XXXXXX")"
+    _t="$(mktemp "${_tmproot}/tag.XXXXXX")"
     awk -v val="$1" '
         /^FW_RELEASE_TAG[[:space:]]*\?=/ { print "FW_RELEASE_TAG ?= \"" val "\""; next }
         { print }
@@ -67,7 +73,7 @@ set_recipe_sha() {
     _esc="$(printf '%s' "$_key" | sed 's/\./\\./g')"
     grep -qE "^SRC_URI\\[${_esc}\\][[:space:]]*=" "$_recipe" \
         || fail "SRC_URI[$_key] not in $_recipe"
-    _t="$(mktemp "${TMPDIR:-/tmp}/bump-fw.XXXXXX")"
+    _t="$(mktemp "${_tmproot}/sha.XXXXXX")"
     awk -v key="$_key" -v sha="$_sha" '
         index($0, "SRC_URI[" key "]") == 1 { print "SRC_URI[" key "] = \"" sha "\""; next }
         { print }
@@ -79,7 +85,7 @@ set_recipe_sha() {
 verify_asset() {
     _tag="$1"; _asset="$2"
     _base="$(url_base)/${_tag}"
-    _tmp="$(mktemp -d "${TMPDIR:-/tmp}/bump-fw.XXXXXX")"
+    _tmp="$(mktemp -d "${_tmproot}/asset.XXXXXX")"
     curl -fsSL "${_base}/${_asset}"        -o "${_tmp}/${_asset}"        || fail "download failed: ${_base}/${_asset}"
     curl -fsSL "${_base}/${_asset}.bundle" -o "${_tmp}/${_asset}.bundle" || fail "download failed: ${_base}/${_asset}.bundle"
     curl -fsSL "${_base}/SHA256SUMS"       -o "${_tmp}/SHA256SUMS"       || fail "download failed: ${_base}/SHA256SUMS"
