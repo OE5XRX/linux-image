@@ -89,12 +89,17 @@ verify_asset() {
     curl -fsSL "${_base}/${_asset}"        -o "${_tmp}/${_asset}"        || fail "download failed: ${_base}/${_asset}"
     curl -fsSL "${_base}/${_asset}.bundle" -o "${_tmp}/${_asset}.bundle" || fail "download failed: ${_base}/${_asset}.bundle"
     curl -fsSL "${_base}/SHA256SUMS"       -o "${_tmp}/SHA256SUMS"       || fail "download failed: ${_base}/SHA256SUMS"
-    cosign verify-blob \
+    # Capture cosign's output and surface it only on failure — quiet on success,
+    # but a verification failure shows cosign's actual diagnostic (cert identity
+    # mismatch, expiry, etc.) instead of a bare "FAILED".
+    if ! _cosign_out="$(cosign verify-blob \
         --certificate-identity-regexp "$COSIGN_IDENTITY_RE" \
         --certificate-oidc-issuer "$COSIGN_ISSUER" \
         --bundle "${_tmp}/${_asset}.bundle" \
-        "${_tmp}/${_asset}" >/dev/null 2>&1 \
-        || fail "cosign verification FAILED for ${_asset}@${_tag}"
+        "${_tmp}/${_asset}" 2>&1)"; then
+        echo "$_cosign_out" >&2
+        fail "cosign verification FAILED for ${_asset}@${_tag}"
+    fi
     _sha="$(sha256sum "${_tmp}/${_asset}" | cut -d' ' -f1)"
     _exp="$(awk -v f="$_asset" '$2==f {print $1}' "${_tmp}/SHA256SUMS")"
     [ -n "$_exp" ] || fail "${_asset} not listed in SHA256SUMS@${_tag}"
