@@ -82,7 +82,11 @@ jobs:
           # Wait until the ref is visible via the API, then dispatch (retrying a
           # couple of times to cover any residual lag).
           for i in $(seq 1 10); do
-            if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" >/dev/null 2>&1; then
+            # Use the singular "get a reference" endpoint (/git/ref/{ref}): it 404s
+            # when the tag doesn't exist and 200s when it does — exactly the check we
+            # want. The plural /git/refs/{ref} lists matching refs (200 + array, even
+            # when empty), which would make this poll break early on a missing tag.
+            if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
               break
             fi
             echo "tag ref not visible yet (attempt $i/10), waiting 3s..."
