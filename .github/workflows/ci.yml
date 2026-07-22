@@ -14,7 +14,7 @@ jobs:
     name: Validate recipes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -73,7 +73,7 @@ jobs:
   sim-harness:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Real-binary harness E2E
         run: bash tests/sim-harness/test_sim_harness.sh
       - name: Shellcheck harness + pin scripts
