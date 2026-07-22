@@ -15,7 +15,7 @@
 - No PAT / no GitHub App: chaining uses the `workflow_dispatch` `GITHUB_TOKEN` exception.
 - Reusable workflows `./.github/workflows/build.yml`, `./.github/workflows/boot-ota-test.yml` and composite `./.github/actions/compute-version` stay unchanged — only callers/inputs change.
 - Do NOT modify station-manager. Do NOT change the FW-RemoteStation verification (`bump-fw-release.sh --check`, `@refs/heads/main`).
-- `validate-tag` and `preflight` in `release.yml` run as jobs **always**; only their steps are `if: ${{ !inputs.dry_run }}` — otherwise the `needs`-chain skips `build`/`gate` in dry_run mode.
+- `validate-tag` runs as a job **always** (only its tag-format-check step is `if: ${{ !inputs.dry_run }}`; the job also resolves the `release_tag` output). `preflight` also runs **always but unconditionally** (extracted into the reusable `preflight.yml`, which takes no `dry_run` input). This keeps the `needs`-chain intact so `build`/`gate` still run in dry_run mode.
 - Verification tool: `actionlint` (static). The load-bearing runtime assumption (dispatch@tag ⇒ cosign SAN `@refs/tags/<tag>`) is proven only by the first real release run + station-manager import.
 
 ---
@@ -110,16 +110,16 @@
       uses: ./.github/workflows/build.yml
       with:
         machine: raspberrypi4-64
-        release_tag: ${{ github.ref_name }}
+        release_tag: ${{ needs.validate-tag.outputs.release_tag }}
     gate:
       name: Boot & OTA gate (x64)
-      needs: [resolve-slot-a, build-x64]
+      needs: [validate-tag, resolve-slot-a, build-x64]
       uses: ./.github/workflows/boot-ota-test.yml
       with:
-        expected_tag: ${{ github.ref_name }}
+        expected_tag: ${{ needs.validate-tag.outputs.release_tag }}
         last_release_tag: ${{ needs.resolve-slot-a.outputs.last_release }}
   ```
-  (Copy the exact `with:` keys from the current `release.yml` build/gate calls — match names verbatim.)
+  `validate-tag` resolves `release_tag` = the tag on a real run, `dev` in dry_run (a branch `github.ref_name` may contain `/`, which BitBake rejects for `OE5XRX_RELEASE_TAG`); build and gate both consume that same value so `expected_tag` matches the stamp. (Copy the exact `with:` keys from the current `release.yml` build/gate calls — match names verbatim.)
 
 - [ ] **Step 6: Sign & publish under the tag (job-level `if: !dry_run`).** Keep the existing download-artifact + `cosign sign-blob` + `softprops/action-gh-release` steps. Change every `${{ needs.version.outputs.version }}` → `${{ github.ref_name }}`. Set:
   ```yaml
@@ -147,9 +147,15 @@
             REF_NAME: ${{ github.ref_name }}
           run: |
             set -euo pipefail
-            echo "Deleting tag $REF_NAME after a failed release run"
-            git push origin ":refs/tags/${REF_NAME}" || echo "tag already gone"
+            # ls-remote guard: only tolerate "already gone"; a real delete error
+            # (permission, protected tag, network) must fail the job, not be swallowed.
+            if git ls-remote --exit-code --tags origin "refs/tags/${REF_NAME}" >/dev/null 2>&1; then
+              git push origin ":refs/tags/${REF_NAME}"
+            else
+              echo "tag '$REF_NAME' already gone"
+            fi
   ```
+  The cleanup job's `if:` must NOT be a bare `failure()`: per GitHub `failure()` is true if *any* ancestor fails, and `validate-tag` is a transitive ancestor via `preflight`, so a malformed-tag manual dispatch would delete a foreign tag. Use `always() && !inputs.dry_run && startsWith(github.ref,'refs/tags/') && needs.validate-tag.result == 'success' && (needs.preflight.result == 'failure' || needs.resolve-slot-a.result == 'failure' || needs.build-x64.result == 'failure' || needs.build-rpi.result == 'failure' || needs.gate.result == 'failure' || needs.release.result == 'failure')`.
 
 - [ ] **Step 8: Lint.**
 

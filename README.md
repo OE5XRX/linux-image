@@ -100,9 +100,10 @@ flowchart LR
     TR --> Tag[compute version<br/>push tag]
     Tag --> Rel[release.yml<br/>dispatched @ tag]
     Rel --> B1[build.yml<br/>qemux86-64]
-    B1 --> B2[build.yml<br/>raspberrypi4-64]
-    B2 --> Gate[boot + OTA gate]
+    Rel --> B2[build.yml<br/>raspberrypi4-64]
+    B1 --> Gate[boot + OTA gate]
     Gate --> Sign[cosign keyless<br/>@refs/tags/{tag}]
+    B2 --> Sign
     Sign --> GH[GitHub Release<br/>.wic.bz2 · .sha256 · .bundle]
 ```
 

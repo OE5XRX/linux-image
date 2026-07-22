@@ -56,6 +56,7 @@ jobs:
         uses: ./.github/actions/compute-version
 
       - name: Create + push the tag
+        id: push
         env:
           TAG: ${{ steps.cv.outputs.version }}
         run: |
@@ -64,6 +65,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "refs/tags/${TAG}"
+          # Set the flag ONLY after a successful push. If the push fails (e.g. the
+          # tag already exists — a race or a manual push), set -e aborts before
+          # this line, so the failure cleanup below won't touch that foreign tag.
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
           echo "Pushed tag $TAG"
 
       - name: Dispatch release.yml against the tag
@@ -94,24 +99,20 @@ jobs:
           echo "::error::failed to dispatch release.yml @ $TAG after retries"
           exit 1
 
-      - name: Delete the tag if the run failed after pushing it
-        # If anything after "Create + push the tag" fails (e.g. the dispatch never
-        # goes through), the tag would dangle with no release run and no
-        # release.yml cleanup to remove it. Delete it here. Guarded: a no-op if the
-        # tag was never pushed (failure happened earlier) — so this is safe even
-        # when there's nothing to clean up.
-        if: failure()
+      - name: Delete the tag if the run failed after we pushed it
+        # Runs ONLY when this run's own push step succeeded (steps.push.outputs.pushed)
+        # and something afterwards failed (e.g. the dispatch). This guarantees we only
+        # ever delete a tag THIS run created — never a pre-existing/foreign tag whose
+        # presence made our push fail. Otherwise the tag would dangle with no release
+        # run (release.yml never ran, so its cleanup can't help).
+        if: ${{ failure() && steps.push.outputs.pushed == 'true' }}
         env:
           TAG: ${{ steps.cv.outputs.version }}
         run: |
           set -euo pipefail
-          if [ -z "${TAG:-}" ]; then
-            echo "no computed tag — nothing to delete"
-            exit 0
-          fi
           if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "tag-release failed after pushing '$TAG' — deleting it so nothing dangles"
+            echo "tag-release failed after this run pushed '$TAG' — deleting it so nothing dangles"
             git push origin ":refs/tags/${TAG}"
           else
-            echo "tag '$TAG' not present — nothing to delete"
+            echo "tag '$TAG' already gone — nothing to delete"
           fi
