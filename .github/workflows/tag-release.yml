@@ -1,0 +1,73 @@
+name: Tag release
+
+# One-button release entrypoint (Flow 1 of the two-step release). Runs on the
+# default branch, validates + computes the next version, creates and pushes the
+# tag, then DISPATCHES release.yml against that tag ref.
+#
+# Why dispatch instead of relying on on:push:tags — a tag pushed with the
+# built-in GITHUB_TOKEN does NOT trigger on:push workflows (GitHub's recursion
+# guard; not a permission you can toggle). But workflow_dispatch IS a documented
+# GITHUB_TOKEN exception ("workflow_dispatch and repository_dispatch events
+# always create workflow runs"), so we trigger Flow 2 explicitly — no PAT / App
+# token required. release.yml then runs on the tag ref and cosign-signs under
+# the tag identity that station-manager verifies.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # push the tag
+  actions: write    # dispatch release.yml (workflow_dispatch)
+
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight
+    uses: ./.github/workflows/preflight.yml
+
+  tag:
+    name: Compute version + push tag
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0    # full tag history for the collision-suffix computation
+
+      - name: Guard — real releases only on the default branch
+        env:
+          REF: ${{ github.ref_name }}
+          DEFAULT: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [ "$REF" != "$DEFAULT" ]; then
+            echo "::error::tag-release must run on the default branch ('$DEFAULT'), got '$REF'" >&2
+            exit 1
+          fi
+
+      - name: Compute next version
+        id: cv
+        uses: ./.github/actions/compute-version
+
+      - name: Create + push the tag
+        env:
+          TAG: ${{ steps.cv.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "refs/tags/${TAG}"
+          echo "Pushed tag $TAG"
+
+      - name: Dispatch release.yml against the tag
+        env:
+          TAG: ${{ steps.cv.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml --ref "$TAG" -f dry_run=false
+          echo "Dispatched release.yml @ $TAG"
