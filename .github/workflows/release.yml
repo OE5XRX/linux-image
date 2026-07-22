@@ -228,13 +228,23 @@ jobs:
   # a re-run of this workflow would target the now-deleted ref.
   cleanup:
     name: Delete tag on failure
-    # validate-tag is intentionally NOT a dependency: if it fails the tag is
-    # malformed (only reachable by a manual dispatch against a bad tag), and we
-    # must not auto-delete a tag this flow didn't create. All downstream jobs are
-    # then skipped (not failed), so failure() stays false and cleanup won't run.
-    # A failure in the real work below IS on a good tag → delete it.
-    needs: [preflight, resolve-slot-a, build-x64, build-rpi, gate, release]
-    if: ${{ failure() && !inputs.dry_run && startsWith(github.ref, 'refs/tags/') }}
+    needs: [validate-tag, preflight, resolve-slot-a, build-x64, build-rpi, gate, release]
+    # Delete the tag ONLY when a real build/gate/sign job failed on a good tag —
+    # never when validate-tag itself failed. A bare failure() can't express this:
+    # per GitHub, "failure() returns true if any ANCESTOR job fails", and
+    # validate-tag is a transitive ancestor via preflight — so failure() would
+    # also fire for a malformed-tag manual dispatch and delete a tag this flow
+    # never created. Explicit result checks (with always() so the if is still
+    # evaluated) make it unambiguous: require validate-tag == success first.
+    if: >-
+      ${{ always() && !inputs.dry_run && startsWith(github.ref, 'refs/tags/')
+          && needs.validate-tag.result == 'success'
+          && (needs.preflight.result == 'failure'
+              || needs.resolve-slot-a.result == 'failure'
+              || needs.build-x64.result == 'failure'
+              || needs.build-rpi.result == 'failure'
+              || needs.gate.result == 'failure'
+              || needs.release.result == 'failure') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
