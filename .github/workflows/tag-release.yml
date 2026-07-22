@@ -36,7 +36,7 @@ jobs:
       contents: write   # push the tag
       actions: write    # dispatch release.yml (workflow_dispatch)
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0    # full tag history for the collision-suffix computation
 
