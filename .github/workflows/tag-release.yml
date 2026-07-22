@@ -93,3 +93,25 @@ jobs:
           done
           echo "::error::failed to dispatch release.yml @ $TAG after retries"
           exit 1
+
+      - name: Delete the tag if the run failed after pushing it
+        # If anything after "Create + push the tag" fails (e.g. the dispatch never
+        # goes through), the tag would dangle with no release run and no
+        # release.yml cleanup to remove it. Delete it here. Guarded: a no-op if the
+        # tag was never pushed (failure happened earlier) — so this is safe even
+        # when there's nothing to clean up.
+        if: failure()
+        env:
+          TAG: ${{ steps.cv.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAG:-}" ]; then
+            echo "no computed tag — nothing to delete"
+            exit 0
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "tag-release failed after pushing '$TAG' — deleting it so nothing dangles"
+            git push origin ":refs/tags/${TAG}"
+          else
+            echo "tag '$TAG' not present — nothing to delete"
+          fi

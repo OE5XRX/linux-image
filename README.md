@@ -321,8 +321,9 @@ with cosign keyless (Sigstore + GitHub Actions OIDC) — under the tag
 identity `…/release.yml@refs/tags/<tag>` — and publishes a GitHub
 Release with the images, SHA256 checksums, and signature bundles.
 
-If the build/gate/sign fails, `release.yml` deletes the tag so a failed
-attempt leaves nothing behind. **To retry, re-run `tag-release.yml`**
+If any real build step fails after the tag is validated (preflight,
+resolve-slot-a, build, gate or sign), `release.yml` deletes the tag so a
+failed attempt leaves nothing behind. **To retry, re-run `tag-release.yml`**
 (it computes a fresh tag) — do not re-run `release.yml`, whose tag ref
 was deleted. See [SECURITY.md](SECURITY.md) for how to verify a release
 before flashing it.

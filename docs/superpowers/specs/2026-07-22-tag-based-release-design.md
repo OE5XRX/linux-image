@@ -38,22 +38,22 @@ Jobs:
 ### Flow 2 — `.github/workflows/release.yml` (`on: workflow_dispatch`, läuft auf dem Tag-Ref)
 `workflow_dispatch`-Inputs: `dry_run` (bool, default false).
 
-**Wichtig — dry_run & `needs`-Kette:** GitHub überspringt Jobs, deren `needs`-Vorgänger *übersprungen* wurden. Würde man `validate-tag`/`preflight` per Job-`if: !dry_run` skippen, würden auch `build`/`gate` (die davon abhängen) übersprungen → dry_run kaputt. Deshalb: **`validate-tag` und `preflight` laufen als Jobs immer**, nur ihre *Steps* sind `if: ${{ !inputs.dry_run }}`-gated. Ein Job mit lauter übersprungenen Steps endet als `success` → die `needs`-Kette bleibt intakt. Nur die *terminalen* Jobs (`sign-publish`, `cleanup`) tragen ein Job-Level-`if` (nichts hängt an ihnen).
+**Wichtig — dry_run & `needs`-Kette:** GitHub überspringt Jobs, deren `needs`-Vorgänger *übersprungen* wurden. Würde man `validate-tag` per Job-`if: !dry_run` skippen, würden auch `build`/`gate` (die davon abhängen) übersprungen → dry_run kaputt. Deshalb: **`validate-tag` läuft als Job immer** — nur sein Tag-Format-Check-*Step* ist `if: ${{ !inputs.dry_run }}`-gated (im dry_run ein No-op-`success`); derselbe Job löst zusätzlich den `release_tag`-Output auf. **`preflight` läuft ebenfalls immer** (unconditionally, die Reusable nimmt kein `dry_run`-Input — der Preflight ist billig und validiert den Zustand auch im dry_run). So bleibt die `needs`-Kette intakt. Nur die *terminalen* Jobs (`release`/sign-publish, `cleanup`) tragen ein Job-Level-`if`.
 
 Jobs:
 1. **validate-tag** (läuft immer; Steps `if: !dry_run`) — **NEU**, der vom User gewünschte Format-Gate:
    - `github.ref` muss mit `refs/tags/` beginnen, sonst Abbruch.
    - `github.ref_name` muss `^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9]{2}[a-z]?$` matchen (dieselbe `TAG_RE` wie `compute-release-version.sh`), sonst Abbruch.
-   - Grund: `workflow_dispatch` kann von Hand gegen einen beliebigen Ref ausgelöst werden; der Signier-/Publish-Pfad darf nur für einen korrekt geformten Tag laufen. Im dry_run (Branch-Ref) sind die Steps übersprungen.
-2. **preflight** (`needs: validate-tag`; läuft immer, Steps `if: !dry_run`) — wie Flow 1, am getaggten Commit (Defense-in-depth).
+   - Grund: `workflow_dispatch` kann von Hand gegen einen beliebigen Ref ausgelöst werden; der Signier-/Publish-Pfad darf nur für einen korrekt geformten Tag laufen. Im dry_run (Branch-Ref) ist der Check-Step übersprungen.
+   - **`release_tag`-Output:** real run → `github.ref_name` (der validierte Tag); dry_run → `dev`. Ein Branch-`ref_name` kann `/` enthalten (`feature/foo`), das BitBake für `OE5XRX_RELEASE_TAG` (`[A-Za-z0-9._-]`) fatal ablehnt — `dev` ist der Dev-Build-Stamp, den Image + boot-ota-Tests kennen.
+2. **preflight** (`needs: validate-tag`; läuft **immer, unconditionally** — die Reusable nimmt kein `dry_run`) — wie Flow 1, am getaggten Commit (Defense-in-depth).
 3. **resolve-slot-a** — Vorgänger-Release (`gh release list -L 1 …`) fürs Gate. Der aktuelle Tag hat noch **kein** Release (wird erst in sign-publish erzeugt), also liefert das korrekt das vorige Release als Slot A.
-4. **build-x64** / **build-rpi** (`uses: ./.github/workflows/build.yml`) — `release_tag: ${{ github.ref_name }}`; Checkout am Tag-Ref (implizit, da der Run auf dem Tag läuft).
-5. **gate** (`uses: ./.github/workflows/boot-ota-test.yml`) — `expected_tag: ${{ github.ref_name }}`, `last_release_tag` aus resolve-slot-a.
-6. **sign-publish** (`needs: [build-x64, build-rpi, gate]`, `if: !dry_run`):
+4. **build-x64** / **build-rpi** (`uses: ./.github/workflows/build.yml`) — `release_tag: ${{ needs.validate-tag.outputs.release_tag }}` (Tag im real run, `dev` im dry_run); Checkout am Tag-Ref (implizit, da der Run auf dem Tag läuft).
+5. **gate** (`uses: ./.github/workflows/boot-ota-test.yml`) — `expected_tag: ${{ needs.validate-tag.outputs.release_tag }}` (**derselbe** aufgelöste Wert wie der Build-Stamp, damit die Versions-Assertion auch im dry_run matcht), `last_release_tag` aus resolve-slot-a.
+6. **release** / sign-publish (`needs: [validate-tag, build-x64, build-rpi, gate]`, `if: !dry_run`):
    - Artefakte laden, `cosign sign-blob` — läuft jetzt unterm **Tag-Ref → Identity `@refs/tags/<tag>`**.
    - `softprops/action-gh-release@v3` mit `tag_name: ${{ github.ref_name }}` (Tag existiert bereits → Release wird an ihn gehängt).
-7. **cleanup** (`if: failure() && !dry_run`, `needs:` alle Build/Gate/Sign-Jobs):
-   - Tag löschen: `git push origin ":refs/tags/${GITHUB_REF_NAME}"` → kein verwaister Tag bei Build-/Gate-/Sign-Fehler.
+7. **cleanup** — Tag löschen, wenn ein **echter Arbeits-Job** fehlschlägt. Statt eines nackten `failure()` (das per GitHub-Semantik bei *jedem* Ancestor-Fehler — inkl. `validate-tag` transitiv über `preflight` — feuert und so bei einem malformed-Tag-Dispatch einen fremden Tag löschen würde) explizit: `always() && !dry_run && startsWith(github.ref,'refs/tags/') && needs.validate-tag.result=='success' && (needs.preflight/resolve-slot-a/build-x64/build-rpi/gate/release … == 'failure')`. Delete ist `git ls-remote`-guarded (nur echte Fehler schlagen durch, „already gone" ist No-op).
 
 `permissions`: `contents: write` (Release + Tag löschen), `id-token: write` (cosign), `actions: read`.
 
