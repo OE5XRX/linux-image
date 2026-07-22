@@ -8,6 +8,10 @@ name: Preflight
 on:
   workflow_call: {}
 
+# Read-only: checks only inspect the tree + verify public release assets.
+permissions:
+  contents: read
+
 jobs:
   preflight:
     name: Require pinned SRCREV + signed FM artifacts

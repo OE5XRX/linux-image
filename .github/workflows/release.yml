@@ -22,10 +22,12 @@ on:
         type: boolean
         default: false
 
+# Least privilege: default read-only (covers the build/gate reusable calls, the
+# gh release list in resolve-slot-a, and same-run artifact downloads). The write
+# and id-token scopes are granted only on the jobs that need them (release, cleanup).
 permissions:
-  contents: write       # publish release + delete the tag on failure
-  id-token: write       # cosign keyless OIDC token
-  actions: read         # download-artifact from called workflows
+  contents: read
+  actions: read
 
 concurrency:
   group: release
@@ -40,6 +42,8 @@ jobs:
   validate-tag:
     name: Validate tag / resolve release tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: read    # only inspects github.ref and writes a job output
     outputs:
       release_tag: ${{ steps.rt.outputs.tag }}
     steps:
@@ -144,6 +148,10 @@ jobs:
     needs: [validate-tag, build-x64, build-rpi, gate]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # publish the GitHub Release
+      id-token: write   # cosign keyless OIDC token
+      actions: read     # download build artifacts
     steps:
       - uses: actions/checkout@v6
 
@@ -246,6 +254,8 @@ jobs:
               || needs.gate.result == 'failure'
               || needs.release.result == 'failure') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # delete the release tag
     steps:
       - uses: actions/checkout@v6
       - name: Delete the release tag

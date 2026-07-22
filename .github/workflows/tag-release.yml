@@ -15,9 +15,9 @@ name: Tag release
 on:
   workflow_dispatch: {}
 
+# Least privilege: default read-only; only the tag job gets the write scopes.
 permissions:
-  contents: write   # push the tag
-  actions: write    # dispatch release.yml (workflow_dispatch)
+  contents: read
 
 concurrency:
   group: tag-release
@@ -32,6 +32,9 @@ jobs:
     name: Compute version + push tag
     needs: preflight
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # push the tag
+      actions: write    # dispatch release.yml (workflow_dispatch)
     steps:
       - uses: actions/checkout@v6
         with:
