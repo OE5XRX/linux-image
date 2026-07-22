@@ -96,11 +96,13 @@ flowchart LR
 flowchart LR
     PR[Pull Request] --> CI[ci.yml<br/>parse + lint]
     CI --> Merge[Merge to main]
-    Merge --> Tag[git tag vX.Y.Z]
-    Tag --> Rel[release.yml]
+    Merge --> TR[tag-release.yml<br/>dispatch on main]
+    TR --> Tag[compute version<br/>push tag]
+    Tag --> Rel[release.yml<br/>dispatched @ tag]
     Rel --> B1[build.yml<br/>qemux86-64]
     B1 --> B2[build.yml<br/>raspberrypi4-64]
-    B2 --> Sign[cosign keyless]
+    B2 --> Gate[boot + OTA gate]
+    Gate --> Sign[cosign keyless<br/>@refs/tags/tag]
     Sign --> GH[GitHub Release<br/>.wic.bz2 · .sha256 · .bundle]
 ```
 
@@ -203,12 +205,21 @@ Three workflows:
 - **`build.yml`** — reusable + manually dispatchable. Full Yocto build
   on an on-demand Hetzner CCX43 for a single machine. Uploads the image
   artifact with 7-day retention. Used ad-hoc or called by `release.yml`.
-- **`release.yml`** — triggered on a timestamped tag push
-  (`YYYY.MM.DD-HH[a-z]`, see `scripts/release.sh`). Calls `build.yml`
-  for **both** targets in parallel — each has its own cache volume —
-  then signs each image with [cosign keyless][cosign] and publishes a
-  GitHub Release with the images, SHA256 checksums, and `.bundle`
-  signatures attached.
+- **`tag-release.yml`** — the one-button release entrypoint
+  (`workflow_dispatch` on `main`). Runs `preflight.yml`, computes the next
+  `YYYY.MM.DD-HH[a-z]` version, pushes the tag, then dispatches `release.yml`
+  **against that tag ref** (`gh workflow run release.yml --ref <tag>` — a
+  documented `GITHUB_TOKEN` exception, so no PAT is needed).
+- **`release.yml`** — build / gate / sign / publish, run **on the tag ref**
+  so `cosign` signs under the tag identity
+  (`…/release.yml@refs/tags/<tag>`, which station-manager verifies). Validates
+  the tag format, calls `build.yml` for **both** targets in parallel, gates on
+  the boot + cross-build OTA test, signs each image with [cosign keyless][cosign],
+  and publishes the GitHub Release. Deletes the tag if a build/gate/sign fails,
+  so a failed attempt leaves nothing behind. `dry_run=true` (manual branch
+  dispatch) does build + gate only.
+- **`preflight.yml`** — reusable cheap gate (pinned station-agent SRCREV +
+  cosign-verified FM artifacts); called by both release workflows.
 
 [cosign]: https://docs.sigstore.dev/cosign/signing/overview/
 
@@ -269,7 +280,9 @@ Each image ships with:
     ├── workflows/
     │   ├── ci.yml                       fast PR / main checks
     │   ├── build.yml                    reusable Hetzner build (single target)
-    │   └── release.yml                  tag-driven: build both + cosign + GH Release
+    │   ├── preflight.yml                reusable release preflight (pins + signatures)
+    │   ├── tag-release.yml              one-button entrypoint: version + tag + dispatch
+    │   └── release.yml                  runs @ tag: build both + gate + cosign + GH Release
     ├── ISSUE_TEMPLATE/bug.yml
     ├── PULL_REQUEST_TEMPLATE.md
     ├── CODEOWNERS
@@ -292,27 +305,31 @@ change goes through PR review.
 ### Releases
 
 Rolling releases are tagged as `YYYY.MM.DD-HH` in UTC (e.g.
-`2026.04.19-14`). Use the helper:
+`2026.04.19-14`), with a lowercase suffix on a same-hour collision
+(`…-14a`). Cutting a release is one button — run the **Tag release**
+workflow on `main`:
 
 ```bash
-./scripts/release.sh
+gh workflow run tag-release.yml --repo OE5XRX/linux-image --ref main
 ```
 
-It verifies the working tree is clean + in sync with `origin/main`,
-generates the timestamp tag, shows the commits that will be included,
-asks for confirmation, then tags and pushes. The push triggers
-`release.yml`, which builds **both** machine images (qemux86-64 +
-raspberrypi4-64), signs them with cosign keyless (Sigstore + GitHub
-Actions OIDC), and publishes a GitHub Release with the images, SHA256
-checksums, and signature bundles. See [SECURITY.md](SECURITY.md) for
-how to verify a release before flashing it.
+`tag-release.yml` runs `preflight.yml`, computes the next timestamp
+version, pushes the tag, then dispatches `release.yml` **against that
+tag**. `release.yml` builds **both** machine images (qemux86-64 +
+raspberrypi4-64), gates on the boot + cross-build OTA test, signs each
+with cosign keyless (Sigstore + GitHub Actions OIDC) — under the tag
+identity `…/release.yml@refs/tags/<tag>` — and publishes a GitHub
+Release with the images, SHA256 checksums, and signature bundles.
 
-For a same-hour hotfix (rare), pass a lowercase suffix letter:
+If the build/gate/sign fails, `release.yml` deletes the tag so a failed
+attempt leaves nothing behind. **To retry, re-run `tag-release.yml`**
+(it computes a fresh tag) — do not re-run `release.yml`, whose tag ref
+was deleted. See [SECURITY.md](SECURITY.md) for how to verify a release
+before flashing it.
 
-```bash
-./scripts/release.sh --suffix a    # -> 2026.04.19-14a
-./scripts/release.sh --suffix b    # -> 2026.04.19-14b if a is taken too
-```
+> Note: `scripts/release.sh` (local tag + push) predates this two-step
+> flow and no longer triggers a release on its own; use the workflow
+> dispatch above.
 
 The helper only emits tags in the form `YYYY.MM.DD-HH` or
 `YYYY.MM.DD-HH<suffix>` where `<suffix>` is a single lowercase letter
