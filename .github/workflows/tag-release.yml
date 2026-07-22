@@ -72,5 +72,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh workflow run release.yml --ref "$TAG" -f dry_run=false
-          echo "Dispatched release.yml @ $TAG"
+          # The tag was just pushed; GitHub can be briefly eventually-consistent
+          # about the new ref, so workflow_dispatch --ref can fail spuriously.
+          # Wait until the ref is visible via the API, then dispatch (retrying a
+          # couple of times to cover any residual lag).
+          for i in $(seq 1 10); do
+            if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" >/dev/null 2>&1; then
+              break
+            fi
+            echo "tag ref not visible yet (attempt $i/10), waiting 3s..."
+            sleep 3
+          done
+          for i in 1 2 3; do
+            if gh workflow run release.yml --ref "$TAG" -f dry_run=false; then
+              echo "Dispatched release.yml @ $TAG"
+              exit 0
+            fi
+            echo "dispatch attempt $i/3 failed, waiting 5s..."
+            sleep 5
+          done
+          echo "::error::failed to dispatch release.yml @ $TAG after retries"
+          exit 1
