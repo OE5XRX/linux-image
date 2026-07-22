@@ -102,7 +102,7 @@ flowchart LR
     Rel --> B1[build.yml<br/>qemux86-64]
     B1 --> B2[build.yml<br/>raspberrypi4-64]
     B2 --> Gate[boot + OTA gate]
-    Gate --> Sign[cosign keyless<br/>@refs/tags/tag]
+    Gate --> Sign[cosign keyless<br/>@refs/tags/{tag}]
     Sign --> GH[GitHub Release<br/>.wic.bz2 · .sha256 · .bundle]
 ```
 

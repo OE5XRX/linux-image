@@ -253,5 +253,12 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          echo "Release run failed — deleting tag '$REF_NAME' so nothing dangles"
-          git push origin ":refs/tags/${REF_NAME}" || echo "tag '$REF_NAME' already gone"
+          # Only tolerate the "already gone" case; a real delete failure (missing
+          # contents: write, a protected tag, a network error) must fail the job
+          # rather than be swallowed, so a genuinely dangling tag is visible.
+          if git ls-remote --exit-code --tags origin "refs/tags/${REF_NAME}" >/dev/null 2>&1; then
+            echo "Release run failed — deleting tag '$REF_NAME' so nothing dangles"
+            git push origin ":refs/tags/${REF_NAME}"
+          else
+            echo "tag '$REF_NAME' already gone — nothing to delete"
+          fi
