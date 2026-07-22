@@ -1,0 +1,122 @@
+name: Tag release
+
+# One-button release entrypoint (Flow 1 of the two-step release). Runs on the
+# default branch, validates + computes the next version, creates and pushes the
+# tag, then DISPATCHES release.yml against that tag ref.
+#
+# Why dispatch instead of relying on on:push:tags — a tag pushed with the
+# built-in GITHUB_TOKEN does NOT trigger on:push workflows (GitHub's recursion
+# guard; not a permission you can toggle). But workflow_dispatch IS a documented
+# GITHUB_TOKEN exception ("workflow_dispatch and repository_dispatch events
+# always create workflow runs"), so we trigger Flow 2 explicitly — no PAT / App
+# token required. release.yml then runs on the tag ref and cosign-signs under
+# the tag identity that station-manager verifies.
+
+on:
+  workflow_dispatch: {}
+
+# Least privilege: default read-only; only the tag job gets the write scopes.
+permissions:
+  contents: read
+
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight
+    uses: ./.github/workflows/preflight.yml
+
+  tag:
+    name: Compute version + push tag
+    needs: preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # push the tag
+      actions: write    # dispatch release.yml (workflow_dispatch)
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0    # full tag history for the collision-suffix computation
+
+      - name: Guard — real releases only on the default branch
+        env:
+          REF: ${{ github.ref_name }}
+          DEFAULT: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [ "$REF" != "$DEFAULT" ]; then
+            echo "::error::tag-release must run on the default branch ('$DEFAULT'), got '$REF'" >&2
+            exit 1
+          fi
+
+      - name: Compute next version
+        id: cv
+        uses: ./.github/actions/compute-version
+
+      - name: Create + push the tag
+        id: push
+        env:
+          TAG: ${{ steps.cv.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "refs/tags/${TAG}"
+          # Set the flag ONLY after a successful push. If the push fails (e.g. the
+          # tag already exists — a race or a manual push), set -e aborts before
+          # this line, so the failure cleanup below won't touch that foreign tag.
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "Pushed tag $TAG"
+
+      - name: Dispatch release.yml against the tag
+        env:
+          TAG: ${{ steps.cv.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The tag was just pushed; GitHub can be briefly eventually-consistent
+          # about the new ref, so workflow_dispatch --ref can fail spuriously.
+          # Wait until the ref is visible via the API, then dispatch (retrying a
+          # couple of times to cover any residual lag).
+          for i in $(seq 1 10); do
+            # Use the singular "get a reference" endpoint (/git/ref/{ref}): it 404s
+            # when the tag doesn't exist and 200s when it does — exactly the check we
+            # want. The plural /git/refs/{ref} lists matching refs (200 + array, even
+            # when empty), which would make this poll break early on a missing tag.
+            if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+              break
+            fi
+            echo "tag ref not visible yet (attempt $i/10), waiting 3s..."
+            sleep 3
+          done
+          for i in 1 2 3; do
+            if gh workflow run release.yml --ref "$TAG" -f dry_run=false; then
+              echo "Dispatched release.yml @ $TAG"
+              exit 0
+            fi
+            echo "dispatch attempt $i/3 failed, waiting 5s..."
+            sleep 5
+          done
+          echo "::error::failed to dispatch release.yml @ $TAG after retries"
+          exit 1
+
+      - name: Delete the tag if the run failed after we pushed it
+        # Runs ONLY when this run's own push step succeeded (steps.push.outputs.pushed)
+        # and something afterwards failed (e.g. the dispatch). This guarantees we only
+        # ever delete a tag THIS run created — never a pre-existing/foreign tag whose
+        # presence made our push fail. Otherwise the tag would dangle with no release
+        # run (release.yml never ran, so its cleanup can't help).
+        if: ${{ failure() && steps.push.outputs.pushed == 'true' }}
+        env:
+          TAG: ${{ steps.cv.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "tag-release failed after this run pushed '$TAG' — deleting it so nothing dangles"
+            git push origin ":refs/tags/${TAG}"
+          else
+            echo "tag '$TAG' already gone — nothing to delete"
+          fi
