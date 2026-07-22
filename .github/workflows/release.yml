@@ -38,8 +38,10 @@ jobs:
   # against any ref, so the sign/publish path must only ever run for a
   # well-formed release tag.
   validate-tag:
-    name: Validate tag format
+    name: Validate tag / resolve release tag
     runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.rt.outputs.tag }}
     steps:
       - name: Require a well-formed tag ref
         if: ${{ !inputs.dry_run }}
@@ -58,6 +60,24 @@ jobs:
             exit 1
           fi
           echo "tag $REF_NAME OK"
+
+      - name: Resolve the release tag used to stamp the image
+        id: rt
+        # Real run: the (validated) tag. dry_run: a branch ref_name may contain
+        # '/' (e.g. feature/foo), which BitBake fatally rejects for
+        # OE5XRX_RELEASE_TAG ([A-Za-z0-9._-] only). Stamp 'dev' instead — the same
+        # dev-build stamp the image + boot-ota tests already recognise. Build and
+        # gate both consume this, so expected_tag always matches the stamp.
+        env:
+          DRY: ${{ inputs.dry_run }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY" = "true" ]; then
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
 
   preflight:
     name: Preflight
@@ -91,7 +111,7 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       machine: qemux86-64
-      release_tag: ${{ github.ref_name }}
+      release_tag: ${{ needs.validate-tag.outputs.release_tag }}
     secrets: inherit
 
   build-rpi:
@@ -101,19 +121,21 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       machine: raspberrypi4-64
-      release_tag: ${{ github.ref_name }}
+      release_tag: ${{ needs.validate-tag.outputs.release_tag }}
     secrets: inherit
 
   gate:
     name: Boot & OTA gate (x64)
     # The publish gate: boot the freshly built x86 image and run the cross-build
     # OTA cycle (slot A = previous release). Publication depends on this passing.
-    needs: [resolve-slot-a, build-x64]
+    # expected_tag uses the SAME resolved tag the image was stamped with, so the
+    # gate's version assertion matches in dry_run ('dev') as well as real runs.
+    needs: [validate-tag, resolve-slot-a, build-x64]
     uses: ./.github/workflows/boot-ota-test.yml
     with:
       machine: qemux86-64
       new_artifact: yocto-image-qemux86-64
-      expected_tag: ${{ github.ref_name }}
+      expected_tag: ${{ needs.validate-tag.outputs.release_tag }}
       last_release_tag: ${{ needs.resolve-slot-a.outputs.last_release }}
     secrets: inherit
 
