@@ -48,10 +48,7 @@ addtask deploy after do_compile before do_build
 
 FILES:${PN} = "/boot/firmware/boot.scr /boot/firmware/boot.cmd ${sysconfdir}/fw_env.config"
 
-# FIXME(u-boot-env-partition): meta-raspberrypi's default U-Boot stores the env
-# at a board-specific offset, not in /dev/disk/by-partlabel/uboot_env. To make
-# fw_env.config above actually work, the U-Boot build needs a bbappend that
-# sets CONFIG_ENV_IS_IN_MMC with CONFIG_ENV_OFFSET/_REDUND matching the wks
-# partition offsets (or, cleaner, switch to CONFIG_ENV_IS_IN_FAT or similar).
-# Until then the A/B boot script runs but the env is in the default location
-# and fw_setenv will need the same offsets patched into fw_env.config.
+# U-Boot stores its environment as redundant raw copies in the uboot_env /
+# uboot_envr partitions, activated by recipes-bsp/u-boot/files/oe5xrx-env.cfg
+# (CONFIG_ENV_IS_IN_MMC + redundant). The offsets there match this
+# fw_env.config, so fw_printenv/fw_setenv and U-Boot share one env.

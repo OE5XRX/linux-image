@@ -17,6 +17,11 @@ bootloader --ptable=gpt
 # partition, so the kernel always travels atomically with its rootfs through OTA.
 
 part /boot/firmware --source bootimg-partition --ondisk mmcblk0 --fstype=vfat --label firmware --fixed-size 64 --active --align 4
+# U-Boot environment (raw). The U-Boot build stores its env at absolute byte
+# offsets matching these partitions' start sectors — see recipes-bsp/u-boot/
+# files/oe5xrx-env.cfg (CONFIG_ENV_OFFSET / CONFIG_ENV_OFFSET_REDUND) and
+# recipes-bsp/u-boot-ab/files/fw_env.config. Changing the layout of these
+# partitions REQUIRES updating those offsets in lockstep.
 part --ondisk mmcblk0 --fstype=none --label uboot_env --size 1 --align 4
 part --ondisk mmcblk0 --fstype=none --label uboot_envr --size 1 --align 4
 part / --source rootfs --ondisk mmcblk0 --fstype=ext4 --label root_a --fixed-size 1024 --align 4
