@@ -77,6 +77,14 @@ IMAGE_INSTALL:append:raspberrypi4-64 = " u-boot-ab u-boot-fw-utils"
 # machine. No RPi-specific kernel install is needed here.
 WKS_FILE:raspberrypi4-64 = "oe5xrx-remotestation-ab.wks.in"
 
+# Our A/B boot.scr must land on the firmware FAT partition, replacing the
+# generic script meta-raspberrypi's rpi-u-boot-scr adds via RPI_USE_U_BOOT.
+# u-boot-ab deploys it as oe5xrx-boot.scr; drop the generic entry and install
+# ours as boot.scr. Mirrors the x86 grubenv deploy routing above.
+IMAGE_BOOT_FILES:remove:raspberrypi4-64 = "boot.scr"
+IMAGE_BOOT_FILES:append:raspberrypi4-64 = " oe5xrx-boot.scr;boot.scr"
+WKS_FILE_DEPENDS:append:raspberrypi4-64 = " u-boot-ab"
+
 # meta-raspberrypi writes /dev/mmcblk0p1 in fstab for /boot/firmware. Our
 # boot-firmware.mount in /etc/systemd/system/ overrides it with PARTLABEL,
 # so this is harmless but worth noting.

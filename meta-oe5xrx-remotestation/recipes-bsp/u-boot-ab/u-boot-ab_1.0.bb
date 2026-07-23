@@ -11,7 +11,7 @@ SRC_URI = " \
 
 S = "${WORKDIR}"
 
-inherit allarch
+inherit allarch deploy
 
 DEPENDS = "u-boot-tools-native"
 
@@ -36,6 +36,15 @@ do_install() {
     install -d ${D}${sysconfdir}
     install -m 0644 ${WORKDIR}/fw_env.config ${D}${sysconfdir}/fw_env.config
 }
+
+do_deploy() {
+    # Stage the A/B boot script for wic. Named oe5xrx-boot.scr (not boot.scr)
+    # to avoid a DEPLOY_DIR_IMAGE filename clash with meta-raspberrypi's
+    # rpi-u-boot-scr. The image recipe installs it onto the FAT partition as
+    # boot.scr via IMAGE_BOOT_FILES. Mirrors grub-ab's grubenv deploy.
+    install -m 0644 ${WORKDIR}/boot.scr ${DEPLOYDIR}/oe5xrx-boot.scr
+}
+addtask deploy after do_compile before do_build
 
 FILES:${PN} = "/boot/firmware/boot.scr /boot/firmware/boot.cmd ${sysconfdir}/fw_env.config"
 
