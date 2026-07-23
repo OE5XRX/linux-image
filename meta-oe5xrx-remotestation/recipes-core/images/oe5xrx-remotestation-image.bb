@@ -90,9 +90,12 @@ WKS_FILE_DEPENDS:append:raspberrypi4-64 = " u-boot-ab"
 # so this is harmless but worth noting.
 
 # CM4 USB host: fdtput (from dtc-native) patches the rootfs DTB below. Make it
-# available on PATH during do_rootfs. RPi-only, matching the post-process scope
-# so non-RPi builds (e.g. qemux86-64) get no dependency they never use.
-do_rootfs[depends]:append:raspberrypi4-64 = " dtc-native:do_populate_sysroot"
+# available on PATH during do_rootfs. Left unconditional on purpose: dtc-native
+# is a native tool already present in every build's sysroot, and the post-process
+# that actually uses it is raspberrypi4-64-only — so there is no cost on x86. A
+# machine override on a varflag (do_rootfs[depends]:append:raspberrypi4-64) is
+# NOT valid bitbake syntax and hard-fails parsing; do not reintroduce it.
+do_rootfs[depends] += "dtc-native:do_populate_sysroot"
 
 # Enable + hard-force host mode on the CM4 USB 2.0 controller in the DTB that
 # u-boot ext4loads from the active slot's rootfs. u-boot applies no overlays and
