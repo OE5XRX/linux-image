@@ -89,6 +89,48 @@ WKS_FILE_DEPENDS:append:raspberrypi4-64 = " u-boot-ab"
 # boot-firmware.mount in /etc/systemd/system/ overrides it with PARTLABEL,
 # so this is harmless but worth noting.
 
+# CM4 USB host: fdtput (from dtc-native) patches the rootfs DTB below. Make it
+# available on PATH during do_rootfs.
+do_rootfs[depends] += "dtc-native:do_populate_sysroot"
+
+# Enable + hard-force host mode on the CM4 USB 2.0 controller in the DTB that
+# u-boot ext4loads from the active slot's rootfs. u-boot applies no overlays and
+# never reads config.txt, and the stock bcm2711-rpi-cm4.dtb ships
+# /soc/usb@7e980000 as status="disabled" with the legacy brcm,bcm2708-usb
+# (dwc_otg) compatible. We bind the mainline dwc2 driver and force dr_mode=host
+# so the ambiguous carrier OTG-ID divider (HW-Module-CM4Carrier R202/R203) is
+# irrelevant. This is exactly `dtoverlay=dwc2,dr_mode=host`, baked into the
+# compiled dtb. See docs/superpowers/specs/2026-07-23-cm4-usb-host-dtb.md.
+python enable_usb_host_dtb() {
+    import os
+    import subprocess
+    # boot.cmd ext4loads the dtb from /boot/broadcom/ first, then falls back to
+    # a flat /boot/ path — the exact install location depends on how
+    # kernel-devicetree lays it out. Patch every copy that exists so we match
+    # whichever one u-boot actually boots; fail only if none is found.
+    rootfs = d.getVar('IMAGE_ROOTFS')
+    candidates = [
+        os.path.join(rootfs, 'boot/broadcom/bcm2711-rpi-cm4.dtb'),
+        os.path.join(rootfs, 'boot/bcm2711-rpi-cm4.dtb'),
+    ]
+    dtbs = [p for p in candidates if os.path.exists(p)]
+    if not dtbs:
+        bb.fatal('enable_usb_host_dtb: no bcm2711-rpi-cm4.dtb under /boot or '
+                 '/boot/broadcom — did KERNEL_DEVICETREE change? Checked: %s'
+                 % ', '.join(candidates))
+    node = '/soc/usb@7e980000'
+    for dtb in dtbs:
+        for prop, val in (
+            ('compatible', 'brcm,bcm2835-usb'),
+            ('dr_mode', 'host'),
+            ('status', 'okay'),
+        ):
+            subprocess.check_call(['fdtput', '-t', 's', dtb, node, prop, val])
+        bb.note('enable_usb_host_dtb: forced %s to dwc2 host mode in %s'
+                % (node, dtb))
+}
+ROOTFS_POSTPROCESS_COMMAND:append:raspberrypi4-64 = " enable_usb_host_dtb;"
+
 # ---- Station agent dirs ---------------------------------------------------
 
 create_agent_dirs() {
