@@ -17,6 +17,10 @@ on:
         description: "Release tag for /etc/issue + /etc/os-release stamp (empty -> dev)"
         type: string
         default: ""
+      clean_cache:
+        description: "Wipe the sstate-cache before building (use once after a major Yocto version bump; downloads/ is kept)"
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       machine:
@@ -27,6 +31,10 @@ on:
         description: "Release tag for /etc/issue + /etc/os-release stamp (empty -> dev)"
         type: string
         default: ""
+      clean_cache:
+        description: "Wipe the sstate-cache before building (use once after a major Yocto version bump; downloads/ is kept)"
+        type: boolean
+        default: false
 
 concurrency:
   # Serialize per target — each target has its own Hetzner cache volume
@@ -183,6 +191,21 @@ jobs:
             mount -o discard,defaults "${VOLUME_DEV}" /mnt/yocto-cache
             mkdir -p /mnt/yocto-cache/downloads /mnt/yocto-cache/sstate-cache
             df -h /mnt/yocto-cache
+          EOF
+
+      - name: Wipe stale sstate cache (major Yocto bump)
+        # sstate from an older Yocto release is dead weight after a major
+        # version bump (task hashes never match) and can fill the volume ->
+        # ENOSPC mid-build. downloads/ is version-agnostic, so it is kept.
+        # Guarded: only runs when dispatched/called with clean_cache=true.
+        if: ${{ inputs.clean_cache }}
+        run: |
+          ssh "root@${SERVER_IP}" bash -s << 'EOF'
+            set -euo pipefail
+            echo "Disk before sstate wipe:"; df -h /mnt/yocto-cache
+            rm -rf /mnt/yocto-cache/sstate-cache
+            mkdir -p /mnt/yocto-cache/sstate-cache
+            echo "Disk after sstate wipe:"; df -h /mnt/yocto-cache
           EOF
 
       - name: Install Yocto build dependencies
