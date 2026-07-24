@@ -89,63 +89,17 @@ WKS_FILE_DEPENDS:append:raspberrypi4-64 = " u-boot-ab"
 # boot-firmware.mount in /etc/systemd/system/ overrides it with PARTLABEL,
 # so this is harmless but worth noting.
 
-# CM4 USB host: fdtput (from dtc-native) patches the rootfs DTB below. Make it
-# available on PATH during do_rootfs. Left unconditional on purpose: dtc-native
-# is a native tool already present in every build's sysroot, and the post-process
-# that actually uses it is raspberrypi4-64-only — so there is no cost on x86. A
-# machine override on a varflag (do_rootfs[depends]:append:raspberrypi4-64) is
-# NOT valid bitbake syntax and hard-fails parsing; do not reintroduce it.
-do_rootfs[depends] += "dtc-native:do_populate_sysroot"
-
-# Enable the CM4 USB 2.0 host controller in the DTB that u-boot ext4loads from
-# the active slot's rootfs. u-boot applies no overlays and never reads config.txt,
-# and the stock bcm2711-rpi-cm4.dtb ships /soc/usb@7e980000 as status="disabled".
-#
-# Driver choice: the LEGACY brcm,bcm2708-usb (dwc_otg, RPi FIQ) driver, NOT the
-# mainline brcm,bcm2835-usb (dwc2). The FM module is a full-speed device behind
-# the BusBoard's high-speed FE1.1s hub, so the host must issue split
-# transactions. mainline dwc2 enumerates the device (control transfers work) but
-# silently fails the CDC *bulk* split transfers on the CM4 — verified on hardware:
-# the same module talks fine from a laptop host through the same hub, but the
-# dwc2 host on the CM4 gets no CDC data. dwc2 has no DT knob to force full-speed
-# (would sidestep splits). The RPi dwc_otg driver has the FIQ split-transaction
-# FSM built exactly for full-speed devices behind hubs. Host mode is not a
-# concern: the CM4 OTG-ID pin sits at a clean logic-low (HW-Module-CM4Carrier
-# R203 2k2 -> GND; the BusBoard leaves USB_ID unrouted, so R202 is an open
-# circuit with no drop), so dwc_otg comes up host via native OTG detection. Its
-# default `cil_force_host=true` ("force Host Mode regardless of OTG state") is
-# belt-and-suspenders on top. dwc_otg does not read `dr_mode`; leaving it set is
-# harmless and keeps a one-line revert to dwc2 available if needed.
-# See docs/superpowers/specs/2026-07-24-cm4-usb-dwc-otg.md.
-python enable_usb_host_dtb() {
-    import os
-    import subprocess
-    # boot.cmd ext4loads the dtb from /boot/broadcom/ first, then falls back to
-    # a flat /boot/ path — the exact install location depends on how
-    # kernel-devicetree lays it out. Patch every copy that exists so we match
-    # whichever one u-boot actually boots; fail only if none is found.
-    rootfs = d.getVar('IMAGE_ROOTFS')
-    candidates = [
-        os.path.join(rootfs, 'boot/broadcom/bcm2711-rpi-cm4.dtb'),
-        os.path.join(rootfs, 'boot/bcm2711-rpi-cm4.dtb'),
-    ]
-    dtbs = [p for p in candidates if os.path.exists(p)]
-    if not dtbs:
-        bb.fatal('enable_usb_host_dtb: no bcm2711-rpi-cm4.dtb under /boot or '
-                 '/boot/broadcom — did KERNEL_DEVICETREE change? Checked: %s'
-                 % ', '.join(candidates))
-    node = '/soc/usb@7e980000'
-    for dtb in dtbs:
-        for prop, val in (
-            ('compatible', 'brcm,bcm2708-usb'),
-            ('dr_mode', 'host'),
-            ('status', 'okay'),
-        ):
-            subprocess.check_call(['fdtput', '-t', 's', dtb, node, prop, val])
-        bb.note('enable_usb_host_dtb: enabled %s as dwc_otg (FIQ) host in %s'
-                % (node, dtb))
-}
-ROOTFS_POSTPROCESS_COMMAND:append:raspberrypi4-64 = " enable_usb_host_dtb;"
+# CM4 USB host: enabled by the RPi GPU firmware from config.txt (otg_mode=1 ->
+# XHCI, the standards-compliant controller that handles full-speed devices behind
+# the high-speed FE1.1s hub correctly). The firmware applies that to the DTB it
+# hands to u-boot, and u-boot boots THAT firmware DTB via ${fdt_addr} (see
+# u-boot-ab/files/boot.cmd). There is deliberately no rootfs-DTB patching here:
+# u-boot no longer boots the rootfs DTB, so patching it would be dead code.
+# History: earlier we patched the rootfs DTB to force dwc2, then dwc_otg — both
+# CM4-native drivers fail this full-speed-behind-hub topology (dwc2 silently
+# drops CDC bulk splits; dwc_otg does not even detect the downstream hub). Only
+# the firmware's XHCI path works (matches a laptop host). See
+# docs/superpowers/specs/2026-07-24-cm4-usb-firmware-dtb.md.
 
 # ---- Station agent dirs ---------------------------------------------------
 

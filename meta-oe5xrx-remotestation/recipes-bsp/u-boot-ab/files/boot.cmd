@@ -54,26 +54,44 @@ if test ${upgrade_available} -gt 0 && test ${bootcount} -gt ${bootlimit}; then
     echo "  Retrying from slot ${boot_part}"
 fi
 
-# Kernel + dtb now live INSIDE the slot's rootfs (ext4), so they always match
-# /lib/modules and travel with the rootfs through OTA.
+# The KERNEL still lives INSIDE the slot's rootfs (ext4) so it travels with the
+# rootfs through OTA and matches /lib/modules. The DEVICETREE, however, is taken
+# from the FIRMWARE: the RPi GPU firmware applies config.txt (incl. otg_mode=1 ->
+# XHCI USB host — required for the full-speed FM module behind the FE1.1s hub) to
+# the DTB it loads, and passes its address to u-boot in ${fdt_addr}. u-boot
+# booting its own rootfs DTB would discard those config.txt patches (the standard
+# RPi+u-boot pitfall), so we boot the firmware DTB instead.
+# Trade-off: OTA updates the rootfs (kernel) but NOT the FAT firmware DTB, so a
+# kernel bump that needs a new DTB requires a reflash. A userspace hardware-health
+# gate guards regressions (station-manager #106). See
+# docs/superpowers/specs/2026-07-24-cm4-usb-firmware-dtb.md and linux-image #46.
 part number mmc 0 root_${boot_part} root_partnum
 if test -z "${root_partnum}"; then
     echo "  ERROR: root_${boot_part} partition not found — resetting"
     reset
 fi
 
-echo "  Loading kernel + dtb from rootfs mmc 0:${root_partnum} (/boot)"
+echo "  Loading kernel from rootfs mmc 0:${root_partnum} (/boot/Image)"
 if ext4load mmc 0:${root_partnum} ${kernel_addr_r} /boot/Image; then
-    # KERNEL_DEVICETREE = "broadcom/bcm2711-rpi-cm4.dtb" installs the dtb under
-    # /boot/broadcom/ in the rootfs; try that first, then fall back to a flat
-    # /boot/ path so we boot regardless of how the build lays the dtb out.
+    setenv bootargs "root=PARTLABEL=root_${boot_part} ro rootwait fsck.repair=yes net.ifnames=0 panic=5 softlockup_panic=1 console=tty1 console=serial0,115200"
+
+    # Prefer the firmware-provided DTB (config.txt/otg_mode applied). booti only
+    # returns if the DTB is rejected — then we fall through to the fallback.
+    if test -n "${fdt_addr}"; then
+        echo "  Booting with firmware DTB at ${fdt_addr}"
+        booti ${kernel_addr_r} - ${fdt_addr}
+    fi
+
+    # Fallback — reached only if ${fdt_addr} is unset or the firmware-DTB boot
+    # returned. Boots the rootfs DTB so we never brick; note that config.txt
+    # effects (USB host!) are ABSENT on this degraded path.
+    echo "  fdt_addr unusable — falling back to rootfs DTB (no config.txt effects)"
     setenv fdt_ok 0
     if ext4load mmc 0:${root_partnum} ${fdt_addr_r} /boot/broadcom/bcm2711-rpi-cm4.dtb; then setenv fdt_ok 1; fi
     if test "${fdt_ok}" = 0; then
         if ext4load mmc 0:${root_partnum} ${fdt_addr_r} /boot/bcm2711-rpi-cm4.dtb; then setenv fdt_ok 1; fi
     fi
     if test "${fdt_ok}" = 1; then
-        setenv bootargs "root=PARTLABEL=root_${boot_part} ro rootwait fsck.repair=yes net.ifnames=0 panic=5 softlockup_panic=1 console=tty1 console=serial0,115200"
         booti ${kernel_addr_r} - ${fdt_addr_r}
     fi
 fi
