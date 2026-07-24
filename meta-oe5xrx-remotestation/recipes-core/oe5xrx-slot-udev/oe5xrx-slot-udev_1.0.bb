@@ -6,13 +6,13 @@ LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda
 
 SRC_URI = "file://90-oe5xrx-slots.rules"
 
-S = "${WORKDIR}"
+S = "${UNPACKDIR}"
 
 inherit allarch
 
 do_install() {
     install -d ${D}${sysconfdir}/udev/rules.d
-    install -m 0644 ${WORKDIR}/90-oe5xrx-slots.rules ${D}${sysconfdir}/udev/rules.d/90-oe5xrx-slots.rules
+    install -m 0644 ${UNPACKDIR}/90-oe5xrx-slots.rules ${D}${sysconfdir}/udev/rules.d/90-oe5xrx-slots.rules
 }
 
 FILES:${PN} = "${sysconfdir}/udev/rules.d/90-oe5xrx-slots.rules"

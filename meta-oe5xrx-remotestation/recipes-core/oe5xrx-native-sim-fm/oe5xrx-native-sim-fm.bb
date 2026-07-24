@@ -15,7 +15,7 @@ SRC_URI[sha256sum] = "263f952c88d17ee9663819b743120acd272c3e87904151b3b4b167d47b
 # PV = the dotted date part of the tag (e.g. 26.07.21-01 -> 26.07.21).
 PV = "${@d.getVar('FW_RELEASE_TAG').split('-')[0]}"
 
-S = "${WORKDIR}"
+S = "${UNPACKDIR}"
 
 COMPATIBLE_MACHINE = "qemux86-64"
 
@@ -26,7 +26,7 @@ EXCLUDE_FROM_SHLIBS = "1"
 
 do_install() {
     install -d ${D}${libexecdir}/oe5xrx
-    install -m 0755 ${WORKDIR}/fm-sa818-2m.native_sim ${D}${libexecdir}/oe5xrx/native-sim-fm
+    install -m 0755 ${UNPACKDIR}/fm-sa818-2m.native_sim ${D}${libexecdir}/oe5xrx/native-sim-fm
 }
 
 FILES:${PN} = "${libexecdir}/oe5xrx/native-sim-fm"

@@ -5,6 +5,18 @@ downloads/
 tmp/
 deploy/
 
+# kas-cloned upstream layers (fetched at build time from oe5xrx.yml /
+# include/raspberrypi.yml, never committed). Anchored at repo root so they
+# don't shadow our own meta-oe5xrx-remotestation layer. Wrynose split the old
+# monolithic poky combo-repo into bitbake + openembedded-core + meta-yocto.
+/bitbake/
+/openembedded-core/
+/meta-yocto/
+/meta-openembedded/
+/meta-raspberrypi/
+# legacy pre-wrynose combo repo
+/poky/
+
 # Editor temp files
 *.swp
 *.swo

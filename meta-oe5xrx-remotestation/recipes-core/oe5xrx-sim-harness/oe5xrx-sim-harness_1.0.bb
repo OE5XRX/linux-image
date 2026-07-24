@@ -22,7 +22,7 @@ SRC_URI = " \
 "
 SRC_URI[sa818sim.sha256sum] = "cb35b4ef54e9f71ddcae8f912a9184172dac7a621c4d0ebb5c5e7a8f5229c085"
 
-S = "${WORKDIR}"
+S = "${UNPACKDIR}"
 
 inherit systemd
 
@@ -45,13 +45,13 @@ SYSTEMD_AUTO_ENABLE = "enable"
 
 do_install() {
     install -d ${D}${sbindir}
-    install -m 0755 ${WORKDIR}/sim-harness.sh ${D}${sbindir}/sim-harness.sh
+    install -m 0755 ${UNPACKDIR}/sim-harness.sh ${D}${sbindir}/sim-harness.sh
 
     install -d ${D}${libexecdir}/oe5xrx
-    install -m 0755 ${WORKDIR}/sa818-sim.py ${D}${libexecdir}/oe5xrx/sa818-sim.py
+    install -m 0755 ${UNPACKDIR}/sa818-sim.py ${D}${libexecdir}/oe5xrx/sa818-sim.py
 
     install -d ${D}${systemd_system_unitdir}
-    install -m 0644 ${WORKDIR}/oe5xrx-sim-harness.service ${D}${systemd_system_unitdir}/oe5xrx-sim-harness.service
+    install -m 0644 ${UNPACKDIR}/oe5xrx-sim-harness.service ${D}${systemd_system_unitdir}/oe5xrx-sim-harness.service
 }
 
 FILES:${PN} = " \

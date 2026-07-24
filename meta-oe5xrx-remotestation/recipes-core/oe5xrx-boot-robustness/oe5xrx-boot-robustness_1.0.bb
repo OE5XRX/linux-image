@@ -4,14 +4,14 @@ LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda
 SRC_URI = "file://50-oe5xrx-panic.conf \
            file://watchdog.conf \
 "
-S = "${WORKDIR}"
+S = "${UNPACKDIR}"
 inherit allarch
 do_install() {
     install -d ${D}${sysconfdir}/sysctl.d
-    install -m 0644 ${WORKDIR}/50-oe5xrx-panic.conf ${D}${sysconfdir}/sysctl.d/
+    install -m 0644 ${UNPACKDIR}/50-oe5xrx-panic.conf ${D}${sysconfdir}/sysctl.d/
 
     install -d ${D}${sysconfdir}/systemd/system.conf.d
-    install -m 0644 ${WORKDIR}/watchdog.conf ${D}${sysconfdir}/systemd/system.conf.d/
+    install -m 0644 ${UNPACKDIR}/watchdog.conf ${D}${sysconfdir}/systemd/system.conf.d/
 }
 FILES:${PN} = "${sysconfdir}/sysctl.d/50-oe5xrx-panic.conf \
                ${sysconfdir}/systemd/system.conf.d/watchdog.conf \

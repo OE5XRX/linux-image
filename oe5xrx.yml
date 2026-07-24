@@ -6,7 +6,11 @@ distro: poky
 repos:
   bitbake:
     url: https://git.openembedded.org/bitbake
-    branch: "2.16"
+    branch: "2.18"
+    # bitbake is the build tool, not a layer; empty mapping tells kas to add
+    # no layers from this repo (omitting the key would add the repo root as a
+    # layer -> "bitbake/conf/layer.conf not found").
+    layers: {}
 
   openembedded-core:
     url: https://git.openembedded.org/openembedded-core

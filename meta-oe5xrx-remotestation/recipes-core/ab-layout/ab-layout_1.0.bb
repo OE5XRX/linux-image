@@ -15,7 +15,7 @@ SRC_URI = " \
     file://data-init.sh \
 "
 
-S = "${WORKDIR}"
+S = "${UNPACKDIR}"
 
 inherit systemd allarch
 
@@ -43,18 +43,18 @@ RDEPENDS:${PN} += "parted e2fsprogs-resize2fs e2fsprogs-tune2fs util-linux-findm
 
 do_install() {
     install -d ${D}${systemd_system_unitdir}
-    install -m 0644 ${WORKDIR}/mnt-data.mount      ${D}${systemd_system_unitdir}/
-    install -m 0644 ${WORKDIR}/var.mount           ${D}${systemd_system_unitdir}/
-    install -m 0644 ${WORKDIR}/home.mount          ${D}${systemd_system_unitdir}/
-    install -m 0644 ${WORKDIR}/root.mount          ${D}${systemd_system_unitdir}/
-    install -m 0644 ${WORKDIR}/etc-stationagent.mount ${D}${systemd_system_unitdir}/
-    install -m 0644 ${WORKDIR}/data-init.service   ${D}${systemd_system_unitdir}/
+    install -m 0644 ${UNPACKDIR}/mnt-data.mount      ${D}${systemd_system_unitdir}/
+    install -m 0644 ${UNPACKDIR}/var.mount           ${D}${systemd_system_unitdir}/
+    install -m 0644 ${UNPACKDIR}/home.mount          ${D}${systemd_system_unitdir}/
+    install -m 0644 ${UNPACKDIR}/root.mount          ${D}${systemd_system_unitdir}/
+    install -m 0644 ${UNPACKDIR}/etc-stationagent.mount ${D}${systemd_system_unitdir}/
+    install -m 0644 ${UNPACKDIR}/data-init.service   ${D}${systemd_system_unitdir}/
 
     install -d ${D}${sysconfdir}/systemd/system
     install -d ${D}${sysconfdir}/systemd/system/local-fs.target.wants
 
     install -d ${D}${sbindir}
-    install -m 0755 ${WORKDIR}/data-init.sh        ${D}${sbindir}/data-init.sh
+    install -m 0755 ${UNPACKDIR}/data-init.sh        ${D}${sbindir}/data-init.sh
 
     # The bind-mount targets must exist in the rootfs.
     install -d ${D}/mnt/data

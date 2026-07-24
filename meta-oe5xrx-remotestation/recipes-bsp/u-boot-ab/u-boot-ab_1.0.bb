@@ -9,7 +9,7 @@ SRC_URI = " \
     file://fw_env.config \
 "
 
-S = "${WORKDIR}"
+S = "${UNPACKDIR}"
 
 inherit allarch deploy
 
@@ -23,18 +23,18 @@ do_compile() {
     # recognizes it as a script.
     mkimage -A arm64 -O linux -T script -C none -a 0 -e 0 \
         -n "OE5XRX A/B boot" \
-        -d ${WORKDIR}/boot.cmd ${WORKDIR}/boot.scr
+        -d ${UNPACKDIR}/boot.cmd ${UNPACKDIR}/boot.scr
 }
 
 do_install() {
     # boot.scr goes in the firmware FAT partition so U-Boot finds it.
     install -d ${D}/boot/firmware
-    install -m 0644 ${WORKDIR}/boot.scr ${D}/boot/firmware/boot.scr
-    install -m 0644 ${WORKDIR}/boot.cmd ${D}/boot/firmware/boot.cmd
+    install -m 0644 ${UNPACKDIR}/boot.scr ${D}/boot/firmware/boot.scr
+    install -m 0644 ${UNPACKDIR}/boot.cmd ${D}/boot/firmware/boot.cmd
 
     # fw_env.config in /etc for fw_printenv/fw_setenv.
     install -d ${D}${sysconfdir}
-    install -m 0644 ${WORKDIR}/fw_env.config ${D}${sysconfdir}/fw_env.config
+    install -m 0644 ${UNPACKDIR}/fw_env.config ${D}${sysconfdir}/fw_env.config
 }
 
 do_deploy() {
@@ -42,7 +42,7 @@ do_deploy() {
     # to avoid a DEPLOY_DIR_IMAGE filename clash with meta-raspberrypi's
     # rpi-u-boot-scr. The image recipe installs it onto the FAT partition as
     # boot.scr via IMAGE_BOOT_FILES. Mirrors grub-ab's grubenv deploy.
-    install -m 0644 ${WORKDIR}/boot.scr ${DEPLOYDIR}/oe5xrx-boot.scr
+    install -m 0644 ${UNPACKDIR}/boot.scr ${DEPLOYDIR}/oe5xrx-boot.scr
 }
 addtask deploy after do_compile before do_build
 
