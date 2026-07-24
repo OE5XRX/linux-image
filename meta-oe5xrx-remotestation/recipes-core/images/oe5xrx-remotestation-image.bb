@@ -97,14 +97,26 @@ WKS_FILE_DEPENDS:append:raspberrypi4-64 = " u-boot-ab"
 # NOT valid bitbake syntax and hard-fails parsing; do not reintroduce it.
 do_rootfs[depends] += "dtc-native:do_populate_sysroot"
 
-# Enable + hard-force host mode on the CM4 USB 2.0 controller in the DTB that
-# u-boot ext4loads from the active slot's rootfs. u-boot applies no overlays and
-# never reads config.txt, and the stock bcm2711-rpi-cm4.dtb ships
-# /soc/usb@7e980000 as status="disabled" with the legacy brcm,bcm2708-usb
-# (dwc_otg) compatible. We bind the mainline dwc2 driver and force dr_mode=host
-# so the ambiguous carrier OTG-ID divider (HW-Module-CM4Carrier R202/R203) is
-# irrelevant. This is exactly `dtoverlay=dwc2,dr_mode=host`, baked into the
-# compiled dtb. See docs/superpowers/specs/2026-07-23-cm4-usb-host-dtb.md.
+# Enable the CM4 USB 2.0 host controller in the DTB that u-boot ext4loads from
+# the active slot's rootfs. u-boot applies no overlays and never reads config.txt,
+# and the stock bcm2711-rpi-cm4.dtb ships /soc/usb@7e980000 as status="disabled".
+#
+# Driver choice: the LEGACY brcm,bcm2708-usb (dwc_otg, RPi FIQ) driver, NOT the
+# mainline brcm,bcm2835-usb (dwc2). The FM module is a full-speed device behind
+# the BusBoard's high-speed FE1.1s hub, so the host must issue split
+# transactions. mainline dwc2 enumerates the device (control transfers work) but
+# silently fails the CDC *bulk* split transfers on the CM4 — verified on hardware:
+# the same module talks fine from a laptop host through the same hub, but the
+# dwc2 host on the CM4 gets no CDC data. dwc2 has no DT knob to force full-speed
+# (would sidestep splits). The RPi dwc_otg driver has the FIQ split-transaction
+# FSM built exactly for full-speed devices behind hubs. Host mode is not a
+# concern: the CM4 OTG-ID pin sits at a clean logic-low (HW-Module-CM4Carrier
+# R203 2k2 -> GND; the BusBoard leaves USB_ID unrouted, so R202 is an open
+# circuit with no drop), so dwc_otg comes up host via native OTG detection. Its
+# default `cil_force_host=true` ("force Host Mode regardless of OTG state") is
+# belt-and-suspenders on top. dwc_otg does not read `dr_mode`; leaving it set is
+# harmless and keeps a one-line revert to dwc2 available if needed.
+# See docs/superpowers/specs/2026-07-24-cm4-usb-dwc-otg.md.
 python enable_usb_host_dtb() {
     import os
     import subprocess
@@ -125,12 +137,12 @@ python enable_usb_host_dtb() {
     node = '/soc/usb@7e980000'
     for dtb in dtbs:
         for prop, val in (
-            ('compatible', 'brcm,bcm2835-usb'),
+            ('compatible', 'brcm,bcm2708-usb'),
             ('dr_mode', 'host'),
             ('status', 'okay'),
         ):
             subprocess.check_call(['fdtput', '-t', 's', dtb, node, prop, val])
-        bb.note('enable_usb_host_dtb: forced %s to dwc2 host mode in %s'
+        bb.note('enable_usb_host_dtb: enabled %s as dwc_otg (FIQ) host in %s'
                 % (node, dtb))
 }
 ROOTFS_POSTPROCESS_COMMAND:append:raspberrypi4-64 = " enable_usb_host_dtb;"
