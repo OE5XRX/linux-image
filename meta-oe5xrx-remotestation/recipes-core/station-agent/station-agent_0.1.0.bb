@@ -11,7 +11,7 @@ SRC_URI = " \
 # Lockfile-style pin: SRCREV is always a specific commit, never ${AUTOREV}.
 # Bump via scripts/pin-station-agent.sh, commit like any dependency update.
 # The release workflow's preflight job refuses to build with AUTOREV.
-SRCREV = "41c4f82682122d3a0e0d35d95e03df480d1dd8e0"
+SRCREV = "74c51274fd0eedd26498712b260db4ea5b309134"
 PV = "0.1.0+git${SRCPV}"
 
 S = "${UNPACKDIR}/station_agent"
@@ -23,6 +23,7 @@ RDEPENDS:${PN} += " \
     python3-pyyaml \
     python3-cryptography \
     python3-websockets \
+    python3-pyserial \
 "
 
 SYSTEMD_SERVICE:${PN} = "station-agent.service"
