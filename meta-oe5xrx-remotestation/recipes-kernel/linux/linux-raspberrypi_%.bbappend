@@ -6,3 +6,11 @@
 # symbol is simply unsatisfiable and dropped by the kconfig merge — harmless.
 FILESEXTRAPATHS:prepend := "${THISDIR}/files:"
 SRC_URI:append = " file://oe5xrx-watchdog.cfg"
+
+# Build the running config into the kernel (/proc/config.gz, built-in so no
+# `modprobe configs` needed) to verify config parity with Raspberry Pi OS
+# on-target and debug USB without a rebuild. Version-agnostic, so it lives in
+# the %-bbappend. The kernel SRCREV/version pin (CM4 USB fix) is 6.18-specific
+# and lives in linux-raspberrypi_6.18.bbappend — setting it here would clobber
+# the 6.1/6.6/6.12 recipes too and break PREFERRED_VERSION selection.
+SRC_URI:append = " file://oe5xrx-ikconfig.cfg"
