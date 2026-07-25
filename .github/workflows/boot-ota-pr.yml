@@ -13,7 +13,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
-      - 'meta-oe5xrx-remotestation/wic/**'
+      - 'meta-oe5xrx-remotestation/files/wic/**'
       - 'meta-oe5xrx-remotestation/recipes-bsp/**'
       - 'meta-oe5xrx-remotestation/recipes-core/ab-layout/**'
       - 'meta-oe5xrx-remotestation/recipes-core/images/**'

@@ -27,6 +27,12 @@ IMAGE_INSTALL:append = " kernel-image kernel-modules"
 # images on-device. The station-agent uses Python stdlib bz2 internally.
 IMAGE_INSTALL:append = " bzip2"
 
+# picocom: lightweight serial terminal for on-device debugging of the FM
+# module's CDC-ACM / UART link (e.g. /dev/oe5xrx/slotN/control, /dev/ttyUSB*).
+# Same tool used off-device during the USB CDC bring-up; having it in-image
+# lets us drive the serial line directly from the station shell. Both machines.
+IMAGE_INSTALL:append = " picocom"
+
 # D2 slot contract: udev rules that map BusBoard hub ports to /dev/oe5xrx/slotN/control.
 IMAGE_INSTALL:append = " oe5xrx-slot-udev oe5xrx-fm-firmware"
 

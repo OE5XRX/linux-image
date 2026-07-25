@@ -14,7 +14,7 @@ SRC_URI = " \
 SRCREV = "41c4f82682122d3a0e0d35d95e03df480d1dd8e0"
 PV = "0.1.0+git${SRCPV}"
 
-S = "${WORKDIR}/station_agent"
+S = "${UNPACKDIR}/station_agent"
 
 inherit python_setuptools_build_meta systemd
 
@@ -31,13 +31,13 @@ SYSTEMD_AUTO_ENABLE = "enable"
 do_install:append() {
     # systemd unit
     install -d ${D}${systemd_system_unitdir}
-    install -m 0644 ${WORKDIR}/station-agent.service ${D}${systemd_system_unitdir}/
+    install -m 0644 ${UNPACKDIR}/station-agent.service ${D}${systemd_system_unitdir}/
 
     # Default config (operator-editable). Directory name is "stationagent"
     # without a dash so the etc-stationagent.mount unit doesn't need the
     # systemd \x2d path escape.
     install -d ${D}${sysconfdir}/stationagent
-    install -m 0600 ${WORKDIR}/config.yml ${D}${sysconfdir}/stationagent/config.yml
+    install -m 0600 ${UNPACKDIR}/config.yml ${D}${sysconfdir}/stationagent/config.yml
 }
 
 CONFFILES:${PN} = "${sysconfdir}/stationagent/config.yml"

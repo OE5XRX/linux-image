@@ -10,7 +10,7 @@ local_conf_header:
     # QEMU x64 test image — mirrors the RPi production image as closely as
     # possible (A/B rootfs, read-only /, data partition), substituting
     # GRUB-EFI for U-Boot.
-    EXTRA_IMAGE_FEATURES += "debug-tweaks"
+    EXTRA_IMAGE_FEATURES += "allow-empty-password allow-root-login empty-root-password post-install-logging"
     # OVMF provides UEFI firmware for QEMU so GRUB-EFI can boot.
     EFI_PROVIDER = "grub-efi"
     # Ensure the kernel installs bzImage to /boot on the EFI partition.

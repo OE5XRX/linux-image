@@ -23,4 +23,4 @@ local_conf_header:
     # Dev-only: allow root login with empty password on the serial console.
     # For production, drop this and rely on the station-agent terminal (with
     # proper auth) for remote access + a provisioned recovery password.
-    EXTRA_IMAGE_FEATURES += "debug-tweaks"
+    EXTRA_IMAGE_FEATURES += "allow-empty-password allow-root-login empty-root-password post-install-logging"
