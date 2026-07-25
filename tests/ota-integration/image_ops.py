@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import bz2
 import hashlib
+import os
 import shutil
 import subprocess
+import time
 from contextlib import contextmanager
 
 ROOT_A_PARTNUM = 2  # 1=efi 2=root_a 3=root_b 4=data
@@ -60,6 +62,38 @@ def decompress_wic(src: str, out_wic: str) -> str:
     return out_wic
 
 
+def _wait_for_partition_nodes(dev: str, timeout: float = 15.0) -> None:
+    """Block until every partition of loop device `dev` has its /dev/<dev>pN node.
+
+    `losetup --partscan` makes the kernel scan the partition table synchronously
+    (the partitions appear under /sys/block/<dev>/ before losetup returns), but the
+    matching /dev/<dev>pN nodes are created *asynchronously* by udev in response to
+    the uevents. A consumer that touches /dev/<dev>pN immediately therefore races
+    that node creation and intermittently fails with "mount: ... No such file or
+    directory" (exit 32). Wait it out: settle udev, then poll the sysfs-listed
+    partitions until all their device nodes exist. sysfs is the synchronous source
+    of truth for *which* partitions exist, so this is layout-agnostic.
+    """
+    base = os.path.basename(dev)
+    sysdir = f"/sys/block/{base}"
+    subprocess.run(["udevadm", "settle"], check=False)  # best-effort; may be absent
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            parts = [p for p in os.listdir(sysdir) if p.startswith(base + "p")]
+        except OSError:
+            parts = []
+        if parts and all(os.path.exists(f"/dev/{p}") for p in parts):
+            return
+        if time.monotonic() >= deadline:
+            missing = [f"/dev/{p}" for p in parts if not os.path.exists(f"/dev/{p}")]
+            raise RuntimeError(
+                f"partition nodes for {dev} did not appear within {timeout}s "
+                f"(sysfs partitions={parts or 'none yet'}, missing nodes={missing or 'n/a'})"
+            )
+        time.sleep(0.1)
+
+
 @contextmanager
 def loop_attach(wic_path: str):
     """Attach wic_path as a partition-scanned loop device; yield e.g. /dev/loop3.
@@ -69,6 +103,7 @@ def loop_attach(wic_path: str):
         check=True, capture_output=True, text=True,
     ).stdout.strip()
     try:
+        _wait_for_partition_nodes(dev)  # avoid racing async udev node creation
         yield dev
     finally:
         subprocess.run(["losetup", "-d", dev], check=False)
