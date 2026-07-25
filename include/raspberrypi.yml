@@ -11,12 +11,3 @@ local_conf_header:
     RPI_USE_U_BOOT = "1"
     ENABLE_UART = "1"
     IMAGE_INSTALL:append = " kernel-image kernel-devicetree"
-    # CM4 USB fix: pin linux-raspberrypi 6.18 to rpi-6.18.y HEAD (6.18.39) so the
-    # DTR SET_CONTROL_LINE_STATE control transfer to the FM module works (meta-
-    # raspberrypi's 6.18.33 pin times it out). Set here, in the RPi-only include,
-    # NOT in a linux-raspberrypi_6.18.bbappend: linux-raspberrypi doesn't exist on
-    # the qemux86-64 build, so a version-specific bbappend there is a dangling
-    # append and fails parsing ("No recipes in default available for ..."). A
-    # config :pn- override reliably wins over the recipe's own SRCREV/LINUX_VERSION.
-    SRCREV_machine:pn-linux-raspberrypi = "60ea684a8ace97bb0db1a16e20753bdd6ab371ff"
-    LINUX_VERSION:pn-linux-raspberrypi = "6.18.39"
