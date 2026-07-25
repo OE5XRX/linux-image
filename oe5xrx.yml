@@ -47,12 +47,6 @@ local_conf_header:
     # Both providers are pinned: x86 uses linux-yocto, RPi uses linux-raspberrypi.
     PREFERRED_VERSION_linux-yocto = "6.18.%"
     PREFERRED_VERSION_linux-raspberrypi = "6.18.%"
-    # Our linux-raspberrypi_6.18.bbappend (CM4 USB kernel pin) is a
-    # version-specific append. On the qemux86-64 build meta-raspberrypi isn't in
-    # the layers, so linux-raspberrypi has no recipe there and the append is
-    # "dangling" -> a fatal parse error by default. Downgrade that to a warning
-    # so the shared layer's RPi-only append doesn't break the x86 build.
-    BB_DANGLINGAPPENDS_WARNONLY = "1"
     # Persistent cache on Hetzner Volume (mounted at /mnt/yocto-cache in CI).
     # Falls back to build/ local dirs if the mount doesn't exist (local dev).
     DL_DIR ?= "${@'/mnt/yocto-cache/downloads' if os.path.isdir('/mnt/yocto-cache') else '${TOPDIR}/downloads'}"
