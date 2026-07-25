@@ -202,6 +202,13 @@ jobs:
         run: |
           ssh "root@${SERVER_IP}" bash -s << 'EOF'
             set -euo pipefail
+            # Guard: only wipe when the cache volume is actually mounted. If the
+            # mount step ever fails but /mnt/yocto-cache exists as a plain dir,
+            # a blind rm would nuke an unrelated host path — bail instead.
+            if ! mountpoint -q /mnt/yocto-cache; then
+              echo "ERROR: /mnt/yocto-cache is not a mountpoint; refusing to wipe" >&2
+              exit 1
+            fi
             echo "Disk before sstate wipe:"; df -h /mnt/yocto-cache
             rm -rf /mnt/yocto-cache/sstate-cache
             mkdir -p /mnt/yocto-cache/sstate-cache

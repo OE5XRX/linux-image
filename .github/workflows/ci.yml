@@ -51,7 +51,7 @@ jobs:
 
       - name: Verify wks files have partitions
         run: |
-          for wks in meta-oe5xrx-remotestation/wic/*.wks.in; do
+          for wks in meta-oe5xrx-remotestation/files/wic/*.wks.in; do
             echo "Checking $wks..."
             grep -q '^part' "$wks" || { echo "  No partitions defined"; exit 1; }
           done

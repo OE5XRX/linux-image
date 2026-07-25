@@ -34,13 +34,14 @@ Wrynose deprecates the monolithic `poky` combo-repo in favour of split repos
 - `meta-openembedded` **wrynose** exists.
 - `meta-raspberrypi` **wrynose** exists; `LAYERSERIES_COMPAT = "wrynose"`; default
   `PREFERRED_VERSION_linux-raspberrypi = "6.18.%"` (recipes for 6.6/6.12/6.18).
-- `bitbake` uses version branches, not codenames; Wrynose-era = branch **2.16**
-  (to be confirmed by the build's bitbake-version check; adjust if it complains).
+- `bitbake` uses version branches, not codenames; Wrynose-era = branch **2.18**
+  (initially guessed 2.16; OE-core's wrynose sanity check requires 2.18.0, so
+  the build corrected it to 2.18).
 
 ### Coordinated changes
 
 1. **`oe5xrx.yml`** — replace the single `poky` repo with three repos:
-   - `bitbake` (url `https://git.openembedded.org/bitbake`, branch `2.16`)
+   - `bitbake` (url `https://git.openembedded.org/bitbake`, branch `2.18`)
    - `openembedded-core` (wrynose, layer `meta`)
    - `meta-yocto` (wrynose, layers `meta-poky` + `meta-yocto-bsp`)
    - `meta-openembedded`: `scarthgap` → `wrynose`
@@ -87,8 +88,8 @@ Code review only in-tree for the boot-critical bits; the real proof is the build
 
 - **Recipe breakage** across 3 Yocto cycles — the main effort, handled iteratively
   via the x86 build loop.
-- **bitbake branch 2.16** is a best-guess for Wrynose; the build's version check
-  will confirm or correct it.
+- **bitbake branch 2.18** — the initial 2.16 guess was rejected by OE-core's
+  wrynose sanity check ("Bitbake version 2.18.0 is required"); resolved to 2.18.
 - **Cold builds are slow** (hours, no sstate locally); expected.
 - **DTB/kernel coupling** — 6.18 needs a matching FAT DTB (from the same build);
   fine since the bump requires a reflash anyway.

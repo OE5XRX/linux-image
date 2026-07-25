@@ -6,12 +6,12 @@
 
 **Architecture:** Wrynose replaces the monolithic `poky` combo-repo with split repos (`bitbake` + `openembedded-core` + `meta-yocto`). We repoint the kas config, bump every layer branch to `wrynose`, pin both kernels to `6.18.%`, mark our layer `wrynose`-compatible, then fix the recipe breakage the 3-cycle jump surfaces — iteratively, using a fast x86 build loop, then the RPi build.
 
-**Tech Stack:** Yocto/OpenEmbedded (kas + kas-container/Docker), meta-raspberrypi, bitbake 2.16, linux-yocto/linux-raspberrypi 6.18.
+**Tech Stack:** Yocto/OpenEmbedded (kas + kas-container/Docker), meta-raspberrypi, bitbake 2.18, linux-yocto/linux-raspberrypi 6.18.
 
 ## Global Constraints
 
 - **Yocto release:** Wrynose (6.0 LTS). `LAYERSERIES_COMPAT` / `LAYERSERIES_CORENAMES` = `wrynose`.
-- **Split repos** (poky is deprecated): `bitbake` (branch `2.16`), `openembedded-core` (`wrynose`), `meta-yocto` (`wrynose`).
+- **Split repos** (poky is deprecated): `bitbake` (branch `2.18`), `openembedded-core` (`wrynose`), `meta-yocto` (`wrynose`).
 - **Layer branches** all `wrynose`: `meta-openembedded`, `meta-raspberrypi`.
 - **Kernel pin:** `PREFERRED_VERSION_linux-yocto = "6.18.%"` AND `PREFERRED_VERSION_linux-raspberrypi = "6.18.%"` (no 6.6 recipe exists on wrynose — old pin fails parsing).
 - **`distro: poky` stays** (poky distro comes from `meta-poky` inside `meta-yocto`).
@@ -39,7 +39,7 @@ Replace the single `poky:` repo entry (lines 6–13) so the `repos:` block reads
 repos:
   bitbake:
     url: https://git.openembedded.org/bitbake
-    branch: "2.16"
+    branch: "2.18"
 
   openembedded-core:
     url: https://git.openembedded.org/openembedded-core
@@ -273,9 +273,9 @@ Expected: `RESP` contains `MODULE-LIST {...}`; the FM module appears in station-
 - Spec "Coordinated changes" 1–4 → Task 1 (config) + Tasks 3/4 (recipe migration). ✓
 - Spec "Verification" x86 → Task 3; RPi → Task 4; on-target → Task 5. ✓
 - Spec "Out of scope" (agent gate, DTB-policy, refactoring) → Global Constraints + not present in tasks. ✓
-- Spec risk "bitbake 2.16 best-guess" → Task 3 Step 1 (adjust branch if version-check fails). ✓
+- Spec risk "bitbake branch best-guess" → Task 3 Step 1: initial 2.16 rejected by wrynose sanity, corrected to 2.18. ✓
 - Spec risk "DTB/kernel coupling → reflash" → Task 5 preamble. ✓
 
 **Placeholder scan:** The iterative build-fix (Tasks 3/4) is intentionally a loop with a documented process + concrete breakage-class checklist + exact build/boot commands — not a "TODO". Config steps (Task 1) contain exact final YAML. No forbidden placeholders.
 
-**Consistency:** `wrynose`, `6.18.%`, `bitbake 2.16`, `kas-container build <machine>.yml`, and the file paths are used identically across Global Constraints and all tasks.
+**Consistency:** `wrynose`, `6.18.%`, `bitbake 2.18`, `kas-container build <machine>.yml`, and the file paths are used identically across Global Constraints and all tasks.
