@@ -11,8 +11,8 @@ host_addr="${2:?missing host-addr}"
 repo="${3:?missing repo-path}"
 host_user="${HOST_USER:-$USER}"
 
-ssh "root@${dev_host}" "mkdir -p /mnt/dev && \
+ssh "root@${dev_host}" "mkdir -p /mnt/dev/station_agent && \
   if mountpoint -q /mnt/dev/station_agent; then echo 'already mounted'; else \
     sshfs -o reconnect,ServerAliveInterval=15,StrictHostKeyChecking=accept-new \
-      ${host_user}@${host_addr}:${repo}/station_agent /mnt/dev/station_agent && \
+      \"${host_user}@${host_addr}:${repo}/station_agent\" \"/mnt/dev/station_agent\" && \
     echo 'mounted'; fi"
