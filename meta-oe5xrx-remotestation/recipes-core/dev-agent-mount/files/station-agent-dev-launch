@@ -1,0 +1,17 @@
+#!/bin/sh
+# Fast-Dev-Loop launcher: läuft der Agent aus dem Host-Live-Mount, wenn vorhanden;
+# sonst Fallback auf den gebackenen Agent. Garantiert bootfähig ohne Mount/Netz.
+# Testbar: STATION_AGENT_DEV_BASE überschreibt /mnt/dev, STATION_AGENT_DEV_DRYRUN=1
+# druckt die gewählte Quelle statt zu exec'en.
+set -eu
+
+DEV_BASE="${STATION_AGENT_DEV_BASE:-/mnt/dev}"
+DEV_SRC="${DEV_BASE}/station_agent"
+
+if [ -d "${DEV_SRC}" ] && [ -f "${DEV_SRC}/__main__.py" ]; then
+    if [ "${STATION_AGENT_DEV_DRYRUN:-0}" = "1" ]; then echo "mount:${DEV_SRC}"; exit 0; fi
+    exec env PYTHONPATH="${DEV_BASE}" /usr/bin/python3 -m station_agent
+fi
+
+if [ "${STATION_AGENT_DEV_DRYRUN:-0}" = "1" ]; then echo "baked"; exit 0; fi
+exec /usr/bin/python3 -m station_agent
