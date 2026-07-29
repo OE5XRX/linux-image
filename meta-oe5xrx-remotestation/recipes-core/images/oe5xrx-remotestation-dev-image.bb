@@ -16,4 +16,7 @@ IMAGE_FEATURES += " \
 IMAGE_INSTALL += " \
     vim \
     curl \
+    sshfs-fuse \
+    fuse3 \
+    oe5xrx-dev-agent-mount \
 "

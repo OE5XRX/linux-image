@@ -32,6 +32,9 @@ repos:
       meta-oe:
       meta-python:
       meta-networking:
+      # meta-filesystems provides sshfs-fuse (dev-image live-mount, Fast-Dev-Loop).
+      # LAYERDEPENDS = core openembedded-layer networking-layer — all already enabled.
+      meta-filesystems:
 
   meta-oe5xrx-remotestation:
     layers:
@@ -42,11 +45,12 @@ local_conf_header:
     CONF_VERSION = "2"
     PACKAGE_CLASSES = "package_ipk"
     INIT_MANAGER = "systemd"
-    # Pin the kernel series so version/ext4-format drift is deliberate, not
-    # silent. Kernel-in-rootfs A/B makes drift safe; this makes it intentional.
-    # Both providers are pinned: x86 uses linux-yocto, RPi uses linux-raspberrypi.
-    PREFERRED_VERSION_linux-yocto = "6.18.%"
-    PREFERRED_VERSION_linux-raspberrypi = "6.18.%"
+    # Kernel version follows the pinned Yocto-release default — no manual
+    # PREFERRED_VERSION override. Reproducibility now comes from oe5xrx.lock.yml
+    # (pins every layer commit), so the "default" is itself frozen; the override
+    # was redundant maintenance. During the 2026-07-29 build (with the old 6.18.%
+    # pin) the release resolved to linux-yocto 6.18.35; the next build validates
+    # what the un-overridden default resolves to. Revert here if it regresses.
     # Persistent cache on Hetzner Volume (mounted at /mnt/yocto-cache in CI).
     # Falls back to build/ local dirs if the mount doesn't exist (local dev).
     DL_DIR ?= "${@'/mnt/yocto-cache/downloads' if os.path.isdir('/mnt/yocto-cache') else '${TOPDIR}/downloads'}"

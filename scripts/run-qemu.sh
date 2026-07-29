@@ -51,6 +51,7 @@ RELEASE_DIR=""   # set by fetch_release; also searched when locating the wic
 SSH_PORT="${SSH_PORT:-2222}"
 MEM="${MEM:-1024}"
 CPUS="${CPUS:-2}"
+DEV_AGENT="${DEV_AGENT:-0}"
 
 usage() {
     sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'
@@ -151,6 +152,12 @@ while [ $# -gt 0 ]; do
                 fetch_release ""
                 shift
             fi
+            ;;
+        --dev-agent)
+            DEV_AGENT=1
+            echo "==> Dev-Agent-Modus: bootet das Dev-Image; nach Boot mounten mit:" >&2
+            echo "    scripts/dev-mount.sh localhost:${SSH_PORT} 10.0.2.2 \$(cd .. && pwd)/station-manager" >&2
+            shift
             ;;
         -h|--help) usage 0 ;;
         *) echo "Unknown arg: $1" >&2; usage 2 ;;
