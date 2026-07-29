@@ -12,5 +12,10 @@ init:
 doctor:
     scripts/ydev/doctor.sh
 
+# Prod-safety guard: fail if a dev-only package ever reaches the prod image
+lint-dev-isolation:
+    scripts/l0-dev-packages-lint.sh
+
 mod local
 mod remote
+mod dev
