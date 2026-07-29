@@ -10,7 +10,7 @@ DEV_PKGS="sshfs-fuse fuse3 oe5xrx-dev-agent-mount"
 
 fail=0
 for pkg in ${DEV_PKGS}; do
-    if grep -Eq "(^|[[:space:]])${pkg}([[:space:]]|\"|$)" "${PROD}"; then
+    if grep -Eq "(^|[[:space:]])${pkg}([[:space:]]|\\\\|\"|$)" <(grep -vE '^[[:space:]]*#' "${PROD}"); then
         echo "::error file=${PROD}::dev-only package '${pkg}' referenced in PROD image"
         fail=1
     fi
