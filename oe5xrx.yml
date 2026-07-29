@@ -32,6 +32,9 @@ repos:
       meta-oe:
       meta-python:
       meta-networking:
+      # meta-filesystems provides sshfs-fuse (dev-image live-mount, Fast-Dev-Loop).
+      # LAYERDEPENDS = core openembedded-layer networking-layer — all already enabled.
+      meta-filesystems:
 
   meta-oe5xrx-remotestation:
     layers:
