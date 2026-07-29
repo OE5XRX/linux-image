@@ -1,0 +1,15 @@
+name: Dev-Isolation
+on:
+  pull_request: {}
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  dev-isolation:
+    name: Dev-only packages stay out of prod image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Prod-safety lint
+        run: bash scripts/l0-dev-packages-lint.sh
