@@ -12,8 +12,9 @@ sudo sshfs -p 23 \
   -o IdentityFile=$HOME/.ssh/storagebox,allow_other,reconnect,ServerAliveInterval=15 \
   <box-user>@<box-host>:/ /mnt/yocto-shared
 ```
-`<box-user>`/`<box-host>` are the Bitwarden secrets `yocto-cache-storage-box-user`/`-host`;
-`~/.ssh/storagebox` is the box private key from Bitwarden.
+`<box-user>`/`<box-host>` are the Bitwarden secrets `STORAGE_BOX_USER`/`STORAGE_BOX_HOST`
+in the `oe5xrx-yocto-cache` project; `~/.ssh/storagebox` is `STORAGE_BOX_SSH_PRIVKEY`
+from the same project.
 
 ## Build
 `kas build qemux86-64.yml` — `oe5xrx.yml` auto-detects the mount and sets

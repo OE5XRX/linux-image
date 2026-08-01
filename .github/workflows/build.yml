@@ -160,9 +160,10 @@ jobs:
           mkdir -p "$HOME/.local/bin"; unzip -o /tmp/bws.zip -d "$HOME/.local/bin"
           export PATH="$HOME/.local/bin:$PATH"
           export BWS_SERVER_URL="${BWS_SERVER_URL:-https://vault.bitwarden.eu}"
-          PROJECT_ID=$(bws project list -o json | jq -r '.[] | select(.name=="oe5xrx-yocto-cache") | .id')
-          [ -n "${PROJECT_ID}" ] || { echo "::error::Bitwarden project oe5xrx-yocto-cache not found"; exit 1; }
-          SECRETS=$(bws secret list -p "${PROJECT_ID}" -o json)
+          PROJECTS_JSON=$(bws project list -o json) || { echo "::error::bws project list failed (check BWS_ACCESS_TOKEN / network)"; exit 1; }
+          PROJECT_ID=$(jq -r '.[] | select(.name=="oe5xrx-yocto-cache") | .id' <<<"${PROJECTS_JSON}")
+          [ -n "${PROJECT_ID}" ] || { echo "::error::Bitwarden project oe5xrx-yocto-cache not found (check read-access)"; exit 1; }
+          SECRETS=$(bws secret list -p "${PROJECT_ID}" -o json) || { echo "::error::bws secret list failed for project oe5xrx-yocto-cache"; exit 1; }
           BOX_HOST=$(jq -r '.[]|select(.key=="STORAGE_BOX_HOST")|.value' <<<"${SECRETS}")
           BOX_USER=$(jq -r '.[]|select(.key=="STORAGE_BOX_USER")|.value' <<<"${SECRETS}")
           if [ -z "${BOX_HOST}" ] || [ -z "${BOX_USER}" ]; then
