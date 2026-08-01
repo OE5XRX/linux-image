@@ -193,28 +193,6 @@ jobs:
           echo "SSH did not become ready within 5 minutes" >&2
           exit 1
 
-      - name: Wipe stale sstate cache (major Yocto bump)
-        # sstate from an older Yocto release is dead weight after a major
-        # version bump (task hashes never match) and can fill the volume ->
-        # ENOSPC mid-build. downloads/ is version-agnostic, so it is kept.
-        # Guarded: only runs when dispatched/called with clean_cache=true.
-        if: ${{ inputs.clean_cache }}
-        run: |
-          ssh "root@${SERVER_IP}" bash -s << 'EOF'
-            set -euo pipefail
-            # Guard: only wipe when the cache volume is actually mounted. If the
-            # mount step ever fails but /mnt/yocto-cache exists as a plain dir,
-            # a blind rm would nuke an unrelated host path — bail instead.
-            if ! mountpoint -q /mnt/yocto-cache; then
-              echo "ERROR: /mnt/yocto-cache is not a mountpoint; refusing to wipe" >&2
-              exit 1
-            fi
-            echo "Disk before sstate wipe:"; df -h /mnt/yocto-cache
-            rm -rf /mnt/yocto-cache/sstate-cache
-            mkdir -p /mnt/yocto-cache/sstate-cache
-            echo "Disk after sstate wipe:"; df -h /mnt/yocto-cache
-          EOF
-
       - name: Install Yocto build dependencies
         run: |
           ssh "root@${SERVER_IP}" bash -s << 'EOF'
@@ -268,6 +246,29 @@ jobs:
             mkdir -p /mnt/yocto-shared/sstate /mnt/yocto-shared/downloads
             chown yocto:yocto /mnt/yocto-shared/sstate /mnt/yocto-shared/downloads || true
             df -h /mnt/yocto-shared
+          EOF
+
+      - name: Wipe stale sstate cache (major Yocto bump)
+        # sstate from an older Yocto release is dead weight after a major
+        # version bump (task hashes never match) and can fill the mount ->
+        # ENOSPC mid-build. downloads/ is version-agnostic, so it is kept.
+        # Guarded: only runs when dispatched/called with clean_cache=true.
+        if: ${{ inputs.clean_cache }}
+        run: |
+          ssh "root@${SERVER_IP}" bash -s << 'EOF'
+            set -euo pipefail
+            # Guard: only wipe when the Storage Box is actually mounted. If the
+            # mount step ever fails but /mnt/yocto-shared exists as a plain dir,
+            # a blind rm would nuke an unrelated host path — bail instead.
+            if ! mountpoint -q /mnt/yocto-shared; then
+              echo "ERROR: /mnt/yocto-shared is not a mountpoint; refusing to wipe" >&2
+              exit 1
+            fi
+            echo "Disk before sstate wipe:"; df -h /mnt/yocto-shared
+            rm -rf /mnt/yocto-shared/sstate
+            mkdir -p /mnt/yocto-shared/sstate
+            chown yocto:yocto /mnt/yocto-shared/sstate
+            echo "Disk after sstate wipe:"; df -h /mnt/yocto-shared
           EOF
 
       - name: Install and start GitHub Actions Runner
