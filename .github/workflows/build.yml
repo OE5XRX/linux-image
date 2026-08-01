@@ -256,6 +256,11 @@ jobs:
             echo "== yocto write-test =="
             sudo -u yocto sh -c 'touch /mnt/yocto-shared/downloads/.wtest && echo "yocto-write-OK" && rm -f /mnt/yocto-shared/downloads/.wtest'
             df -h /mnt/yocto-shared
+            # bitbake fetches git-based recipes into DL_DIR (git2/) on the
+            # shared mount, owned by the single Storage Box user — git then
+            # refuses them with "detected dubious ownership". Trust all repos on
+            # this ephemeral build box (system-wide, covers the yocto user).
+            git config --system --add safe.directory '*'
           EOF
 
       - name: Wipe stale sstate cache (major Yocto bump)
@@ -352,7 +357,10 @@ jobs:
           # up to the shared box. --ignore-existing keeps it a cheap delta and
           # avoids reuploading what the mirror already served us.
           if mountpoint -q /mnt/yocto-shared; then
-            rsync -a --ignore-existing build/sstate-cache/ /mnt/yocto-shared/sstate/
+            # --no-owner/group/perms: the shared mount is a single-user Storage
+            # Box (all files owned by the box user), so rsync's default chown/
+            # chgrp/chmod would fail with "Permission denied" on every object.
+            rsync -a --no-owner --no-group --no-perms --ignore-existing build/sstate-cache/ /mnt/yocto-shared/sstate/
             echo "sstate delta pushed to shared mirror"
           else
             echo "::warning::/mnt/yocto-shared not mounted — skipping sstate push"
