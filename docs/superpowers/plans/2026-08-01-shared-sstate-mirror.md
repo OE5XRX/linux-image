@@ -60,9 +60,9 @@ Replace with:
     #   - DL_DIR is the shared downloads dir on the box (bitbake locks per file).
     # CI rsyncs the local sstate delta up to the box after each build.
     # No mount (local dev without the box) -> local dirs, no mirror.
-    DL_DIR ?= "${@'/mnt/yocto-shared/downloads' if os.path.isdir('/mnt/yocto-shared') else '${TOPDIR}/downloads'}"
+    DL_DIR ?= "${@'/mnt/yocto-shared/downloads' if os.path.ismount('/mnt/yocto-shared') else '${TOPDIR}/downloads'}"
     SSTATE_DIR ?= "${TOPDIR}/sstate-cache"
-    SSTATE_MIRRORS ?= "${@'file://.* file:///mnt/yocto-shared/sstate/PATH;downloadfilename=PATH' if os.path.isdir('/mnt/yocto-shared') else ''}"
+    SSTATE_MIRRORS ?= "${@'file://.* file:///mnt/yocto-shared/sstate/PATH;downloadfilename=PATH' if os.path.ismount('/mnt/yocto-shared') else ''}"
 ```
 
 - [ ] **Step 2: Verify kas parses**
@@ -301,7 +301,7 @@ sudo sshfs -p 23 \
   -o IdentityFile=$HOME/.ssh/storagebox,allow_other,reconnect,ServerAliveInterval=15 \
   <box-user>@<box-host>:/ /mnt/yocto-shared
 ```
-`<box-user>`/`<box-host>` are the Bitwarden secrets `yocto-cache-storage-box-user`/`-host`;
+`<box-user>`/`<box-host>` are the Bitwarden secrets `STORAGE_BOX_USER`/`STORAGE_BOX_HOST` (project `oe5xrx-yocto-cache`);
 `~/.ssh/storagebox` is the box private key from Bitwarden.
 
 ## Build
