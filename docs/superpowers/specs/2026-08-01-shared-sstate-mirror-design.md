@@ -148,3 +148,8 @@ Vereinbarte Roadmap: **Spec 1** = diese Cache-Foundation (Server/CI + lokaler Mo
 - **sstate-Pruning** (`sstate-cache-management.sh`, periodisch) → **Spec 3**. Der Cache wächst sonst unbegrenzt; bewusst später.
 - **Hash-Equivalence-Server** (`BB_HASHSERVE`) — mehr sstate-Reuse, aber eigener Dienst; später wenn's zwickt (Spec 3).
 - **SSH-Key-Konsolidierung bestehender Secrets nach Bitwarden** — diese Spec legt das *Storage-Box-Keypair* in BW ab und liest es dort (TF Public, CI Private). Das bestehende Runner-SSH-Secret (`HCLOUD_SSH_PRIVATE_KEY`, GitHub-Secret für den SSH-Zugang zur Build-Box) bleibt vorerst wie es ist; eine breitere Migration aller Repo-Secrets nach BW ist ein eigenes Thema.
+
+### 12.1 Considered & deferred (bewusst verworfen/verschoben)
+
+- **Bitwarden komplett auf den TF-Provider umstellen — verworfen.** Grenze bleibt: TF-Provider **nur** für Infra-Provisioning-Secrets (Box-PW/-Key, host/user), die `bws`-CLI (`servers/scripts/materialize-service-env.sh`) für Runtime-`.env`-Secrets auf der VM. Konsolidierung würde *alle* Service-Secrets in den (R2-)TF-State ziehen (Security-Downgrade) und TF kann `.env` eh nicht sauber auf der VM materialisieren. Beide Mechanismen behalten.
+- **Build auf GitHub-hosted Runner umstellen — verworfen (als Primär-Builder).** Disk ist das K.o.: `build/tmp` will 50–100+ GB, Standard-Runner haben ~14–75 GB; der warme Cache spart *Compute*, nicht den Disk-Footprint. Cold-/Versions-Dump-Builds (geteilte vCPU) wären zudem drastisch langsamer als die ~1,5 h auf dem dedizierten CCX43. Der self-hosted on-demand CCX43 (dedizierte Kerne, 360 GB lokale NVMe, Auto-Teardown) bleibt der Primär-Builder; der Shared-Cache macht ihn warm.
