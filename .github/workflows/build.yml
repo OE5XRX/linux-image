@@ -249,7 +249,14 @@ jobs:
               -o IdentityFile=/root/.ssh/storagebox,StrictHostKeyChecking=accept-new \
               -o allow_other,uid=${YUID},gid=${YGID},reconnect,ServerAliveInterval=15,ServerAliveCountMax=3 \
               "${BOX_USER}@${BOX_HOST}:/" /mnt/yocto-shared
-            mkdir -p /mnt/yocto-shared/sstate /mnt/yocto-shared/downloads
+            # Ensure the cache dirs exist. `mkdir -p` over sshfs errors on an
+            # ALREADY-existing dir (SFTP returns a non-EEXIST code that -p does
+            # not tolerate), so tolerate that and verify the dirs explicitly.
+            echo "Storage Box root:"; ls -la /mnt/yocto-shared || true
+            mkdir -p /mnt/yocto-shared/sstate /mnt/yocto-shared/downloads 2>/dev/null || true
+            for d in sstate downloads; do
+              [ -d "/mnt/yocto-shared/${d}" ] || { echo "::error::/mnt/yocto-shared/${d} is missing on the shared mount"; exit 1; }
+            done
             df -h /mnt/yocto-shared
           EOF
 
