@@ -336,6 +336,19 @@ jobs:
             kas build raspberrypi4-64.yml
           fi
 
+      - name: Push sstate delta to shared mirror
+        if: always()
+        run: |
+          # Read-mirror + push: sync only NEW sstate objects this build produced
+          # up to the shared box. --ignore-existing keeps it a cheap delta and
+          # avoids reuploading what the mirror already served us.
+          if mountpoint -q /mnt/yocto-shared; then
+            rsync -a --ignore-existing build/sstate-cache/ /mnt/yocto-shared/sstate/
+            echo "sstate delta pushed to shared mirror"
+          else
+            echo "::warning::/mnt/yocto-shared not mounted — skipping sstate push"
+          fi
+
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
