@@ -240,23 +240,21 @@ jobs:
             grep -q '^user_allow_other' /etc/fuse.conf || echo 'user_allow_other' >> /etc/fuse.conf
             mkdir -p /mnt/yocto-shared
             # Hetzner Storage Box SSH/SFTP is on port 23. Map the mount to the
-            # unprivileged `yocto` runner user (uid/gid) so bitbake + the rsync
-            # push can write through it. A plain `chown` on sshfs is unreliable
-            # (every remote op runs as the single Storage Box SSH user), so we
-            # remap ownership at mount time instead.
-            YUID=$(id -u yocto); YGID=$(id -g yocto)
+            # Mount the box's DEFAULT (home) dir with "${BOX_HOST}:" (no path),
+            # NOT ":/" — on a Hetzner Storage Box "/" is the read-only SFTP
+            # chroot root; writes must go into the home. allow_other lets the
+            # unprivileged `yocto` runner user access it; remote ops run as the
+            # single Storage Box SSH user, so yocto's writes are performed as
+            # that user (verified by the write-test below).
             sshfs -p 23 \
               -o IdentityFile=/root/.ssh/storagebox,StrictHostKeyChecking=accept-new \
-              -o allow_other,uid=${YUID},gid=${YGID},reconnect,ServerAliveInterval=15,ServerAliveCountMax=3 \
-              "${BOX_USER}@${BOX_HOST}:/" /mnt/yocto-shared
-            # Ensure the cache dirs exist. `mkdir -p` over sshfs errors on an
-            # ALREADY-existing dir (SFTP returns a non-EEXIST code that -p does
-            # not tolerate), so tolerate that and verify the dirs explicitly.
-            echo "Storage Box root:"; ls -la /mnt/yocto-shared || true
-            mkdir -p /mnt/yocto-shared/sstate /mnt/yocto-shared/downloads 2>/dev/null || true
-            for d in sstate downloads; do
-              [ -d "/mnt/yocto-shared/${d}" ] || { echo "::error::/mnt/yocto-shared/${d} is missing on the shared mount"; exit 1; }
-            done
+              -o allow_other,reconnect,ServerAliveInterval=15,ServerAliveCountMax=3 \
+              "${BOX_USER}@${BOX_HOST}:" /mnt/yocto-shared
+            echo "== mount ==";        mount | grep yocto-shared || true
+            echo "== home listing =="; ls -la /mnt/yocto-shared || true
+            echo "== mkdir ==";        mkdir -pv /mnt/yocto-shared/sstate /mnt/yocto-shared/downloads
+            echo "== yocto write-test =="
+            sudo -u yocto sh -c 'touch /mnt/yocto-shared/downloads/.wtest && echo "yocto-write-OK" && rm -f /mnt/yocto-shared/downloads/.wtest'
             df -h /mnt/yocto-shared
           EOF
 
