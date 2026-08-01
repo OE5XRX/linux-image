@@ -236,16 +236,20 @@ jobs:
             BOX_USER="$1"; BOX_HOST="$2"
             export DEBIAN_FRONTEND=noninteractive
             apt-get update
-            apt-get install -y --no-install-recommends sshfs
+            apt-get install -y --no-install-recommends sshfs rsync
             grep -q '^user_allow_other' /etc/fuse.conf || echo 'user_allow_other' >> /etc/fuse.conf
             mkdir -p /mnt/yocto-shared
-            # Hetzner Storage Box SSH/SFTP is on port 23.
+            # Hetzner Storage Box SSH/SFTP is on port 23. Map the mount to the
+            # unprivileged `yocto` runner user (uid/gid) so bitbake + the rsync
+            # push can write through it. A plain `chown` on sshfs is unreliable
+            # (every remote op runs as the single Storage Box SSH user), so we
+            # remap ownership at mount time instead.
+            YUID=$(id -u yocto); YGID=$(id -g yocto)
             sshfs -p 23 \
               -o IdentityFile=/root/.ssh/storagebox,StrictHostKeyChecking=accept-new \
-              -o allow_other,reconnect,ServerAliveInterval=15,ServerAliveCountMax=3 \
+              -o allow_other,uid=${YUID},gid=${YGID},reconnect,ServerAliveInterval=15,ServerAliveCountMax=3 \
               "${BOX_USER}@${BOX_HOST}:/" /mnt/yocto-shared
             mkdir -p /mnt/yocto-shared/sstate /mnt/yocto-shared/downloads
-            chown yocto:yocto /mnt/yocto-shared/sstate /mnt/yocto-shared/downloads || true
             df -h /mnt/yocto-shared
           EOF
 
@@ -268,7 +272,6 @@ jobs:
             echo "Disk before sstate wipe:"; df -h /mnt/yocto-shared
             rm -rf /mnt/yocto-shared/sstate
             mkdir -p /mnt/yocto-shared/sstate
-            chown yocto:yocto /mnt/yocto-shared/sstate
             echo "Disk after sstate wipe:"; df -h /mnt/yocto-shared
           EOF
 

@@ -54,10 +54,13 @@ local_conf_header:
     #   - SSTATE_MIRRORS reads prebuilt artifacts from the box (when mounted).
     #   - DL_DIR is the shared downloads dir on the box (bitbake locks per file).
     # CI rsyncs the local sstate delta up to the box after each build.
-    # No mount (local dev without the box) -> local dirs, no mirror.
-    DL_DIR ?= "${@'/mnt/yocto-shared/downloads' if os.path.isdir('/mnt/yocto-shared') else '${TOPDIR}/downloads'}"
+    # No mount (local dev without the box) -> local dirs, no mirror. Use
+    # os.path.ismount (NOT isdir): the mountpoint directory can exist without
+    # the Storage Box being mounted (e.g. a stale/failed mount), which would
+    # otherwise silently write downloads to local disk and enable the mirror.
+    DL_DIR ?= "${@'/mnt/yocto-shared/downloads' if os.path.ismount('/mnt/yocto-shared') else '${TOPDIR}/downloads'}"
     SSTATE_DIR ?= "${TOPDIR}/sstate-cache"
-    SSTATE_MIRRORS ?= "${@'file://.* file:///mnt/yocto-shared/sstate/PATH;downloadfilename=PATH' if os.path.isdir('/mnt/yocto-shared') else ''}"
+    SSTATE_MIRRORS ?= "${@'file://.* file:///mnt/yocto-shared/sstate/PATH;downloadfilename=PATH' if os.path.ismount('/mnt/yocto-shared') else ''}"
 
 # Environment variables kas forwards into the bitbake invocation. kas
 # scrubs the shell env by default, so setting OE5XRX_RELEASE_TAG at the
