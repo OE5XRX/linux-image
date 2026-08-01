@@ -61,6 +61,14 @@ local_conf_header:
     DL_DIR ?= "${@'/mnt/yocto-shared/downloads' if os.path.ismount('/mnt/yocto-shared') else '${TOPDIR}/downloads'}"
     SSTATE_DIR ?= "${TOPDIR}/sstate-cache"
     SSTATE_MIRRORS ?= "${@'file://.* file:///mnt/yocto-shared/sstate/PATH;downloadfilename=PATH' if os.path.ismount('/mnt/yocto-shared') else ''}"
+    # Deterministic task hashes so the SHARED sstate mirror matches ACROSS
+    # builds. The default local hash-equivalence server (BB_HASHSERVE "auto")
+    # computes per-build unihashes that never line up with a mirror populated by
+    # another build -> "no sstate will match from the mirror". Disable it so
+    # every OE5XRX build produces mutually-matchable sstate. A shared hashserv
+    # (BB_HASHSERVE = "host:port") is the higher-reuse alternative -> Spec 3.
+    BB_HASHSERVE = ""
+    BB_SIGNATURE_HANDLER = "OEBasicHash"
 
 # Environment variables kas forwards into the bitbake invocation. kas
 # scrubs the shell env by default, so setting OE5XRX_RELEASE_TAG at the
