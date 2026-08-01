@@ -37,16 +37,14 @@ on:
         default: false
 
 concurrency:
-  # Serialize per target — each target has its own Hetzner cache volume
-  # (a volume can only attach to one server at a time), but the two
-  # targets can build in parallel.
+  # Serialize per target — prevents two builds for the same machine from
+  # stomping each other on the shared Storage Box cache.
   group: yocto-build-${{ inputs.machine }}
   cancel-in-progress: false
 
 env:
   KAS_MACHINE: ${{ inputs.machine }}
   OE5XRX_RELEASE_TAG: ${{ inputs.release_tag || 'dev' }}
-  CACHE_VOLUME_NAME: oe5xrx-yocto-cache-${{ inputs.machine }}
   BUILDER_LABEL: oe5xrx-yocto-builder-${{ inputs.machine }}
 
 jobs:
@@ -101,19 +99,6 @@ jobs:
           curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz
           sudo mv hcloud /usr/local/bin/
 
-      - name: Detach leftover cache volume (safety)
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-        run: |
-          VOLUME_SERVER=$(hcloud volume describe "${CACHE_VOLUME_NAME}" -o json \
-            | python3 -c "import sys,json; s=json.load(sys.stdin).get('server'); print(s or '')")
-          if [ -n "${VOLUME_SERVER}" ]; then
-            echo "Volume still attached to server ${VOLUME_SERVER}, detaching..."
-            hcloud volume detach "${CACHE_VOLUME_NAME}" || true
-          else
-            echo "Volume is free, nothing to detach."
-          fi
-
       - name: Create Hetzner server (CCX43)
         id: create
         env:
@@ -160,11 +145,42 @@ jobs:
           echo "SERVER_IP=${SERVER_IP}" >> "$GITHUB_ENV"
           echo "Server ${SERVER_ID} created at ${SERVER_IP}"
 
-      - name: Attach cache volume
+      - name: Fetch Storage Box creds from Bitwarden
         env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
+          BWS_SERVER_URL: ${{ secrets.BWS_SERVER_URL }}
         run: |
-          hcloud volume attach --server "${{ steps.create.outputs.server-id }}" "${CACHE_VOLUME_NAME}"
+          set -euo pipefail
+          # Install bws (pinned + sha256, mirroring servers/cloud-init). jq is
+          # preinstalled on ubuntu-latest.
+          VER=0.5.0
+          SHA=b9296341549d9ba6922da6692b24c4d81d14dc3992597d5a777692aee73b10b2
+          curl -fsSL -o /tmp/bws.zip "https://github.com/bitwarden/sdk-sm/releases/download/bws-v${VER}/bws-x86_64-unknown-linux-gnu-${VER}.zip"
+          echo "${SHA}  /tmp/bws.zip" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"; unzip -o /tmp/bws.zip -d "$HOME/.local/bin"
+          export PATH="$HOME/.local/bin:$PATH"
+          export BWS_SERVER_URL="${BWS_SERVER_URL:-https://vault.bitwarden.eu}"
+          PROJECTS_JSON=$(bws project list -o json) || { echo "::error::bws project list failed (check BWS_ACCESS_TOKEN / network)"; exit 1; }
+          PROJECT_ID=$(jq -r '.[] | select(.name=="oe5xrx-yocto-cache") | .id' <<<"${PROJECTS_JSON}")
+          [ -n "${PROJECT_ID}" ] || { echo "::error::Bitwarden project oe5xrx-yocto-cache not found (check read-access)"; exit 1; }
+          SECRETS=$(bws secret list -p "${PROJECT_ID}" -o json) || { echo "::error::bws secret list failed for project oe5xrx-yocto-cache"; exit 1; }
+          BOX_HOST=$(jq -r '.[]|select(.key=="STORAGE_BOX_HOST")|.value' <<<"${SECRETS}")
+          BOX_USER=$(jq -r '.[]|select(.key=="STORAGE_BOX_USER")|.value' <<<"${SECRETS}")
+          if [ -z "${BOX_HOST}" ] || [ -z "${BOX_USER}" ]; then
+            echo "::error::STORAGE_BOX_HOST/USER missing in oe5xrx-yocto-cache"; exit 1
+          fi
+          if [[ "${BOX_HOST}" == *$'\n'* || "${BOX_USER}" == *$'\n'* ]]; then
+            echo "::error::STORAGE_BOX_HOST/USER must be single-line"; exit 1
+          fi
+          echo "STORAGE_BOX_HOST=${BOX_HOST}" >> "${GITHUB_ENV}"
+          echo "STORAGE_BOX_USER=${BOX_USER}" >> "${GITHUB_ENV}"
+          # Private key is multi-line (PEM): write straight to a mode-600 file,
+          # NEVER to $GITHUB_ENV or a :: command (masking only covers the first
+          # line → leak/injection). $RUNNER_TEMP is auto-cleaned at job end.
+          KEYFILE="${RUNNER_TEMP}/storagebox_key"
+          ( umask 077; jq -r '.[]|select(.key=="STORAGE_BOX_SSH_PRIVKEY")|.value' <<<"${SECRETS}" > "${KEYFILE}" )
+          [ -s "${KEYFILE}" ] || { echo "::error::STORAGE_BOX_SSH_PRIVKEY missing/empty in oe5xrx-yocto-cache"; exit 1; }
+          echo "STORAGE_BOX_KEYFILE=${KEYFILE}" >> "${GITHUB_ENV}"
 
       - name: Wait for SSH
         run: |
@@ -177,43 +193,6 @@ jobs:
           done
           echo "SSH did not become ready within 5 minutes" >&2
           exit 1
-
-      - name: Mount cache volume on server
-        run: |
-          ssh "root@${SERVER_IP}" bash -s << 'EOF'
-            set -euo pipefail
-            VOLUME_DEV=$(ls /dev/disk/by-id/scsi-0HC_Volume_* 2>/dev/null | head -1)
-            if [ -z "${VOLUME_DEV}" ]; then
-              echo "ERROR: No Hetzner volume found" >&2
-              exit 1
-            fi
-            mkdir -p /mnt/yocto-cache
-            mount -o discard,defaults "${VOLUME_DEV}" /mnt/yocto-cache
-            mkdir -p /mnt/yocto-cache/downloads /mnt/yocto-cache/sstate-cache
-            df -h /mnt/yocto-cache
-          EOF
-
-      - name: Wipe stale sstate cache (major Yocto bump)
-        # sstate from an older Yocto release is dead weight after a major
-        # version bump (task hashes never match) and can fill the volume ->
-        # ENOSPC mid-build. downloads/ is version-agnostic, so it is kept.
-        # Guarded: only runs when dispatched/called with clean_cache=true.
-        if: ${{ inputs.clean_cache }}
-        run: |
-          ssh "root@${SERVER_IP}" bash -s << 'EOF'
-            set -euo pipefail
-            # Guard: only wipe when the cache volume is actually mounted. If the
-            # mount step ever fails but /mnt/yocto-cache exists as a plain dir,
-            # a blind rm would nuke an unrelated host path — bail instead.
-            if ! mountpoint -q /mnt/yocto-cache; then
-              echo "ERROR: /mnt/yocto-cache is not a mountpoint; refusing to wipe" >&2
-              exit 1
-            fi
-            echo "Disk before sstate wipe:"; df -h /mnt/yocto-cache
-            rm -rf /mnt/yocto-cache/sstate-cache
-            mkdir -p /mnt/yocto-cache/sstate-cache
-            echo "Disk after sstate wipe:"; df -h /mnt/yocto-cache
-          EOF
 
       - name: Install Yocto build dependencies
         run: |
@@ -238,7 +217,62 @@ jobs:
             set -euo pipefail
             useradd -m -s /bin/bash yocto
             echo "yocto ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/yocto
-            chown -R yocto:yocto /mnt/yocto-cache
+          EOF
+
+      - name: Mount shared Yocto cache (Storage Box) on build server
+        env:
+          STORAGE_BOX_HOST: ${{ env.STORAGE_BOX_HOST }}
+          STORAGE_BOX_USER: ${{ env.STORAGE_BOX_USER }}
+          STORAGE_BOX_KEYFILE: ${{ env.STORAGE_BOX_KEYFILE }}
+        run: |
+          # Ship the box private key (a file — never an env value) to the server
+          # and SSHFS-mount it. sshfs daemonizes, so the mount survives this SSH
+          # session. allow_other so the unprivileged `yocto` runner user reads it.
+          ssh "root@${SERVER_IP}" 'install -d -m700 /root/.ssh'
+          scp "${STORAGE_BOX_KEYFILE}" "root@${SERVER_IP}:/root/.ssh/storagebox"
+          ssh "root@${SERVER_IP}" 'chmod 600 /root/.ssh/storagebox'
+          ssh "root@${SERVER_IP}" bash -s -- "${STORAGE_BOX_USER}" "${STORAGE_BOX_HOST}" << 'EOF'
+            set -euo pipefail
+            BOX_USER="$1"; BOX_HOST="$2"
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends sshfs rsync
+            grep -q '^user_allow_other' /etc/fuse.conf || echo 'user_allow_other' >> /etc/fuse.conf
+            mkdir -p /mnt/yocto-shared
+            # Hetzner Storage Box SSH/SFTP is on port 23. Map the mount to the
+            # unprivileged `yocto` runner user (uid/gid) so bitbake + the rsync
+            # push can write through it. A plain `chown` on sshfs is unreliable
+            # (every remote op runs as the single Storage Box SSH user), so we
+            # remap ownership at mount time instead.
+            YUID=$(id -u yocto); YGID=$(id -g yocto)
+            sshfs -p 23 \
+              -o IdentityFile=/root/.ssh/storagebox,StrictHostKeyChecking=accept-new \
+              -o allow_other,uid=${YUID},gid=${YGID},reconnect,ServerAliveInterval=15,ServerAliveCountMax=3 \
+              "${BOX_USER}@${BOX_HOST}:/" /mnt/yocto-shared
+            mkdir -p /mnt/yocto-shared/sstate /mnt/yocto-shared/downloads
+            df -h /mnt/yocto-shared
+          EOF
+
+      - name: Wipe stale sstate cache (major Yocto bump)
+        # sstate from an older Yocto release is dead weight after a major
+        # version bump (task hashes never match) and can fill the mount ->
+        # ENOSPC mid-build. downloads/ is version-agnostic, so it is kept.
+        # Guarded: only runs when dispatched/called with clean_cache=true.
+        if: ${{ inputs.clean_cache }}
+        run: |
+          ssh "root@${SERVER_IP}" bash -s << 'EOF'
+            set -euo pipefail
+            # Guard: only wipe when the Storage Box is actually mounted. If the
+            # mount step ever fails but /mnt/yocto-shared exists as a plain dir,
+            # a blind rm would nuke an unrelated host path — bail instead.
+            if ! mountpoint -q /mnt/yocto-shared; then
+              echo "ERROR: /mnt/yocto-shared is not a mountpoint; refusing to wipe" >&2
+              exit 1
+            fi
+            echo "Disk before sstate wipe:"; df -h /mnt/yocto-shared
+            rm -rf /mnt/yocto-shared/sstate
+            mkdir -p /mnt/yocto-shared/sstate
+            echo "Disk after sstate wipe:"; df -h /mnt/yocto-shared
           EOF
 
       - name: Install and start GitHub Actions Runner
@@ -304,6 +338,19 @@ jobs:
             kas build qemux86-64.yml
           elif [ "${KAS_MACHINE}" = "raspberrypi4-64" ]; then
             kas build raspberrypi4-64.yml
+          fi
+
+      - name: Push sstate delta to shared mirror
+        if: always()
+        run: |
+          # Read-mirror + push: sync only NEW sstate objects this build produced
+          # up to the shared box. --ignore-existing keeps it a cheap delta and
+          # avoids reuploading what the mirror already served us.
+          if mountpoint -q /mnt/yocto-shared; then
+            rsync -a --ignore-existing build/sstate-cache/ /mnt/yocto-shared/sstate/
+            echo "sstate delta pushed to shared mirror"
+          else
+            echo "::warning::/mnt/yocto-shared not mounted — skipping sstate push"
           fi
 
       - name: Collect artifacts
