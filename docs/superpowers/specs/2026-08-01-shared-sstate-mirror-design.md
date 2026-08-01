@@ -61,16 +61,18 @@ Das per-Machine Block-Volume (`oe5xrx-yocto-cache-<machine>`) und der gesamte At
     name             = "oe5xrx-yocto-cache"
     storage_box_type = "bx11"        # 1 TB — reicht für sstate+downloads deutlich
     location         = "fsn1"        # co-located mit dem CI-Build-Server (build.yml --location fsn1)
-    password         = data.bitwarden-secrets_secret.storage_box_password.value      # Pflichtfeld; NICHT für Zugriff genutzt
-    ssh_keys         = [data.bitwarden-secrets_secret.storage_box_ssh_pubkey.value]  # Public-Key aus Bitwarden
-    access_settings {
+    password         = var.storage_box_password       # aus Bitwarden via bws-CLI (TF_VAR_*); Pflichtfeld, NICHT für Zugriff
+    ssh_keys         = [var.storage_box_ssh_pubkey]    # Public-Key aus Bitwarden via bws-CLI
+    access_settings = {
       ssh_enabled          = true
       reachable_externally = true    # Cross-Project-Mount über öffentlichen FQDN + SSH-Key
-      # samba/webdav bleiben aus → key-only
+      samba_enabled        = false
+      webdav_enabled       = false
+      zfs_enabled          = false   # key-only
     }
   }
   ```
-- **Provider-Bump:** `hetznercloud/hcloud` `~> 1.48` → `~> 1.60` (Storage-Box-Resource stable seit v1.60.0; aktuell 1.60.1) in `versions.tf` + Lock-File. Neuer Provider `bitwarden/bitwarden-secrets`.
+- **Provider-Bump:** nur `hetznercloud/hcloud` `~> 1.48` → `~> 1.60` (Storage-Box-Resource stable seit v1.60.0) in `versions.tf` + Lock-File. **Kein** neuer Terraform-Provider — Secrets kommen per `bws`-CLI (§6, Variante Y).
 - **Outputs:** `storage_box_host` (= `.server`, FQDN zum Mounten), `storage_box_user` (= `.username`).
 - Läuft durch die bestehende `servers`-Terraform-Pipeline (R2-State, Plan auf PR / Apply auf main).
 
@@ -82,33 +84,31 @@ Die Storage Box liegt in **Projekt 1 (Foundation)**, gemanaged von der bestehend
 - **Cross-Project-Mount funktioniert:** SSHFS/rsync gehen über den öffentlichen FQDN (`reachable_externally = true`) + SSH-Key, nicht über Hetzner-Privatnetz. Die Projektgrenze blockt das nicht. Der Runner in Projekt 2 mountet die Box in Projekt 1 über SSH.
 - **Kostenübersicht intakt:** die Box ist ~€3,8/Mo **fix**; das Variable (Runner) bleibt in Projekt 2 sichtbar.
 
-## 6. Secret-Flow — Bitwarden als Single Source of Truth
+## 6. Secret-Flow — Bitwarden via `bws`-CLI (Variante Y)
 
-Verifiziertes Tooling: Terraform-Provider `bitwarden/bitwarden-secrets` (Read/Write von Secrets) + GitHub-Action `bitwarden/sm-action@v3` (injiziert Secrets als maskierte Env-Vars per Machine-Account-Token).
+**Kein** neuer Terraform-Provider, **keine** neuen GitHub-Secrets. Es wird die **bestehende `bws`-CLI** genutzt (wie `servers/scripts/materialize-service-env.sh`): die Org kommt aus dem Access-Token, Secrets werden **per Name** referenziert. Der TF-Provider-Ansatz brauchte UUIDs/org_id — die CLI nicht.
 
 ```
-servers/Terraform ──schreibt──► [ Bitwarden Secrets Manager ] ◄──liest── linux-image/CI (sm-action)
-   • schreibt host/user (Box-Outputs)     STORAGE_BOX_HOST/USER      • mount + rsync gegen die Box
-   • liest PW + SSH-Key (Datasource)       STORAGE_BOX_PASSWORD
-                                           SSH-Keypair (statisch, key-only Auth)
+Bitwarden-Projekt `oe5xrx-yocto-cache`  (Secrets per NAME, UPPERCASE-Keys)
+   STORAGE_BOX_PASSWORD ─┐   servers/CI: bws holt PW+PUBKEY → TF_VAR_* → terraform apply
+   STORAGE_BOX_SSH_PUBKEY┘
+   STORAGE_BOX_SSH_PRIVKEY ─► linux-image/CI: bws holt HOST/USER/PRIVKEY → SSHFS-Mount
+   STORAGE_BOX_HOST / _USER ◄─ nach 1. Apply von Hand eingetragen (statisch)
 ```
 
-- **Du legst in Bitwarden ab (statisch, von Hand):** das **SSH-Keypair** und das **Storage-Box-Passwort**.
-- **`servers`-TF:** *liest* PW + SSH-Public-Key per `bitwarden-secrets`-Datasource → PW aufs `hcloud_storage_box`-Pflichtfeld (nie für Zugriff genutzt), Public-Key in `ssh_keys`. *Schreibt* `host`/`user` (Box-Outputs) als `bitwarden-secrets_secret` zurück in Bitwarden, damit CI **alles** einheitlich aus BW liest.
-- **`linux-image`-CI:** `bitwarden/sm-action@v3` zieht `HOST`/`USER`/`PASSWORD` + SSH-Private-Key als maskierte Env-Vars.
-- **Auth ist key-only:** SSHFS/rsync nutzen ausschließlich den SSH-Key. Passwort-SSH bleibt deaktiviert; das Passwort existiert nur, weil die Resource es als Pflichtfeld verlangt.
-- **Einziges GitHub-Secret pro Repo:** der Bitwarden-Machine-Account-Token (`BWS_ACCESS_TOKEN`). Kein Cross-Repo-Copy, kein Secret-Drift.
+- **Du legst in Bitwarden ab (Projekt `oe5xrx-yocto-cache`, von Hand):** `STORAGE_BOX_PASSWORD`, `STORAGE_BOX_SSH_PUBKEY`, `STORAGE_BOX_SSH_PRIVKEY`.
+- **`servers`-CI:** ein Step (Muster `materialize-service-env.sh`) holt PW+PUBKEY per `bws` → `TF_VAR_storage_box_password`/`_ssh_pubkey`; Terraform hat nur schlichte `sensitive`-Variablen, **keinen** BW-Provider.
+- **host/user:** Terraform-**Outputs**; nach dem 1. Apply einmalig von Hand als `STORAGE_BOX_HOST`/`_USER` ins selbe Projekt eingetragen (statisch) → hält den Token read-only, kein CI-Write-back.
+- **`linux-image`-CI (PR B):** holt `STORAGE_BOX_HOST`/`_USER`/`_SSH_PRIVKEY` **ebenfalls per `bws`** (nicht sm-action) → SSHFS-Mount. Auth key-only.
 
-### 6.1 Einmaliger, irreduzibler Bootstrap (manuell, dokumentiert)
-1. In Bitwarden Secrets Manager: Machine-Account + Projekt anlegen, Access-Token generieren.
-2. SSH-Keypair + Storage-Box-Passwort ins BW-Projekt legen.
-3. `BWS_ACCESS_TOKEN` als GitHub-Secret in **beide** Repos (`servers`, `linux-image`).
-
-Danach fließt alles automatisch — dieser Schritt lässt sich prinzipiell nicht automatisieren (das erste Token muss von Hand kommen).
+### 6.1 Einmaliger Bootstrap (manuell)
+- **`servers`-Repo:** **keine neuen** GitHub-Secrets (`BWS_ACCESS_TOKEN` + `BWS_SERVER_URL` existieren bereits).
+- **`linux-image`-Repo:** braucht `BWS_ACCESS_TOKEN` + `BWS_SERVER_URL` (derselbe eine Token, kein neues Secret-Material) — für PR B.
+- Bitwarden: Projekt `oe5xrx-yocto-cache`, Machine-Account Read-Zugriff, die drei Secrets anlegen; nach 1. Apply host/user nachtragen.
 
 ## 7. CI-Änderungen (`linux-image/.github/workflows/build.yml`)
 
-- `create-runner`: `sshfs` installieren; `bitwarden/sm-action@v3` zieht Box-Creds + SSH-Key; SSH-Private-Key **auf die Build-Box** kopieren (für den SSHFS-Mount *von dort* zur Box) und Box nach `/mnt/yocto-shared` mounten. Der bestehende „Detach leftover cache volume"-Step und die Block-Volume-Attach/Mount-Steps **entfallen**.
+- `create-runner`: `sshfs` + `bws` installieren; **`bws`-CLI** zieht `STORAGE_BOX_HOST`/`_USER`/`_SSH_PRIVKEY` aus dem Projekt `oe5xrx-yocto-cache` (per Name, wie servers-CI); SSH-Private-Key **auf die Build-Box** kopieren (für den SSHFS-Mount *von dort* zur Box) und Box nach `/mnt/yocto-shared` mounten. Der bestehende „Detach leftover cache volume"-Step und die Block-Volume-Attach/Mount-Steps **entfallen**.
 - Kas / `local.conf`: `SSTATE_MIRRORS` + `DL_DIR` setzen (via Env, analog zum bestehenden `OE5XRX_RELEASE_TAG`-Passthrough).
 - `build`-Job: nach dem Build ein rsync-Push-Step (sstate-Delta → Box).
 - `cleanup`-Job (`if: always()`): bleibt (Server-Delete, Runner-Deregister). Kein Volume-Detach mehr nötig.
@@ -120,8 +120,8 @@ Dokumentierter Einzeiler (kein Automatismus nötig): Storage Box per SSHFS mount
 ## 9. Cross-Repo — zwei PRs, Reihenfolge
 
 Spec berührt zwei Repos → zwei PRs (eure PR-Granularität: ein PR pro Feature-Branch pro Repo):
-- **PR A (`servers`):** `storage_box.tf` + Provider-Bumps (`hcloud ~> 1.60`, `bitwarden-secrets`) + Outputs. **Zuerst mergen** (Box muss existieren, host/user landen in BW). Braucht `BWS_ACCESS_TOKEN` im `servers`-Repo.
-- **PR B (`linux-image`, dieser Branch):** `build.yml`-Umbau + kas-Config + lokale M920q-Doku. Braucht `BWS_ACCESS_TOKEN` im `linux-image`-Repo.
+- **PR A (`servers`):** `storage_box.tf` (bws-gefüttert) + `hcloud ~> 1.60`-Bump + `bws`-Fetch-Step in den TF-Jobs + Outputs. **Zuerst mergen** (Box muss existieren); danach host/user von Hand in BW eintragen. Keine neuen GitHub-Secrets.
+- **PR B (`linux-image`, dieser Branch):** `build.yml`-Umbau (bws-Fetch + SSHFS-Mount) + kas-Config + lokale M920q-Doku. Braucht `BWS_ACCESS_TOKEN` + `BWS_SERVER_URL` im `linux-image`-Repo.
 
 Dazwischen: der einmalige Bootstrap aus §6.1.
 
