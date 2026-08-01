@@ -47,10 +47,17 @@ local_conf_header:
     # Both providers are pinned: x86 uses linux-yocto, RPi uses linux-raspberrypi.
     PREFERRED_VERSION_linux-yocto = "6.18.%"
     PREFERRED_VERSION_linux-raspberrypi = "6.18.%"
-    # Persistent cache on Hetzner Volume (mounted at /mnt/yocto-cache in CI).
-    # Falls back to build/ local dirs if the mount doesn't exist (local dev).
-    DL_DIR ?= "${@'/mnt/yocto-cache/downloads' if os.path.isdir('/mnt/yocto-cache') else '${TOPDIR}/downloads'}"
-    SSTATE_DIR ?= "${@'/mnt/yocto-cache/sstate-cache' if os.path.isdir('/mnt/yocto-cache') else '${TOPDIR}/sstate-cache'}"
+    # Shared build cache (Spec: 2026-08-01-shared-sstate-mirror). The mount at
+    # /mnt/yocto-shared is a Hetzner Storage Box shared by CI, the interactive
+    # build box (Spec 2) and local dev. Read-mirror + push model:
+    #   - SSTATE_DIR stays LOCAL/fast (network sstate writes are brutally slow).
+    #   - SSTATE_MIRRORS reads prebuilt artifacts from the box (when mounted).
+    #   - DL_DIR is the shared downloads dir on the box (bitbake locks per file).
+    # CI rsyncs the local sstate delta up to the box after each build.
+    # No mount (local dev without the box) -> local dirs, no mirror.
+    DL_DIR ?= "${@'/mnt/yocto-shared/downloads' if os.path.isdir('/mnt/yocto-shared') else '${TOPDIR}/downloads'}"
+    SSTATE_DIR ?= "${TOPDIR}/sstate-cache"
+    SSTATE_MIRRORS ?= "${@'file://.* file:///mnt/yocto-shared/sstate/PATH;downloadfilename=PATH' if os.path.isdir('/mnt/yocto-shared') else ''}"
 
 # Environment variables kas forwards into the bitbake invocation. kas
 # scrubs the shell env by default, so setting OE5XRX_RELEASE_TAG at the
