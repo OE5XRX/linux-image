@@ -4,11 +4,11 @@
 
 **Goal:** Make the Yocto CI build read from a shared Hetzner Storage Box (sstate mirror + shared downloads) and push its sstate delta back, dropping the per-machine block volume entirely.
 
-**Architecture:** kas points `SSTATE_MIRRORS` + `DL_DIR` at the mounted Storage Box (`/mnt/yocto-shared`) while `SSTATE_DIR` stays local/fast on the runner; after each build the runner rsyncs its sstate delta up to the box. `build.yml`'s `create-runner` job pulls the box creds from Bitwarden (`sm-action`) and SSHFS-mounts the box on the build server; the block-volume attach/detach/mount steps are removed. `build/tmp` lives on the CCX43 local NVMe.
+**Architecture:** kas points `SSTATE_MIRRORS` + `DL_DIR` at the mounted Storage Box (`/mnt/yocto-shared`) while `SSTATE_DIR` stays local/fast on the runner; after each build the runner rsyncs its sstate delta up to the box. `build.yml`'s `create-runner` job pulls the box creds from Bitwarden **via the `bws` CLI (by name, like `servers`)** and SSHFS-mounts the box on the build server; the block-volume attach/detach/mount steps are removed. `build/tmp` lives on the CCX43 local NVMe.
 
-**Tech Stack:** Yocto/kas (poky wrynose), GitHub Actions, `bitwarden/sm-action@v3`, sshfs, rsync, Hetzner Storage Box (SSH/SFTP external port 23).
+**Tech Stack:** Yocto/kas (poky wrynose), GitHub Actions, `bws` CLI + `jq`, sshfs, rsync, Hetzner Storage Box (SSH/SFTP external port 23).
 
-**Spec:** `docs/superpowers/specs/2026-08-01-shared-sstate-mirror-design.md`. This is the `linux-image` half (PR B). **PR A (`servers`) must be merged + applied first** — the box must exist and `yocto-cache-storage-box-host`/`-user` must be in Bitwarden before PR B's first build run.
+**Spec:** `docs/superpowers/specs/2026-08-01-shared-sstate-mirror-design.md` (Variant Y, §6). This is the `linux-image` half (PR B). **PR A (`servers`) is merged + applied** — the box exists; its `STORAGE_BOX_HOST`/`STORAGE_BOX_USER`/`STORAGE_BOX_SSH_PRIVKEY` are in the Bitwarden project `oe5xrx-yocto-cache`.
 
 ## Global Constraints
 
@@ -16,16 +16,17 @@
 - **`SSTATE_DIR` stays LOCAL** (`${TOPDIR}/sstate-cache`) on every builder — never on the network mount (network TMPDIR/sstate writes are brutally slow). The box is a **read mirror** (`SSTATE_MIRRORS`) + **shared downloads** (`DL_DIR`); new sstate is pushed up by rsync post-build.
 - Mount path is `/mnt/yocto-shared`; box layout is `/sstate` + `/downloads`. Hetzner Storage Box SSH/SFTP uses **external port 23** (not 22).
 - Access is **key-only**: SSHFS + rsync use the box SSH key pulled from Bitwarden. No password login.
-- New GitHub Secret in this repo: `BWS_ACCESS_TOKEN` (+ existing `BWS_SERVER_URL` if used by sm-action `base_url`), plus the three Bitwarden secret-UUID references (`BWS_ID_STORAGE_BOX_HOST`, `BWS_ID_STORAGE_BOX_USER`, `BWS_ID_STORAGE_BOX_SSH_KEY`).
+- **Secrets via `bws` CLI, by NAME** (like `servers/scripts/materialize-service-env.sh`): read `STORAGE_BOX_HOST`/`STORAGE_BOX_USER`/`STORAGE_BOX_SSH_PRIVKEY` from BW project `oe5xrx-yocto-cache`. GitHub Secrets needed: only `BWS_ACCESS_TOKEN` (`BWS_SERVER_URL` is OPTIONAL — the fetch defaults to `https://vault.bitwarden.eu` when unset). **No secret UUIDs, no `sm-action`.**
+- **The SSH private key is multi-line (PEM).** Do NOT route it through `::add-mask::`/`$GITHUB_ENV` as one value (mask only covers the first line → leak/injection). Write it directly to a mode-600 file on the runner and pass THAT to the build box.
 - CI must stay green: `kas dump qemux86-64.yml > /dev/null`, `yamllint *.yml .github/workflows/`. One logical change per PR; squash-merge on `main`.
 - Commit subject imperative ≤72 chars, body explains *why*. End commits with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 
 ## One-Time Bootstrap (prerequisite)
 
-Before PR B's first CI run:
-1. PR A merged + applied (box exists; host/user in Bitwarden).
-2. Put the Storage Box **SSH private key** into Bitwarden (same project as PR A); note its UUID.
-3. Add GitHub Secrets to `linux-image`: `BWS_ACCESS_TOKEN`, `BWS_SERVER_URL`, `BWS_ID_STORAGE_BOX_HOST`, `BWS_ID_STORAGE_BOX_USER`, `BWS_ID_STORAGE_BOX_SSH_KEY`.
+Done (confirmed by the operator):
+1. PR A merged + applied (box exists; `STORAGE_BOX_HOST=u644097.your-storagebox.de`, `STORAGE_BOX_USER=u644097` in BW project `oe5xrx-yocto-cache`).
+2. `STORAGE_BOX_SSH_PRIVKEY` is in the same BW project.
+3. `BWS_ACCESS_TOKEN` is set as a GitHub Secret in `linux-image`. `BWS_SERVER_URL` intentionally omitted → the fetch uses the `https://vault.bitwarden.eu` default.
 
 ---
 
@@ -97,7 +98,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ### Task 2: build.yml — drop block volume, mount the Storage Box via Bitwarden creds
 
 **Files:**
-- Modify: `.github/workflows/build.yml` (env block L46-50; remove steps L104-115, L163-167, L181-194; add sm-action + mount steps in `create-runner`)
+- Modify: `.github/workflows/build.yml` (env block L46-50; remove steps L104-115, L163-167, L181-194; add bws-fetch + mount steps in `create-runner`)
 
 **Interfaces:**
 - Consumes: Bitwarden secrets (host/user via PR A, SSH key via bootstrap) + GitHub Secrets from Global Constraints.
@@ -118,35 +119,63 @@ Remove entirely:
 - `Attach cache volume` (L163-167)
 - `Mount cache volume on server` (L181-194)
 
-- [ ] **Step 3: Pull the box creds from Bitwarden (new step in `create-runner`, before "Wait for SSH")**
-
-Add after the "Create Hetzner server (CCX43)" step:
+- [ ] **Step 3: Install bws + fetch box creds from Bitwarden (new step in `create-runner`, after "Create Hetzner server", before "Wait for SSH")**
 
 ```yaml
-      - name: Pull Storage Box creds from Bitwarden
-        uses: bitwarden/sm-action@v3
-        with:
-          access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
-          base_url: ${{ secrets.BWS_SERVER_URL }}
-          secrets: |
-            ${{ secrets.BWS_ID_STORAGE_BOX_HOST }} > STORAGE_BOX_HOST
-            ${{ secrets.BWS_ID_STORAGE_BOX_USER }} > STORAGE_BOX_USER
-            ${{ secrets.BWS_ID_STORAGE_BOX_SSH_KEY }} > STORAGE_BOX_SSH_KEY
+      - name: Fetch Storage Box creds from Bitwarden
+        env:
+          BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
+          BWS_SERVER_URL: ${{ secrets.BWS_SERVER_URL }}
+        run: |
+          set -euo pipefail
+          # Install bws (pinned + sha256, mirroring servers/cloud-init). jq is
+          # preinstalled on ubuntu-latest.
+          VER=0.5.0
+          SHA=b9296341549d9ba6922da6692b24c4d81d14dc3992597d5a777692aee73b10b2
+          curl -fsSL -o /tmp/bws.zip "https://github.com/bitwarden/sdk-sm/releases/download/bws-v${VER}/bws-x86_64-unknown-linux-gnu-${VER}.zip"
+          echo "${SHA}  /tmp/bws.zip" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"; unzip -o /tmp/bws.zip -d "$HOME/.local/bin"
+          export PATH="$HOME/.local/bin:$PATH"
+          export BWS_SERVER_URL="${BWS_SERVER_URL:-https://vault.bitwarden.eu}"
+          PROJECT_ID=$(bws project list -o json | jq -r '.[] | select(.name=="oe5xrx-yocto-cache") | .id')
+          [ -n "${PROJECT_ID}" ] || { echo "::error::Bitwarden project oe5xrx-yocto-cache not found"; exit 1; }
+          SECRETS=$(bws secret list -p "${PROJECT_ID}" -o json)
+          BOX_HOST=$(jq -r '.[]|select(.key=="STORAGE_BOX_HOST")|.value' <<<"${SECRETS}")
+          BOX_USER=$(jq -r '.[]|select(.key=="STORAGE_BOX_USER")|.value' <<<"${SECRETS}")
+          if [ -z "${BOX_HOST}" ] || [ -z "${BOX_USER}" ]; then
+            echo "::error::STORAGE_BOX_HOST/USER missing in oe5xrx-yocto-cache"; exit 1
+          fi
+          if [[ "${BOX_HOST}" == *$'\n'* || "${BOX_USER}" == *$'\n'* ]]; then
+            echo "::error::STORAGE_BOX_HOST/USER must be single-line"; exit 1
+          fi
+          echo "STORAGE_BOX_HOST=${BOX_HOST}" >> "${GITHUB_ENV}"
+          echo "STORAGE_BOX_USER=${BOX_USER}" >> "${GITHUB_ENV}"
+          # Private key is multi-line (PEM): write straight to a mode-600 file,
+          # NEVER to $GITHUB_ENV or a :: command (masking only covers the first
+          # line → leak/injection). $RUNNER_TEMP is auto-cleaned at job end.
+          KEYFILE="${RUNNER_TEMP}/storagebox_key"
+          ( umask 077; jq -r '.[]|select(.key=="STORAGE_BOX_SSH_PRIVKEY")|.value' <<<"${SECRETS}" > "${KEYFILE}" )
+          [ -s "${KEYFILE}" ] || { echo "::error::STORAGE_BOX_SSH_PRIVKEY missing/empty in oe5xrx-yocto-cache"; exit 1; }
+          echo "STORAGE_BOX_KEYFILE=${KEYFILE}" >> "${GITHUB_ENV}"
 ```
-(`sm-action` exports the three values as masked env vars for later steps in this job.)
 
-- [ ] **Step 4: Mount the box on the build server (new step, replacing the old "Mount cache volume on server")**
+- [ ] **Step 4: Mount the box on the build server (replaces the old "Mount cache volume on server")**
 
 Add after the "Create yocto build user" step (so `/mnt/yocto-shared` is owned correctly), before "Install and start GitHub Actions Runner":
 
 ```yaml
       - name: Mount shared Yocto cache (Storage Box) on build server
+        env:
+          STORAGE_BOX_HOST: ${{ env.STORAGE_BOX_HOST }}
+          STORAGE_BOX_USER: ${{ env.STORAGE_BOX_USER }}
+          STORAGE_BOX_KEYFILE: ${{ env.STORAGE_BOX_KEYFILE }}
         run: |
-          # Ship the box SSH key to the server and SSHFS-mount it. sshfs
-          # daemonizes, so the mount survives this SSH session. allow_other so
-          # the unprivileged `yocto` runner user can read/write it.
-          printf '%s\n' "${STORAGE_BOX_SSH_KEY}" | \
-            ssh "root@${SERVER_IP}" "install -d -m700 /root/.ssh && cat > /root/.ssh/storagebox && chmod 600 /root/.ssh/storagebox"
+          # Ship the box private key (a file — never an env value) to the server
+          # and SSHFS-mount it. sshfs daemonizes, so the mount survives this SSH
+          # session. allow_other so the unprivileged `yocto` runner user reads it.
+          ssh "root@${SERVER_IP}" 'install -d -m700 /root/.ssh'
+          scp "${STORAGE_BOX_KEYFILE}" "root@${SERVER_IP}:/root/.ssh/storagebox"
+          ssh "root@${SERVER_IP}" 'chmod 600 /root/.ssh/storagebox'
           ssh "root@${SERVER_IP}" bash -s -- "${STORAGE_BOX_USER}" "${STORAGE_BOX_HOST}" << 'EOF'
             set -euo pipefail
             BOX_USER="$1"; BOX_HOST="$2"
@@ -164,10 +193,6 @@ Add after the "Create yocto build user" step (so `/mnt/yocto-shared` is owned co
             chown yocto:yocto /mnt/yocto-shared/sstate /mnt/yocto-shared/downloads || true
             df -h /mnt/yocto-shared
           EOF
-        env:
-          STORAGE_BOX_HOST: ${{ env.STORAGE_BOX_HOST }}
-          STORAGE_BOX_USER: ${{ env.STORAGE_BOX_USER }}
-          STORAGE_BOX_SSH_KEY: ${{ env.STORAGE_BOX_SSH_KEY }}
 ```
 
 - [ ] **Step 5: Lint the workflow**
