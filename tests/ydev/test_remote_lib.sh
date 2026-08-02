@@ -16,4 +16,13 @@ echo "$out" | grep -q "managed-by==ydev" || { echo "FAIL clean label: $out"; exi
 # down deletes the session id
 out=$(YDEV_DRYRUN=1 HCLOUD_TOKEN=x bash scripts/ydev/remote-down.sh 2>&1 || true)
 echo "$out" | grep -q "server delete" && echo "$out" | grep -q "12345" || { echo "FAIL down id: $out"; exit 1; }
+# ssh identity: HCLOUD_SSH_KEY threads -i + IdentitiesOnly into YDEV_SSH and ydev_rsh
+args=$( . scripts/ydev/remote-lib.sh; HCLOUD_SSH_KEY=/tmp/k ydev_ssh_args; printf '%s ' "${YDEV_SSH[@]}" )
+{ echo "$args" | grep -q -- "-i /tmp/k" && echo "$args" | grep -q "IdentitiesOnly=yes"; } || { echo "FAIL ssh id: $args"; exit 1; }
+noargs=$( . scripts/ydev/remote-lib.sh; ydev_ssh_args; printf '%s ' "${YDEV_SSH[@]}" )
+echo "$noargs" | grep -q -- "-i " && { echo "FAIL ssh id leak (no key set): $noargs"; exit 1; }
+# ephemeral box: host-key fingerprint ignored by default (Hetzner recycles IPs)
+{ echo "$noargs" | grep -q "StrictHostKeyChecking=no" && echo "$noargs" | grep -q "UserKnownHostsFile=/dev/null"; } || { echo "FAIL fingerprint policy: $noargs"; exit 1; }
+rsh=$( t='~'; . scripts/ydev/remote-lib.sh; HCLOUD_SSH_KEY="$t/x" ydev_rsh )
+echo "$rsh" | grep -q -- "-i ${HOME}/x" || { echo "FAIL rsh tilde expand: $rsh"; exit 1; }
 echo "PASS test_remote_lib"

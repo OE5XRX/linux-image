@@ -17,5 +17,30 @@ require_env_remote() {
   done
   command -v hcloud >/dev/null || [ "${YDEV_DRYRUN:-0}" = 1 ] || die_hint "hcloud CLI missing" "install github.com/hetznercloud/cli"
 }
-box_ssh() { run ssh -o StrictHostKeyChecking=accept-new "root@$(session_ip)" "$@"; }
-box_scp() { run scp -o StrictHostKeyChecking=accept-new "$1" "root@$(session_ip):$2"; }
+# Host-key policy for the EPHEMERAL box: ignore it. Hetzner recycles IPs, so a
+# fresh box often reuses an IP already pinned in ~/.ssh/known_hosts → ssh would
+# abort with "REMOTE HOST IDENTIFICATION HAS CHANGED". These are disposable boxes
+# we just created via the authenticated hcloud API, so TOFU adds little; skip the
+# check and don't pollute known_hosts. (The box→storagebox sshfs keeps accept-new.)
+YDEV_SSH_HK=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+# ssh identity: optional explicit key (HCLOUD_SSH_KEY, ~ expanded). ssh only
+# auto-tries default key names / agent keys; HCLOUD_SSH_KEY points at the private
+# half of HCLOUD_SSH_KEY_NAME when it isn't your ssh default.
+# ydev_ssh_args populates the YDEV_SSH array (call after load_env, before ssh/scp).
+YDEV_SSH=("${YDEV_SSH_HK[@]}")
+# expand a leading literal "~/" (as stored in .env) to $HOME
+ydev_expand_key() { local k="${HCLOUD_SSH_KEY:-}"; [ "${k#\~/}" != "$k" ] && k="${HOME}/${k#\~/}"; printf '%s' "$k"; }
+ydev_ssh_args() {
+  YDEV_SSH=("${YDEV_SSH_HK[@]}")
+  local key; key="$(ydev_expand_key)"
+  [ -n "$key" ] && YDEV_SSH+=(-o IdentitiesOnly=yes -i "$key")
+  return 0  # never let the trailing test's exit status trip `set -e` in callers
+}
+# same identity handling as a single string for rsync -e
+ydev_rsh() {
+  local rsh="ssh ${YDEV_SSH_HK[*]}" key; key="$(ydev_expand_key)"
+  [ -n "$key" ] && rsh="$rsh -o IdentitiesOnly=yes -i $key"
+  printf '%s' "$rsh"
+}
+box_ssh() { ydev_ssh_args; run ssh "${YDEV_SSH[@]}" "root@$(session_ip)" "$@"; }
+box_scp() { ydev_ssh_args; run scp "${YDEV_SSH[@]}" "$1" "root@$(session_ip):$2"; }

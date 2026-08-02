@@ -220,11 +220,16 @@ fi
 # --- KVM acceleration (optional) ---
 if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
     KVM_FLAGS="-enable-kvm"
+    CPU_FLAGS="-cpu IvyBridge -machine q35"
 else
-    echo "WARNING: /dev/kvm not accessible — running without KVM (slow)." >&2
+    # No KVM (e.g. a cloud build box): fall back to TCG software emulation.
+    # -cpu IvyBridge under TCG makes OVMF crash with "#UD - Invalid Opcode";
+    # -cpu max is TCG-safe and boots fine (just slow). Prefer `just remote
+    # download` + local qemu on a KVM host for interactive work.
+    echo "WARNING: /dev/kvm not accessible — running without KVM (TCG, slow)." >&2
     KVM_FLAGS=""
+    CPU_FLAGS="-cpu max -machine q35"
 fi
-CPU_FLAGS="-cpu IvyBridge -machine q35"
 
 echo "==> WIC:    ${WIC}"
 echo "==> OVMF:   ${OVMF}"

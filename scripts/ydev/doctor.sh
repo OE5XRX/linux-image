@@ -19,5 +19,10 @@ chk "STORAGE_BOX_USER"  '[ -n "${STORAGE_BOX_USER:-}" ]'        "set it in .env"
 chk "box key"           '[ -f "${HOME}/.ssh/storagebox" ]'      "put STORAGE_BOX_SSH_PRIVKEY there (chmod 600)"
 # remote extras are optional here (Plan B); report as info only
 for t in hcloud bws; do command -v "$t" >/dev/null 2>&1 && echo "ok   $t (remote)" || echo "info $t not installed (only needed for 'just remote …')"; done
+# remote ssh identity: flag a HCLOUD_SSH_KEY that points at a missing file (would password-prompt)
+if [ -n "${HCLOUD_SSH_KEY:-}" ]; then
+  k="${HCLOUD_SSH_KEY}"; [ "${k#\~/}" != "$k" ] && k="${HOME}/${k#\~/}"
+  [ -f "$k" ] && echo "ok   HCLOUD_SSH_KEY ($k)" || echo "info HCLOUD_SSH_KEY set but $k missing (remote ssh would prompt for a password)"
+fi
 # shellcheck disable=SC2015
 [ "$fail" = 0 ] && echo "doctor: local loop ready" || { echo "doctor: fix the MISS items above"; exit 1; }
