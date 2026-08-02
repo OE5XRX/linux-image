@@ -185,9 +185,8 @@ init:
 # Preflight: report what's missing for local (and remote) use
 doctor:
     scripts/ydev/doctor.sh
-
-mod local
 ```
+(`mod local` is added to the justfile in Task 3, once `local.just` exists — a `mod` line pointing at a missing module file makes `just` error.)
 
 - [ ] **Step 4: Create `scripts/ydev/init.sh`**
 
@@ -244,6 +243,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Files:**
 - Create: `local.just`
 - Create: `scripts/ydev/local-mount.sh`, `scripts/ydev/local-umount.sh`
+- Modify: `justfile` (append `mod local`)
 - Test: `tests/ydev/test_local_mount.sh`
 
 **Interfaces:**
@@ -318,7 +318,12 @@ umount:
     scripts/ydev/local-umount.sh
 ```
 
-- [ ] **Step 6: Run the test — expect PASS.**
+Then append `mod local` to `justfile` (after the `doctor` recipe) so `just local …` resolves:
+```make
+mod local
+```
+
+- [ ] **Step 6: Run the test — expect PASS.** If `just` is installed, also confirm `just --list` shows the `local` module (no "module file not found" error).
 
 - [ ] **Step 7: Commit**
 
