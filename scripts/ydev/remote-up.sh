@@ -13,6 +13,9 @@ if [ -f "$YDEV_SESSION" ] && [ "${YDEV_DRYRUN:-0}" != 1 ]; then
 fi
 TYPE="${YDEV_SERVER_TYPE:-ccx43}"; LOC="${YDEV_LOCATION:-fsn1}"; NAME="ydev-session"
 IDLE="${YDEV_IDLE_MINUTES:-30}"; MAXH="${YDEV_MAX_HOURS:-4}"
+# guard: these land unquoted in the box-side systemd-run/env — a bad value would
+# abort teardown-arming under the box's `set -e`, defeating the whole guarantee
+[[ "$IDLE" =~ ^[0-9]+$ && "$MAXH" =~ ^[0-9]+$ ]] || die_hint "YDEV_IDLE_MINUTES/YDEV_MAX_HOURS must be integers" "check .env"
 BOX_DIR="$(dirname "$0")/box"
 
 # cloud-init user-data: arm the auto-teardown at FIRST BOOT, independent of the
@@ -28,7 +31,8 @@ TMR_B64=$(base64 -w0 "$BOX_DIR/ydev-idle.timer")
 USERDATA=$(cat <<UD
 #!/bin/bash
 set -euo pipefail
-curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz -C /usr/local/bin hcloud
+# retry the hcloud fetch — a transient blip must not abort teardown-arming below
+for _ in 1 2 3 4 5; do curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz -C /usr/local/bin hcloud && break || sleep 5; done
 install -d -m700 /etc/ydev /opt/ydev
 printf 'YDEV_IDLE_MINUTES=%s\nHCLOUD_TOKEN=%s\n' '$IDLE' '$HCLOUD_TOKEN' > /etc/ydev/env; chmod 600 /etc/ydev/env
 printf '%s' '$HCLOUD_TOKEN' > /etc/ydev/token; chmod 600 /etc/ydev/token
