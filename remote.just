@@ -19,3 +19,9 @@ build machine="qemux86-64":
 # Download the built images from the box to dist/<machine>/
 download machine="qemux86-64":
     scripts/ydev/remote-download.sh {{machine}}
+# Boot the box's built qemux86-64 image, serial over SSH
+qemu:
+    scripts/ydev/remote-qemu.sh
+# Interactive shell on the session box
+shell:
+    scripts/ydev/remote-shell.sh
