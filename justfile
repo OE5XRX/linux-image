@@ -13,3 +13,4 @@ doctor:
     scripts/ydev/doctor.sh
 
 mod local
+mod remote
