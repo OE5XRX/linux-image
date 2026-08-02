@@ -22,6 +22,10 @@ mount keeps normal host-key checking.)
 `just remote download [machine]` → `just remote down`. `just remote status`
 shows uptime (≈cost); `just remote clean` kills orphaned ydev boxes.
 
+> **`just remote qemu` is slow:** cloud boxes have no `/dev/kvm`, so QEMU runs
+> under TCG software emulation (boots, but minutes not seconds). For interactive
+> testing prefer `just remote download` then `just local qemu` on a KVM host.
+
 ## Auto-teardown (you never have to `down`)
 The teardown is armed **at server creation via cloud-init user-data** — so it runs
 from the first boot even if the laptop's SSH provisioning fails. A half-provisioned

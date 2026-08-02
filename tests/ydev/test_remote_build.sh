@@ -9,5 +9,6 @@ echo "$err" | grep -q "just remote up" || { echo "FAIL hint: $err"; exit 1; }
 printf '1 1.2.3.4 t\n' > "$tmp/.ydev-session"
 out=$(YDEV_DRYRUN=1 bash scripts/ydev/remote-build.sh raspberrypi4-64 2>&1)
 echo "$out" | grep -q "rsync" && echo "$out" | grep -q -- "--exclude" || { echo "FAIL rsync: $out"; exit 1; }
+echo "$out" | grep -q -- "--filter=:- .gitignore" || { echo "FAIL gitignore filter (kas layers must be excluded): $out"; exit 1; }
 echo "$out" | grep -q "kas build raspberrypi4-64.yml" || { echo "FAIL kas: $out"; exit 1; }
 echo "PASS test_remote_build"
