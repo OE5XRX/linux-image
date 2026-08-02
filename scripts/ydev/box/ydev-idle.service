@@ -1,0 +1,6 @@
+[Unit]
+Description=ydev idle watchdog (self-delete when idle)
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/ydev/env
+ExecStart=/opt/ydev/ydev-watchdog.sh

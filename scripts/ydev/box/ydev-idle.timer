@@ -1,0 +1,7 @@
+[Unit]
+Description=ydev idle watchdog
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target

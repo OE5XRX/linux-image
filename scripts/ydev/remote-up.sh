@@ -56,4 +56,20 @@ ssh "root@$ip" bash -s -- "$BOX_USER" "$BOX_HOST" <<'EOF'
   sudo -u yocto sh -c 'touch /mnt/yocto-shared/downloads/.wtest && rm -f /mnt/yocto-shared/downloads/.wtest' && echo "mirror writable"
 EOF
 echo "ydev session box up: $id ($ip)"
-echo "next: just remote build   (watchdog + max-lifetime installed by Task 3's step here)"
+scp -r "$(dirname "$0")/box" "root@$ip:/tmp/ydev-box"
+ssh "root@$ip" bash -s -- "${YDEV_IDLE_MINUTES:-30}" "${YDEV_MAX_HOURS:-4}" "$HCLOUD_TOKEN" <<'EOF'
+  set -euo pipefail
+  IDLE=$1; MAXH=$2; TOKEN=$3
+  curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz -C /usr/local/bin hcloud
+  install -d -m700 /etc/ydev /opt/ydev
+  printf 'YDEV_IDLE_MINUTES=%s\nHCLOUD_TOKEN=%s\n' "$IDLE" "$TOKEN" > /etc/ydev/env; chmod 600 /etc/ydev/env
+  printf '%s' "$TOKEN" > /etc/ydev/token; chmod 600 /etc/ydev/token
+  install -m755 /tmp/ydev-box/ydev-watchdog.sh /opt/ydev/ydev-watchdog.sh
+  install -m644 /tmp/ydev-box/ydev-idle.service /etc/systemd/system/
+  install -m644 /tmp/ydev-box/ydev-idle.timer   /etc/systemd/system/
+  systemctl daemon-reload; systemctl enable --now ydev-idle.timer
+  # hard max-lifetime: self-delete after MAXH hours no matter what
+  systemd-run --on-active="${MAXH}h" --unit=ydev-maxlife \
+    /bin/sh -c 'export HCLOUD_TOKEN=$(cat /etc/ydev/token); hcloud server delete $(curl -s http://169.254.169.254/hetzner/v1/metadata/instance-id)'
+EOF
+echo "auto-teardown armed: idle ${YDEV_IDLE_MINUTES:-30}m, max ${YDEV_MAX_HOURS:-4}h"
