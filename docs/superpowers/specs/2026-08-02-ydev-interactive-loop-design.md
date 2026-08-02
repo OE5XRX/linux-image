@@ -18,15 +18,15 @@ Ein schneller, interaktiver **Tier-2**-Loop für Änderungen, die einen Yocto-**
 ## 2. Prinzipien
 
 - **Ein Befehl = eine Sache.** Kein Rezept macht versteckt ein anderes Intent mit (z.B. `remote build` macht **kein** `up`). Fehlt eine Vorbedingung → **Fehler mit klarem Hinweis**, was zu tun ist.
-- **Symmetrie lokal ↔ remote:** vorbereiten `just mount` ↔ `just remote up` · bauen `just build` ↔ `just remote build` · booten `just qemu` ↔ `just remote qemu` · abbauen `just umount` ↔ `just remote down`.
-- **Eindeutig:** alles unter `remote …` ist remote, top-level ist lokal.
+- **Symmetrie lokal ↔ remote:** vorbereiten `just local mount` ↔ `just remote up` · bauen `just local build` ↔ `just remote build` · booten `just local qemu` ↔ `just remote qemu` · abbauen `just local umount` ↔ `just remote down`.
+- **Eindeutig + explizit:** *beide* Backends sind Module — man schreibt immer hin, **wo** es läuft (`just local …` / `just remote …`). Kein magisches Default-Backend. Nur setup/health (`init`, `doctor`) sind top-level.
 - **Kosten idiotensicher:** Remote-Boxen räumen sich selbst weg (Dreifach-Netz, §6) — man muss nie ans Abdrehen denken.
 
 ## 3. Struktur
 
 Eure Konvention (justfile dünn, Logik in Scripts):
-- `justfile` (Repo-Root): lokale/common-Rezepte + `mod remote`. Bare `just` → `just --list` (Default-Rezept). `set dotenv-load := true` (lädt `.env`).
-- `remote.just`: das Remote-Modul (`just remote <recipe>`). Braucht `just` ≥ 1.31 (Module stabil).
+- `justfile` (Repo-Root): nur top-level `init`/`doctor` + `mod local` + `mod remote`. Bare `just` → `just --list` (Default-Rezept). `set dotenv-load := true` (lädt `.env`).
+- `local.just` + `remote.just`: die beiden Backend-Module (`just local <recipe>` / `just remote <recipe>`). Braucht `just` ≥ 1.31 (Module stabil).
 - `scripts/ydev/*.sh`: die echte Logik (jedes Rezept ruft ein kleines Script). `bash`, `set -euo pipefail`.
 - `.env` (git-ignored) + `.env.example` (getrackt). `just init` scaffoldet `.env`.
 - `dist/` (git-ignored): Ziel für `remote download`.
@@ -37,12 +37,12 @@ Eure Konvention (justfile dünn, Logik in Scripts):
 - **`just init`** — `.env` aus `.env.example` scaffolden; sagt, welche Vars noch fehlen. Legt nichts Geheimes an.
 - **`just doctor`** — Preflight, sagt in einem Blick was fehlt: `just` ≥ 1.31, `kas`, `sshfs`, lokaler Box-Key `~/.ssh/storagebox`, Mirror mountbar; für remote zusätzlich `hcloud`-Auth, `bws` erreichbar, `.env`-Vars gesetzt.
 
-### Lokal (default)
-- **`just mount`** — Shared-Mirror lokal nach `/mnt/yocto-shared` mounten (idempotent: skip wenn schon gemountet). Nutzt den **lokal abgelegten Box-Key** (`~/.ssh/storagebox`), Host/User aus `.env` — **kein BW-Token auf dem Laptop nötig**.
-- **`just umount`** — aushängen.
-- **`just build [machine=qemux86-64]`** — **failt mit Hinweis** (`just mount`) wenn `/mnt/yocto-shared` nicht gemountet; sonst `kas build <machine>.yml` (warm aus dem Mirror).
-- **`just qemu`** — bootet das gebaute qemux86-64-Image lokal via `scripts/run-qemu.sh` (serielle Konsole im Terminal).
-- **`just flash <device>`** — schreibt das **raspberrypi4-64**-`.wic` (aus `build/tmp/deploy/images/raspberrypi4-64/`, oder `dist/` nach `remote download`) auf `<device>`. **Safety:** Device-Pfad Pflicht; verweigert System-/Root-Disk + Nicht-Block-Devices; zeigt Device-Info + verlangt Bestätigung. Ohne `<device>` → listet removable-Kandidaten + Hinweis. (qemu wird **nicht** geflasht — dafür `just qemu`; das x86-`.wic` als Proxmox-VM-Disk zu importieren ist ein manueller Sonderfall, kein Rezept.)
+### Lokal (`mod local`)
+- **`just local mount`** — Shared-Mirror lokal nach `/mnt/yocto-shared` mounten (idempotent: skip wenn schon gemountet). Nutzt den **lokal abgelegten Box-Key** (`~/.ssh/storagebox`), Host/User aus `.env` — **kein BW-Token auf dem Laptop nötig**.
+- **`just local umount`** — aushängen.
+- **`just local build [machine=qemux86-64]`** — **failt mit Hinweis** (`just local mount`) wenn `/mnt/yocto-shared` nicht gemountet; sonst `kas build <machine>.yml` (warm aus dem Mirror).
+- **`just local qemu`** — bootet das gebaute qemux86-64-Image lokal via `scripts/run-qemu.sh` (serielle Konsole im Terminal).
+- **`just local flash <device>`** — schreibt das **raspberrypi4-64**-`.wic` (aus `build/tmp/deploy/images/raspberrypi4-64/`, oder `dist/` nach `remote download`) auf `<device>`. **Safety:** Device-Pfad Pflicht; verweigert System-/Root-Disk + Nicht-Block-Devices; zeigt Device-Info + verlangt Bestätigung. Ohne `<device>` → listet removable-Kandidaten + Hinweis. (qemu wird **nicht** geflasht — dafür `just local qemu`; das x86-`.wic` als Proxmox-VM-Disk zu importieren ist ein manueller Sonderfall, kein Rezept.)
 
 ### Remote (`mod remote`)
 - **`just remote up`** — CCX43 (Projekt 2, ephemer) hoch → Deps → **bws-Fetch** der Box-Creds → Mirror mounten → Idle-Watchdog + Max-Lifetime-Timer installieren → Session-State lokal in `.ydev-session` (server-id/ip) merken. Idempotent: wenn schon eine Session-Box läuft, nur verbinden.
@@ -52,7 +52,7 @@ Eure Konvention (justfile dünn, Logik in Scripts):
 - **`just remote shell`** — SSH auf die Session-Box (Rumpoken / manuelles bitbake). Failt wenn keine Box.
 - **`just remote status`** — läuft eine Session-Box? Uptime (≈ Kosten)? Mirror gemountet? Idle-Restzeit?
 - **`just remote down`** — Session-Box jetzt löschen + `.ydev-session` weg.
-- **`just remote clean`** — alle `ydev`-Session-Boxen (per Hetzner-Label) auflisten + killen (verwaiste aufräumen).
+- **`just remote clean`** — alle `ydev`-Session-Boxen (strikt `label_selector=managed-by==ydev`) auflisten + killen (verwaiste aufräumen). Fasst CI-Server nie an (§6.1).
 
 ## 5. Creds & `.env`
 
@@ -72,13 +72,23 @@ Damit man **nie ans Abdrehen denken muss** (Hetzner berechnet Server, solange si
 2. **Harte Max-Laufzeit** (`YDEV_MAX_HOURS`) → self-delete egal was (Schutz gegen hängende Sessions).
 3. **Nacht-Cron-Backstop** — ein Cron auf dem M920q ruft `just remote clean` → killt jede übriggebliebene `ydev`-Box. Gürtel + Hosenträger.
 
-Worst Case: ~30 min Leerlauf bezahlt, nie mehr. Session-Boxen sind per Hetzner-**Label** (`ydev-session`) auffindbar.
+Worst Case: ~30 min Leerlauf bezahlt, nie mehr.
+
+### 6.1 CI- vs. User-Server-Trennung (deklarativ per Label)
+
+CI-Build-Server (build.yml) und ydev-Session-Boxen leben beide in Projekt 2. Damit **keine Seite die andere abschießt**:
+- **ydev-Boxen** bekommen `--label managed-by=ydev` (plus optional `owner`/session-id).
+- **`just remote clean`, der Idle-Watchdog und der Nacht-Cron operieren STRIKT auf `label_selector=managed-by==ydev`** (bzw. self-delete per eigener Server-ID). Ohne dieses Label wird nichts angefasst → CI-Server sind sicher.
+- **CI** löscht schon heute **per eigener Server-ID** (build.yml `cleanup`-Job) und scannt nicht → fasst nie eine ydev-Box an. (Das frühere „scan & detach volume" ist mit Spec 1 entfernt.)
+- **Defense-in-Depth (optional, Spec-1-Territorium):** build.yml seine Server zusätzlich mit `managed-by=ci` labeln — nicht nötig für die Sicherheit (ydev matcht eh nur `=ydev`), aber symmetrisch und macht `just remote status`/`clean` in gemischten Umgebungen eindeutig.
+
+So ist die Trennung **deklarativ erzwungen**, nicht nur konventionell: ein User-Command kann per Design keinen CI-Server treffen und umgekehrt.
 
 ## 7. Remote-Provisioning & Datenfluss
 
 Laptop-getrieben via `hcloud`-CLI (kein GitHub-Workflow — das ist der Unterschied zu build.yml, das denselben bws→sshfs→kas-Bau kann, aber CI-getrieben):
 ```
-just remote up   → hcloud server create ccx43 (Projekt 2, Label ydev-session)
+just remote up   → hcloud server create ccx43 (Projekt 2, --label managed-by=ydev)
                    → Deps + bws-Fetch Box-Creds → sshfs-Mount Mirror → Watchdog/Max-Lifetime
 just remote build→ rsync <repo, ohne build/> → ssh: kas build   (warm aus Mirror)
 just remote qemu → ssh: run-qemu   → Serial über SSH
