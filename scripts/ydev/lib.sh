@@ -1,6 +1,6 @@
 # scripts/ydev/lib.sh — shared helpers for ydev recipes. Source, don't exec.
 # shellcheck shell=bash
-YDEV_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+: "${YDEV_ROOT:=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 MIRROR_MNT="${YDEV_MIRROR_MNT:-/mnt/yocto-shared}"
 
 die_hint() {  # <msg> [fix]
