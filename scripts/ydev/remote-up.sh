@@ -16,7 +16,7 @@ OUT=$(run hcloud server create --name "$NAME" --type "$TYPE" --image ubuntu-24.0
 id=$(jq -r '.server.id' <<<"$OUT"); ip=$(hcloud server ip "$id")
 printf '%s %s %s\n' "$id" "$ip" "$(date -u +%FT%TZ)" > "$YDEV_SESSION"
 # wait for ssh (mirror build.yml "Wait for SSH")
-for i in $(seq 1 30); do ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 "root@$ip" true 2>/dev/null && break; sleep 10; done
+for _ in $(seq 1 30); do ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 "root@$ip" true 2>/dev/null && break; sleep 10; done
 # deps + yocto user (verbatim from build.yml "Install Yocto build dependencies" + "Create yocto build user")
 ssh "root@$ip" bash -s <<'EOF'
   set -euo pipefail
@@ -40,7 +40,8 @@ PROJECT_ID=$(bws project list -o json | jq -r '.[]|select(.name=="oe5xrx-yocto-c
 SECRETS=$(bws secret list -p "$PROJECT_ID" -o json)
 BOX_HOST=$(jq -r '.[]|select(.key=="STORAGE_BOX_HOST")|.value' <<<"$SECRETS")
 BOX_USER=$(jq -r '.[]|select(.key=="STORAGE_BOX_USER")|.value' <<<"$SECRETS")
-KEYFILE=$(mktemp); ( umask 077; jq -r '.[]|select(.key=="STORAGE_BOX_SSH_PRIVKEY")|.value' <<<"$SECRETS" > "$KEYFILE" )
+KEYFILE=$(umask 077; mktemp); trap 'rm -f "$KEYFILE"' EXIT
+jq -r '.[]|select(.key=="STORAGE_BOX_SSH_PRIVKEY")|.value' <<<"$SECRETS" > "$KEYFILE"
 ssh "root@$ip" 'install -d -m700 /root/.ssh'
 scp "$KEYFILE" "root@$ip:/root/.ssh/storagebox"; rm -f "$KEYFILE"
 ssh "root@$ip" bash -s -- "$BOX_USER" "$BOX_HOST" <<'EOF'
