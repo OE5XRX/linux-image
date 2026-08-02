@@ -5,8 +5,10 @@ set -euo pipefail
 machine="${1:-qemux86-64}"
 case "$machine" in qemux86-64|raspberrypi4-64) ;; *) die_hint "unknown machine '$machine'" "qemux86-64 | raspberrypi4-64";; esac
 ip=$(session_ip)
-# sync source to the yocto user's home (exclude local build output)
+# sync source to the yocto user's home (exclude local build output AND local
+# secrets/state — .env holds HCLOUD/BWS tokens, .ydev-session is laptop-only)
 run rsync -az --delete --exclude 'build/' --exclude '.git/' --exclude 'dist/' \
+  --exclude '.env' --exclude '.env.*' --exclude '.ydev-session' \
   -e "ssh -o StrictHostKeyChecking=accept-new" "${YDEV_ROOT}/" "root@${ip}:/home/yocto/src/"
 if [ "${YDEV_DRYRUN:-0}" = "1" ]; then
   echo "DRYRUN: kas build ${machine}.yml"

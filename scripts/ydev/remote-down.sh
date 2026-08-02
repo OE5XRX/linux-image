@@ -5,5 +5,8 @@ set -euo pipefail
 require_session
 id=$(session_id)
 run hcloud server delete "$id"
-rm -f "$YDEV_SESSION"
-echo "deleted ydev session box $id"
+# dry-run must be side-effect free: only drop local session state on a real delete
+if [ "${YDEV_DRYRUN:-0}" != "1" ]; then
+  rm -f "$YDEV_SESSION"
+  echo "deleted ydev session box $id"
+fi
