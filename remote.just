@@ -13,3 +13,9 @@ down:
 # Delete ALL orphaned ydev boxes (label-scoped; never touches CI)
 clean:
     scripts/ydev/remote-clean.sh
+# Build on the session box against the mirror (fails if no box)
+build machine="qemux86-64":
+    scripts/ydev/remote-build.sh {{machine}}
+# Download the built images from the box to dist/<machine>/
+download machine="qemux86-64":
+    scripts/ydev/remote-download.sh {{machine}}
