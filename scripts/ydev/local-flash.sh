@@ -10,9 +10,10 @@ if [ -z "$dev" ]; then
   exit 1
 fi
 # shellcheck disable=SC2012
-WIC=$(ls -1 "${YDEV_ROOT}"/build/tmp/deploy/images/raspberrypi4-64/*.rootfs.wic \
+WIC=$(ls -t "${YDEV_ROOT}"/build/tmp/deploy/images/raspberrypi4-64/*.rootfs.wic \
              "${YDEV_ROOT}"/dist/raspberrypi4-64/*.wic 2>/dev/null | head -1 || true)
 [ -b "$dev" ] || die_hint "$dev is not a block device"
+[ "$(lsblk -dno TYPE "$dev" 2>/dev/null || true)" = "disk" ] || die_hint "$dev is not a whole disk (partition?) — refusing (safety)"
 [ -n "$WIC" ] || die_hint "no raspberrypi4-64 .wic found" "just local build raspberrypi4-64  (or just remote download raspberrypi4-64)"
 # refuse the disk that carries / (system disk)
 rootdisk=$(lsblk -no PKNAME "$(findmnt -no SOURCE /)" 2>/dev/null | head -1 || true)
