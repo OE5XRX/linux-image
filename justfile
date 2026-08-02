@@ -11,3 +11,5 @@ init:
 # Preflight: report what's missing for local (and remote) use
 doctor:
     scripts/ydev/doctor.sh
+
+mod local
