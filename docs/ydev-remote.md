@@ -11,6 +11,12 @@ private key isn't your ssh default (`~/.ssh/id_*`) or in your ssh-agent, set
 `HCLOUD_SSH_KEY` to its path (e.g. `~/.ssh/yocto-builder`) — otherwise ssh falls
 back to a password prompt. All remote ssh/scp/rsync then use `-i` with that key.
 
+The box's host-key fingerprint is **ignored by default** (`StrictHostKeyChecking=no`
++ `UserKnownHostsFile=/dev/null`): Hetzner recycles IPs, so a fresh box often reuses
+an IP already in your `known_hosts` and ssh would otherwise refuse. These are
+disposable boxes created via the authenticated hcloud API. (The box→storage-box
+mount keeps normal host-key checking.)
+
 ## Loop
 `just remote up` → `just remote build [machine]` → `just remote qemu` |
 `just remote download [machine]` → `just remote down`. `just remote status`
