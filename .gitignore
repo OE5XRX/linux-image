@@ -49,3 +49,8 @@ venv/
 
 # Superpowers SDD scratch (ledger, briefs, diffs, reports)
 .superpowers/
+
+# ydev (local dev loop)
+.env
+/dist/
+.ydev-session
