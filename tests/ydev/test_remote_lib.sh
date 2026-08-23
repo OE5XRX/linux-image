@@ -16,4 +16,14 @@ echo "$out" | grep -q "managed-by==ydev" || { echo "FAIL clean label: $out"; exi
 # down deletes the session id
 out=$(YDEV_DRYRUN=1 HCLOUD_TOKEN=x bash scripts/ydev/remote-down.sh 2>&1 || true)
 echo "$out" | grep -q "server delete" && echo "$out" | grep -q "12345" || { echo "FAIL down id: $out"; exit 1; }
+# ssh identity: HCLOUD_SSH_KEY threads -i + IdentitiesOnly into YDEV_SSH and ydev_rsh
+args=$( . scripts/ydev/remote-lib.sh; HCLOUD_SSH_KEY=/tmp/k ydev_ssh_args; printf '%s ' "${YDEV_SSH[@]}" )
+{ echo "$args" | grep -q -- "-i /tmp/k" && echo "$args" | grep -q "IdentitiesOnly=yes"; } || { echo "FAIL ssh id: $args"; exit 1; }
+noargs=$( . scripts/ydev/remote-lib.sh; ydev_ssh_args; printf '%s ' "${YDEV_SSH[@]}" )
+echo "$noargs" | grep -q -- "-i " && { echo "FAIL ssh id leak (no key set): $noargs"; exit 1; }
+# ephemeral box: per-session known_hosts + accept-new (Hetzner recycles IPs, but
+# still TOFU-pin within a session rather than blanket-trust every connection)
+{ echo "$noargs" | grep -q "StrictHostKeyChecking=accept-new" && echo "$noargs" | grep -q "UserKnownHostsFile=.*\.ydev-known-hosts"; } || { echo "FAIL host-key policy: $noargs"; exit 1; }
+rsh=$( t='~'; . scripts/ydev/remote-lib.sh; HCLOUD_SSH_KEY="$t/x" ydev_rsh )
+echo "$rsh" | grep -q -- "-i ${HOME}/x" || { echo "FAIL rsh tilde expand: $rsh"; exit 1; }
 echo "PASS test_remote_lib"

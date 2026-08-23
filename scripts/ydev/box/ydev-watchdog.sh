@@ -16,7 +16,11 @@ busy() {
 del() {
   id="${YDEV_SELF_ID:-$(curl -s http://169.254.169.254/hetzner/v1/metadata/instance-id)}"
   export HCLOUD_TOKEN="${HCLOUD_TOKEN:-$(cat /etc/ydev/token 2>/dev/null || true)}"
-  if [ "${YDEV_DRYRUN:-0}" = 1 ]; then echo "DRYRUN: hcloud server delete $id"; else hcloud server delete "$id"; fi
+  if [ "${YDEV_DRYRUN:-0}" = 1 ]; then echo "DRYRUN: hcloud server delete $id"; return 0; fi
+  # self-heal: if cloud-init's hcloud install didn't land (e.g. transient GitHub
+  # outage at boot), install it now so THIS or a later timer run can still delete.
+  command -v hcloud >/dev/null 2>&1 || curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz -C /usr/local/bin hcloud
+  hcloud server delete "$id"
 }
 if busy; then echo "busy/active — reset idle timer"; echo "$now" > "$STATE"; exit 0; fi
 [ -f "$STATE" ] || echo "$now" > "$STATE"
