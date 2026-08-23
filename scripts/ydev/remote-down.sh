@@ -7,6 +7,6 @@ id=$(session_id)
 run hcloud server delete "$id"
 # dry-run must be side-effect free: only drop local session state on a real delete
 if [ "${YDEV_DRYRUN:-0}" != "1" ]; then
-  rm -f "$YDEV_SESSION"
+  rm -f "$YDEV_SESSION" "$YDEV_KNOWN_HOSTS"
   echo "deleted ydev session box $id"
 fi

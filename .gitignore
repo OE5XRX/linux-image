@@ -54,3 +54,4 @@ venv/
 .env
 /dist/
 .ydev-session
+.ydev-known-hosts

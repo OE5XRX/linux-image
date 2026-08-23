@@ -40,17 +40,20 @@ echo '$WD_B64'  | base64 -d > /opt/ydev/ydev-watchdog.sh; chmod 755 /opt/ydev/yd
 echo '$SVC_B64' | base64 -d > /etc/systemd/system/ydev-idle.service
 echo '$TMR_B64' | base64 -d > /etc/systemd/system/ydev-idle.timer
 systemctl daemon-reload; systemctl enable --now ydev-idle.timer
-systemd-run --on-active=${MAXH}h --unit=ydev-maxlife /bin/sh -c 'export HCLOUD_TOKEN=\$(cat /etc/ydev/token); hcloud server delete \$(curl -s http://169.254.169.254/hetzner/v1/metadata/instance-id)'
+systemd-run --on-active=${MAXH}h --unit=ydev-maxlife /bin/sh -c 'command -v hcloud >/dev/null 2>&1 || curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz -C /usr/local/bin hcloud; export HCLOUD_TOKEN=\$(cat /etc/ydev/token); while ! hcloud server delete \$(curl -s http://169.254.169.254/hetzner/v1/metadata/instance-id); do sleep 60; done'
 UD
 )
-# test/debug hook: dump the generated user-data and stop
-[ "${YDEV_DUMP_USERDATA:-0}" = 1 ] && { printf '%s\n' "$USERDATA"; exit 0; }
+# test/debug hook: dump the generated user-data and stop (token redacted — the
+# dump can end up in CI logs / test failure output)
+[ "${YDEV_DUMP_USERDATA:-0}" = 1 ] && { printf '%s\n' "${USERDATA//$HCLOUD_TOKEN/<REDACTED>}"; exit 0; }
 
 OUT=$(run hcloud server create --name "$NAME" --type "$TYPE" --image ubuntu-24.04 \
         --ssh-key "$HCLOUD_SSH_KEY_NAME" --location "$LOC" --label "managed-by=ydev" \
         --user-data-from-file - --output json <<<"$USERDATA")
 [ "${YDEV_DRYRUN:-0}" = 1 ] && { echo "DRYRUN: hcloud server create --type $TYPE --label managed-by=ydev --user-data-from-file - (teardown via cloud-init: idle ${IDLE}m/max ${MAXH}h; would parse id/ip, mount)"; exit 0; }
 id=$(jq -r '.server.id' <<<"$OUT"); ip=$(hcloud server ip "$id")
+# fresh per-session host-key pin (new box, possibly a recycled IP)
+rm -f "$YDEV_KNOWN_HOSTS"
 # wait for ssh (mirror build.yml "Wait for SSH")
 for _ in $(seq 1 30); do ssh "${YDEV_SSH[@]}" -o ConnectTimeout=5 "root@$ip" true 2>/dev/null && break; sleep 10; done
 # deps + yocto user (verbatim from build.yml "Install Yocto build dependencies" + "Create yocto build user")

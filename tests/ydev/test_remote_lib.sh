@@ -21,8 +21,9 @@ args=$( . scripts/ydev/remote-lib.sh; HCLOUD_SSH_KEY=/tmp/k ydev_ssh_args; print
 { echo "$args" | grep -q -- "-i /tmp/k" && echo "$args" | grep -q "IdentitiesOnly=yes"; } || { echo "FAIL ssh id: $args"; exit 1; }
 noargs=$( . scripts/ydev/remote-lib.sh; ydev_ssh_args; printf '%s ' "${YDEV_SSH[@]}" )
 echo "$noargs" | grep -q -- "-i " && { echo "FAIL ssh id leak (no key set): $noargs"; exit 1; }
-# ephemeral box: host-key fingerprint ignored by default (Hetzner recycles IPs)
-{ echo "$noargs" | grep -q "StrictHostKeyChecking=no" && echo "$noargs" | grep -q "UserKnownHostsFile=/dev/null"; } || { echo "FAIL fingerprint policy: $noargs"; exit 1; }
+# ephemeral box: per-session known_hosts + accept-new (Hetzner recycles IPs, but
+# still TOFU-pin within a session rather than blanket-trust every connection)
+{ echo "$noargs" | grep -q "StrictHostKeyChecking=accept-new" && echo "$noargs" | grep -q "UserKnownHostsFile=.*\.ydev-known-hosts"; } || { echo "FAIL host-key policy: $noargs"; exit 1; }
 rsh=$( t='~'; . scripts/ydev/remote-lib.sh; HCLOUD_SSH_KEY="$t/x" ydev_rsh )
 echo "$rsh" | grep -q -- "-i ${HOME}/x" || { echo "FAIL rsh tilde expand: $rsh"; exit 1; }
 echo "PASS test_remote_lib"
