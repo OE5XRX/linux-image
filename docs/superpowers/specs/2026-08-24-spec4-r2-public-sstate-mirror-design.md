@@ -124,8 +124,11 @@ The bump-bot + lockfiles (Spec 3) stay unchanged.
 - **R2 bucket** `oe5xrx-yocto-sstate` with **public read** enabled.
 - **Custom domain** `sstate.oe5xrx.org` bound to the bucket (Cloudflare R2 custom
   domain + DNS via the existing Terraform Cloudflare provider).
-- **R2 API token** scoped to write this one bucket → stored in Bitwarden (new secret in
-  a build-cache project) for CI + build-server pushes. Public read needs no token.
+- **R2 API token** (S3 access-key + secret) scoped to write this one bucket → stored as
+  secrets in the **existing `oe5xrx-yocto-cache` Bitwarden project** (reused — its old
+  Storage Box secrets are retired with the Box; reuse avoids a new project and the
+  Bitwarden free-tier 2-project limit). The machine account (`BWS_ACCESS_TOKEN`) keeps
+  read access. Consumed by CI + build-server pushes. Public read needs no token.
 - **Lifecycle rule** — age-based object expiry, **365-day retention** (long, because
   builds are infrequent; storage is cheap and egress is free — see decision 4).
 - **Retire** `terraform/storage_box.tf` and the `oe5xrx-yocto-cache` Storage Box
@@ -188,8 +191,6 @@ builds with no cache. Order:
 - **Lifecycle retention window** — default **365 days** (long, since builds are
   infrequent); confirm nothing pushes it shorter. Pure age-expiry is accepted; no
   "keep newest per object" scripting.
-- **Bitwarden project** for the R2 write creds — reuse/rename `oe5xrx-yocto-cache` vs a
-  fresh `oe5xrx-yocto-sstate` project.
 - **ydev interaction** — confirm the on-demand build-server publish step and the local
   dev "read public mirror, no push" path both behave.
 
