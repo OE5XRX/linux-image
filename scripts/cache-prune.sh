@@ -19,7 +19,9 @@ echo "== sstate: remove older duplicates (keep newest per object) =="
 sstate_mgmt="$OE_CORE/scripts/sstate-cache-management.py"
 [ -f "$sstate_mgmt" ] || sstate_mgmt="$OE_CORE/scripts/sstate-cache-management.sh"
 if [ "$DRY_RUN" = 1 ]; then
-  python3 "$sstate_mgmt" --cache-dir="$MIRROR/sstate" --remove-duplicated || true
+  # --dry-run (-n): the tool's own no-op mode; clean output, exits 0. Avoids
+  # the interactive input() prompt that would EOFError under CI.
+  python3 "$sstate_mgmt" --cache-dir="$MIRROR/sstate" --remove-duplicated --dry-run
 else
   python3 "$sstate_mgmt" --cache-dir="$MIRROR/sstate" --remove-duplicated --yes
 fi

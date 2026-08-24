@@ -11,6 +11,10 @@ on:
         description: 'List only (1) or delete (0)'
         default: '1'
 
+# Least privilege: prune only reads the repo + mounts the box. No writes.
+permissions:
+  contents: read
+
 jobs:
   prune:
     name: Prune sstate + downloads
