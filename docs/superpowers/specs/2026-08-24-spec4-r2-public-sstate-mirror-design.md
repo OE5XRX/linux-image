@@ -41,8 +41,12 @@ standard BitBake mirror pattern (`SSTATE_MIRRORS` + `SOURCE_MIRROR_URL`).
 3. **Mirror both sstate and downloads** — public builders benefit from prebuilt
    objects *and* not having to re-hammer upstream source servers. Cost is negligible.
 4. **Pruning via R2 lifecycle rules** (age-based expiry), replacing Spec 3's
-   sshfs `cache-prune.sh`/`cache-prune.yml`. Accepted trade-off: an old-but-still-current
-   sstate object may expire and be re-uploaded on the next build (cheap re-upload).
+   sshfs `cache-prune.sh`/`cache-prune.yml`. Retention is set **long — 365 days
+   (default)** — because builds are infrequent (weeks–months apart); a short window
+   would expire the cache between builds and force cold rebuilds. Storage is tiny and
+   egress is free, so keeping it long is nearly free. Accepted trade-off: an
+   old-but-still-current sstate object may eventually expire and be re-uploaded on the
+   next build (cheap re-upload).
 5. **Deferred, still: shared `bitbake-hashserv`.** Determinism stays as today
    (`BB_HASHSERVE = ""` + `BB_SIGNATURE_HANDLER = "OEBasicHash"`), which is what makes
    mirror objects match across builds. hashserv's marginal benefit does not justify an
@@ -122,7 +126,8 @@ The bump-bot + lockfiles (Spec 3) stay unchanged.
   domain + DNS via the existing Terraform Cloudflare provider).
 - **R2 API token** scoped to write this one bucket → stored in Bitwarden (new secret in
   a build-cache project) for CI + build-server pushes. Public read needs no token.
-- **Lifecycle rule** — age-based object expiry (retention configurable, e.g. 60–90 d).
+- **Lifecycle rule** — age-based object expiry, **365-day retention** (long, because
+  builds are infrequent; storage is cheap and egress is free — see decision 4).
 - **Retire** `terraform/storage_box.tf` and the `oe5xrx-yocto-cache` Storage Box
   secrets — *after* R2 is proven (see Migration).
 
@@ -180,9 +185,9 @@ builds with no cache. Order:
   buckets. One bucket + prefixes is the default.
 - **Publish tool** — `rclone` (S3 remote to R2) vs `aws s3 sync`. Pick one; `rclone`
   handles many-small-objects well and is easy to pin.
-- **Lifecycle retention window** (60 vs 90 days) and whether a light "keep newest per
-  object" nicety is worth any scripting, or pure age-expiry is accepted (default: pure
-  age).
+- **Lifecycle retention window** — default **365 days** (long, since builds are
+  infrequent); confirm nothing pushes it shorter. Pure age-expiry is accepted; no
+  "keep newest per object" scripting.
 - **Bitwarden project** for the R2 write creds — reuse/rename `oe5xrx-yocto-cache` vs a
   fresh `oe5xrx-yocto-sstate` project.
 - **ydev interaction** — confirm the on-demand build-server publish step and the local
