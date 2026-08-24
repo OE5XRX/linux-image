@@ -25,3 +25,39 @@ Your local build compiles only what changed; the rest comes from the mirror.
 Local builds do NOT push sstate back (only CI does, to keep the mirror a clean
 CI-produced artifact). If you want your local sstate to seed the box, rsync it
 up manually: `rsync -a --ignore-existing build/sstate-cache/ /mnt/yocto-shared/sstate/`.
+
+## Cache hardening: lockfiles, shallow fetch, and pruning
+
+### Deterministic sources via kas lockfiles
+Every machine target has a committed kas lockfile that pins every layer to an
+exact commit. The per-machine locks are `qemux86-64.lock.yml` and
+`raspberrypi4-64.lock.yml` (the RPi one also pins `meta-raspberrypi`). When you
+run `kas build qemux86-64.yml` or `kas build raspberrypi4-64.yml`, kas
+auto-loads the matching lockfile — builds are deterministic, and sstate is
+matchable across machines with no "unsafe branch" warnings.
+
+### Bumping lockfiles
+A weekly scheduled workflow regenerates the locks and opens a PR on changes.
+To bump manually: run `kas lock qemux86-64.yml` and `kas lock raspberrypi4-64.yml`,
+then commit both updated lockfiles.
+
+### Shallow git fetch
+`BB_GIT_SHALLOW = "1"` in `oe5xrx.yml` fetches only the pinned commit from each
+layer, not full history. For the kernel, this cuts clone time from ~85 minutes
+to seconds and saves multi-GB on a shallow fetch box. The shared `DL_DIR` stays
+on the Storage Box; only the pinned commit arrives locally.
+
+### Cache pruning
+The nightly `.github/workflows/cache-prune.yml` workflow (and manual
+`workflow_dispatch`) mounts the Storage Box and runs `scripts/cache-prune.sh`:
+pruned sstate keeps only the newest per object (`--remove-duplicated`), aged
+downloads are discarded (default retention is 45 days via `DL_AGE_DAYS`,
+never including current sources), and stale `.lock` / partial files are cleaned.
+**Default is dry-run** (lists only); real deletion requires `workflow_dispatch`
+with `dry_run=0`.
+
+### Kept deliberate pins
+The `station-agent` `SRCREV` is pinned by project rule (never `AUTOREV`) and
+stays locked. Kernel version parity pins (`PREFERRED_VERSION_linux-yocto`
+and `PREFERRED_VERSION_linux-raspberrypi` set to `"6.18.%"`) ensure qemu and
+RPi builds track the same kernel series.

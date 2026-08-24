@@ -69,6 +69,9 @@ local_conf_header:
     # (BB_HASHSERVE = "host:port") is the higher-reuse alternative -> Spec 3.
     BB_HASHSERVE = ""
     BB_SIGNATURE_HANDLER = "OEBasicHash"
+    # Shallow git fetch: only the lockfile-pinned commit, not full history
+    # (the linux-yocto --mirror clone was multi-GB / 85+ min over sshfs).
+    BB_GIT_SHALLOW = "1"
 
 # Environment variables kas forwards into the bitbake invocation. kas
 # scrubs the shell env by default, so setting OE5XRX_RELEASE_TAG at the

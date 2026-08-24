@@ -1,0 +1,46 @@
+name: Bump kas lockfile
+
+on:
+  schedule:
+    - cron: '17 4 * * 1'   # Mondays 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install kas
+        run: pip install kas
+
+      - name: Regenerate lockfiles
+        run: |
+          kas lock qemux86-64.yml
+          kas lock raspberrypi4-64.yml
+
+      - name: Open PR if the locks changed
+        uses: peter-evans/create-pull-request@v7
+        with:
+          add-paths: |
+            qemux86-64.lock.yml
+            raspberrypi4-64.lock.yml
+          branch: chore/kas-lockfile-bump
+          delete-branch: true
+          title: 'chore(cache): bump kas lockfile'
+          commit-message: |
+            chore(cache): bump kas lockfile
+
+            Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+          body: |
+            Automated weekly kas lockfile bump to the latest upstream branch
+            tips. Review the pinned-commit diff, then merge like a dependency
+            update. A build runs on this PR via the normal CI.
