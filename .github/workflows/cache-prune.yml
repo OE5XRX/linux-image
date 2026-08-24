@@ -76,10 +76,23 @@ jobs:
           echo "== mount ==" && mount | grep yocto-shared || true
           df -h /mnt/yocto-shared
 
-      - name: Checkout openembedded-core (for sstate-cache-management.py)
-        # Pin to the same branch the builds use (per the lockfiles), so the prune
-        # tool doesn't drift to an arbitrary upstream HEAD.
-        run: git clone --depth 1 --branch wrynose --single-branch https://git.openembedded.org/openembedded-core
+      - name: Checkout openembedded-core (pinned to the lockfile commit)
+        # Fetch the EXACT openembedded-core commit pinned in the kas lockfile, so
+        # the (destructive) prune tool is reproducible run-to-run. Falls back to
+        # the wrynose branch if the server refuses an arbitrary-SHA shallow fetch.
+        run: |
+          set -euo pipefail
+          OE_REV=$(grep -A1 '^    openembedded-core:' qemux86-64.lock.yml | awk '/commit:/{print $2}')
+          [ -n "${OE_REV}" ] || { echo "::error::no openembedded-core commit in qemux86-64.lock.yml"; exit 1; }
+          echo "oe-core pinned commit: ${OE_REV}"
+          mkdir openembedded-core && cd openembedded-core
+          git init -q && git remote add origin https://git.openembedded.org/openembedded-core
+          if git fetch -q --depth 1 origin "${OE_REV}"; then
+            git checkout -q FETCH_HEAD
+          else
+            echo "::warning::exact-SHA shallow fetch unsupported; falling back to wrynose"
+            git fetch -q --depth 1 origin wrynose && git checkout -q FETCH_HEAD
+          fi
 
       - name: Prune cache
         env:
