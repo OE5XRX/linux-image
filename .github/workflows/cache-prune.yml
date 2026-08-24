@@ -77,7 +77,9 @@ jobs:
           df -h /mnt/yocto-shared
 
       - name: Checkout openembedded-core (for sstate-cache-management.py)
-        run: git clone --depth 1 https://git.openembedded.org/openembedded-core
+        # Pin to the same branch the builds use (per the lockfiles), so the prune
+        # tool doesn't drift to an arbitrary upstream HEAD.
+        run: git clone --depth 1 --branch wrynose --single-branch https://git.openembedded.org/openembedded-core
 
       - name: Prune cache
         env:
