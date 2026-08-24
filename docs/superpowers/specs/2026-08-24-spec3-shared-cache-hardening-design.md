@@ -40,12 +40,12 @@ Decisions:
 
 **qemu ↔ RPi kernel reality (rationale):** qemux86-64 uses the `linux-yocto` provider; raspberrypi4-64 uses the `linux-raspberrypi` provider (the RPi Foundation fork with BSP patches). They can share a *version line* (6.18.x) but never the same source/SRCREV. So parity = same version line, achieved by the `PREFERRED_VERSION` wildcard on both, **not** by a hard SRCREV pin. Moving to a newer line (e.g. 6.18 → 6.x) is a deliberate, tested decision and is only possible when **both** layers provide that line.
 
-### kas lockfile
-- Generate `oe5xrx.lock.yml` via `kas dump --lock --update --inplace oe5xrx.yml`, commit it. kas auto-loads the sibling `.lock.yml` → local/remote/CI resolve **identical layer commits** → deterministic recipes (including the kernel SRCREV, transitively via the pinned `meta-yocto` / `meta-raspberrypi`). Eliminates the drift cache-misses and the "unsafe branch" warnings.
-- The lockfile pins the *commit*; the `PREFERRED_VERSION` wildcard selects the *line*; together: reproducible exact point-release per lock, parity across arches.
+### kas lockfile (per-machine locks)
+- Generate per-machine lockfiles via `kas lock qemux86-64.yml` and `kas lock raspberrypi4-64.yml` → `qemux86-64.lock.yml` + `raspberrypi4-64.lock.yml` (the RPi lock pins `meta-raspberrypi`). Commit both. kas auto-loads the sibling `<machine>.lock.yml` for each build → local/remote/CI resolve **identical layer commits** → deterministic recipes (including the kernel SRCREV, transitively via the pinned `meta-yocto` / `meta-raspberrypi`). Eliminates the drift cache-misses and the "unsafe branch" warnings.
+- The lockfiles pin the *commit*; the `PREFERRED_VERSION` wildcard selects the *line*; together: reproducible exact point-release per lock, parity across arches.
 
 ### Bump bot
-- A scheduled workflow (`.github/workflows/lockfile-bump.yml`, e.g. weekly) runs `kas dump --lock --update` and, when the lock changes, opens a **PR** with the diff (e.g. `peter-evans/create-pull-request` or `gh pr create`). Reviewed/merged like a dependency bump → tracks newest-stable, controlled, cache-friendly (no silent per-build drift).
+- A scheduled workflow (`.github/workflows/lockfile-bump.yml`, e.g. weekly) runs `kas lock qemux86-64.yml` and `kas lock raspberrypi4-64.yml` to regenerate both machine lockfiles against upstream branch tips, and when they change, opens a **PR** with the diff (e.g. `peter-evans/create-pull-request` or `gh pr create`). Reviewed/merged like a dependency bump → tracks newest-stable, controlled, cache-friendly (no silent per-build drift).
 
 ### Validation (main risk area)
 Un-pinning the exact commit **changes which kernel gets built**. C1 therefore **requires a real build** to confirm:

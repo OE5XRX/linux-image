@@ -4,7 +4,7 @@
 
 **Goal:** Make the shared Yocto cache deterministic (kas lockfile + kept version-line pins), fast (shallow git fetch), and self-maintaining (scheduled pruning + auto lockfile-bump PR).
 
-**Architecture:** Config changes in `oe5xrx.yml` + a deleted kernel pin (C1/C2), a committed `oe5xrx.lock.yml` (C1), and two new GitHub Actions workflows — a lockfile bump-bot and a cache-prune job that mounts the Storage Box like `build.yml` (C1/C3). Full x86+RPi builds validate C1/C2 and are run manually/in CI (a human gate), not by subagents.
+**Architecture:** Config changes in `qemux86-64.yml` and `raspberrypi4-64.yml` + a deleted kernel pin (C1/C2), committed per-machine lockfiles `qemux86-64.lock.yml` + `raspberrypi4-64.lock.yml` (C1), and two new GitHub Actions workflows — a lockfile bump-bot and a cache-prune job that mounts the Storage Box like `build.yml` (C1/C3). Full x86+RPi builds validate C1/C2 and are run manually/in CI (a human gate), not by subagents.
 
 **Tech Stack:** kas (in `~/OE5XRX/.kas-venv`), BitBake/OE (`wrynose`), GitHub Actions, bash, sshfs, `openembedded-core/scripts/sstate-cache-management.py`, yamllint, shellcheck.
 
@@ -13,9 +13,9 @@
 ## Global Constraints
 
 - **kas is NOT on PATH locally** — every local kas command runs via the venv: `source ~/OE5XRX/.kas-venv/bin/activate` first (or call `~/OE5XRX/.kas-venv/bin/kas`). CI has its own kas.
-- **Keep these deliberate pins/fragments** (do NOT touch): `PREFERRED_VERSION_linux-yocto = "6.18.%"` and `PREFERRED_VERSION_linux-raspberrypi = "6.18.%"` in `oe5xrx.yml` (qemu↔RPi version parity); the `station-agent` `SRCREV` pin; the version-agnostic `meta-oe5xrx-remotestation/recipes-kernel/linux/linux-yocto_%.bbappend` and `linux-raspberrypi_%.bbappend` fragments (watchdog + ikconfig).
-- **`oe5xrx.lock.yml` must be tracked** (it is not gitignored) so local/remote/CI all use it.
-- **`BB_GIT_SHALLOW` depends on the lockfile** (needs fixed SRCREVs) → C1 lockfile lands before C2 shallow.
+- **Keep these deliberate pins/fragments** (do NOT touch): `PREFERRED_VERSION_linux-yocto = "6.18.%"` and `PREFERRED_VERSION_linux-raspberrypi = "6.18.%"` in `qemux86-64.yml`/`raspberrypi4-64.yml` (qemu↔RPi version parity); the `station-agent` `SRCREV` pin; the version-agnostic `meta-oe5xrx-remotestation/recipes-kernel/linux/linux-yocto_%.bbappend` and `linux-raspberrypi_%.bbappend` fragments (watchdog + ikconfig).
+- **Per-machine `.lock.yml` files must be tracked** (not gitignored): `qemux86-64.lock.yml` and `raspberrypi4-64.lock.yml` so local/remote/CI all use them. kas auto-loads the sibling lock.
+- **`BB_GIT_SHALLOW` depends on the lockfiles** (needs fixed SRCREVs) → C1 lockfiles land before C2 shallow.
 - **Full builds (x86 + RPi) and prune runs are manual/CI**, not local — the plan marks those steps `[HUMAN]`. Local validation for config = `kas dump <machine>.yml` parses; for workflows/scripts = `yamllint` + `shellcheck`.
 - **CI green:** `yamllint` (new workflow YAML) + `shellcheck` (new scripts). Commit subjects imperative ≤72 chars; end every commit with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`. Squash-merge. **One PR** (spec + plan + code on `feat/spec3-shared-cache-hardening`).
 
@@ -67,52 +67,58 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-### Task 2: Generate and commit the kas lockfile
+### Task 2: Generate and commit the per-machine kas lockfiles
 
-Pin every kas-managed layer repo to an exact commit so local/remote/CI resolve identical sources → deterministic recipes (incl. the kernel SRCREV via the pinned providers), no more sstate drift-misses, no "Using branch without commit … unsafe" warnings.
+Pin every kas-managed layer repo to an exact commit per machine so local/remote/CI resolve identical sources → deterministic recipes (incl. the kernel SRCREV via the pinned providers), no more sstate drift-misses, no "Using branch without commit … unsafe" warnings.
 
 **Files:**
-- Create: `oe5xrx.lock.yml` (generated)
+- Create: `qemux86-64.lock.yml` (generated)
+- Create: `raspberrypi4-64.lock.yml` (generated, pins `meta-raspberrypi`)
 
 **Interfaces:**
-- Consumes: `oe5xrx.yml` repo list.
-- Produces: `oe5xrx.lock.yml` — kas auto-loads the sibling `<name>.lock.yml`, so no reference change is needed in `oe5xrx.yml`.
+- Consumes: `qemux86-64.yml` and `raspberrypi4-64.yml` repo lists.
+- Produces: per-machine `.lock.yml` files — kas auto-loads the sibling `<machine>.lock.yml`, so no reference change is needed in the configs.
 
-- [ ] **Step 1: Generate the lockfile**
+- [ ] **Step 1: Generate the per-machine lockfiles**
 
 ```bash
 source ~/OE5XRX/.kas-venv/bin/activate
-kas dump --lock --update --inplace oe5xrx.yml
-ls -l oe5xrx.lock.yml
+kas lock qemux86-64.yml
+kas lock raspberrypi4-64.yml
+ls -l qemux86-64.lock.yml raspberrypi4-64.lock.yml
 ```
-Expected: `oe5xrx.lock.yml` created, containing an `overrides:` / `repos:` block with `commit:` values for bitbake, openembedded-core, meta-yocto, meta-openembedded (and raspberrypi via the include).
+Expected: `qemux86-64.lock.yml` and `raspberrypi4-64.lock.yml` created, each containing an `overrides:` / `repos:` block with `commit:` values. The RPi lock includes `meta-raspberrypi`.
 
-- [ ] **Step 2: Verify it is valid YAML and NOT gitignored**
+- [ ] **Step 2: Verify both lockfiles are valid YAML and NOT gitignored**
 
 ```bash
-yamllint -d '{extends: default, rules: {line-length: disable, document-start: disable}}' oe5xrx.lock.yml && echo "yaml OK"
-git check-ignore oe5xrx.lock.yml && echo "!! IGNORED — fix .gitignore" || echo "tracked OK"
+yamllint -d '{extends: default, rules: {line-length: disable, document-start: disable}}' qemux86-64.lock.yml raspberrypi4-64.lock.yml && echo "yaml OK"
+git check-ignore qemux86-64.lock.yml raspberrypi4-64.lock.yml && echo "!! IGNORED — fix .gitignore" || echo "tracked OK"
 ```
 Expected: `yaml OK` and `tracked OK`.
 
-- [ ] **Step 3: Verify determinism + that the lock is consumed (no unsafe-branch warning)**
+- [ ] **Step 3: Verify determinism + that the locks are consumed (no unsafe-branch warning)**
 
 ```bash
 source ~/OE5XRX/.kas-venv/bin/activate
-# re-dumping the lock must be a no-op (deterministic)
-cp oe5xrx.lock.yml /tmp/lock.a
-kas dump --lock --update --inplace oe5xrx.yml
-diff -q /tmp/lock.a oe5xrx.lock.yml && echo "deterministic OK"
+# re-locking must be a no-op (deterministic)
+cp qemux86-64.lock.yml /tmp/lock.x86.a
+cp raspberrypi4-64.lock.yml /tmp/lock.rpi.a
+kas lock qemux86-64.yml
+kas lock raspberrypi4-64.yml
+diff -q /tmp/lock.x86.a qemux86-64.lock.yml && echo "x86 deterministic OK"
+diff -q /tmp/lock.rpi.a raspberrypi4-64.lock.yml && echo "rpi deterministic OK"
 # a plain dump must no longer warn about branch-without-commit
-kas dump qemux86-64.yml 2>&1 | grep -i 'unsafe\|without commit' && { echo "FAIL: still unsafe"; exit 1; } || echo "no unsafe-branch warning OK"
+kas dump qemux86-64.yml 2>&1 | grep -i 'unsafe\|without commit' && { echo "FAIL: still unsafe"; exit 1; } || echo "x86 no unsafe-branch warning OK"
+kas dump raspberrypi4-64.yml 2>&1 | grep -i 'unsafe\|without commit' && { echo "FAIL: still unsafe"; exit 1; } || echo "rpi no unsafe-branch warning OK"
 ```
-Expected: `deterministic OK` and `no unsafe-branch warning OK`.
+Expected: both deterministic OK and both no unsafe-branch warning OK.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add oe5xrx.lock.yml
-git commit -m "feat(cache): pin layers via kas lockfile (deterministic sstate)
+git add qemux86-64.lock.yml raspberrypi4-64.lock.yml
+git commit -m "feat(cache): pin layers via per-machine kas lockfiles (deterministic sstate)
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -191,14 +197,14 @@ Expected: build succeeds; the `linux-raspberrypi` version is meta-raspberrypi's 
 
 ### Task 5: Lockfile bump-bot workflow
 
-A scheduled job that regenerates the lockfile against upstream branch tips and opens a PR when it changes — so sources track newest-stable in a reviewed, cache-friendly way.
+A scheduled job that regenerates both per-machine lockfiles against upstream branch tips and opens a PR when they change — so sources track newest-stable in a reviewed, cache-friendly way.
 
 **Files:**
 - Create: `.github/workflows/lockfile-bump.yml`
 
 **Interfaces:**
-- Consumes: `oe5xrx.yml`, `oe5xrx.lock.yml`.
-- Produces: a PR titled `chore(cache): bump kas lockfile` when the lock changes.
+- Consumes: `qemux86-64.yml`, `raspberrypi4-64.yml`, `qemux86-64.lock.yml`, `raspberrypi4-64.lock.yml`.
+- Produces: a PR titled `chore(cache): bump kas lockfiles` when either lock changes.
 
 - [ ] **Step 1: Write the workflow**
 
@@ -221,22 +227,26 @@ jobs:
           python-version: '3.x'
       - name: Install kas
         run: pip install kas
-      - name: Regenerate lockfile
-        run: kas dump --lock --update --inplace oe5xrx.yml
-      - name: Open PR if the lock changed
+      - name: Regenerate per-machine lockfiles
+        run: |
+          kas lock qemux86-64.yml
+          kas lock raspberrypi4-64.yml
+      - name: Open PR if the locks changed
         uses: peter-evans/create-pull-request@v7
         with:
-          add-paths: oe5xrx.lock.yml
+          add-paths: |
+            qemux86-64.lock.yml
+            raspberrypi4-64.lock.yml
           branch: chore/kas-lockfile-bump
           delete-branch: true
-          title: 'chore(cache): bump kas lockfile'
+          title: 'chore(cache): bump kas lockfiles'
           commit-message: |
-            chore(cache): bump kas lockfile
+            chore(cache): bump kas lockfiles
 
             Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
           body: |
             Automated weekly kas lockfile bump to the latest upstream branch
-            tips. Review the pinned-commit diff, then merge like a dependency
+            tips. Review the pinned-commit diffs, then merge like a dependency
             update. A build runs on this PR via the normal CI.
 ```
 
@@ -376,7 +386,7 @@ After merge (or via a branch `workflow_dispatch`), run the prune with `dry_run=1
 
 - [ ] **Step 1: Document the Spec-3 additions**
 
-Append a section to `docs/dev-shared-cache.md` covering: the kas lockfile (deterministic sources; bump via the weekly bot PR or `kas dump --lock --update --inplace oe5xrx.yml`); `BB_GIT_SHALLOW` (small fetches; `DL_DIR` stays shared); the nightly `cache-prune` workflow (sstate `--remove-duplicated` + downloads age-prune; dry-run first; retention via `DL_AGE_DAYS`). Note the kept deliberate pins (station-agent SRCREV; `PREFERRED_VERSION 6.18.%` parity).
+Append a section to `docs/dev-shared-cache.md` covering: the per-machine kas lockfiles (deterministic sources; bump via the weekly bot PR or `kas lock qemux86-64.yml && kas lock raspberrypi4-64.yml`); `BB_GIT_SHALLOW` (small fetches; `DL_DIR` stays shared); the nightly `cache-prune` workflow (sstate `--remove-duplicated` + downloads age-prune; dry-run first; retention via `DL_AGE_DAYS`). Note the kept deliberate pins (station-agent SRCREV; `PREFERRED_VERSION 6.18.%` parity).
 
 - [ ] **Step 2: Commit**
 
@@ -395,6 +405,6 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 **Placeholder scan:** the two workflow YAMLs are sketches that explicitly reuse `build.yml`'s proven bws+sshfs mount steps (the implementer copies them verbatim — they exist and are cited by line range) rather than re-inventing an untested mount; `cache-prune.sh` is complete. No TBDs.
 
-**Type/name consistency:** `oe5xrx.lock.yml` (auto-loaded), `BB_GIT_SHALLOW = "1"`, `scripts/cache-prune.sh` (`DRY_RUN`/`DL_AGE_DAYS`/`MIRROR`/`OE_CORE`), the two workflow filenames — used consistently across tasks and the docs.
+**Type/name consistency:** `qemux86-64.lock.yml` and `raspberrypi4-64.lock.yml` (auto-loaded per machine), `BB_GIT_SHALLOW = "1"`, `scripts/cache-prune.sh` (`DRY_RUN`/`DL_AGE_DAYS`/`MIRROR`/`OE_CORE`), the two workflow filenames — used consistently across tasks and the docs.
 
 **Sequencing:** 1 → 2 → 3 (config) → 4 [HUMAN build gate] → 5 → 6 → 7. C2 (3) after C1 lockfile (2) per the shallow-needs-pinned-SRCREV dependency; the human build gate (4) validates 1-3 before the independent workflow/doc tasks.
