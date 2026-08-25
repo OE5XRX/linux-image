@@ -29,18 +29,14 @@ run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" <<'EOF'
     command -v rclone >/dev/null 2>&1 || apt-get install -y --no-install-recommends rclone
     # shellcheck disable=SC1091
     . /etc/ydev/r2env
-    RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
-    RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_SSTATE_KEY" \
-    RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SSTATE_SECRET" \
-    RCLONE_CONFIG_R2_REGION=auto \
-    RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com" \
+    # Export the rclone R2 config once, then reuse it for both uploads.
+    export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
+           RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_SSTATE_KEY" \
+           RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SSTATE_SECRET" \
+           RCLONE_CONFIG_R2_REGION=auto \
+           RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com"
     rclone copy --transfers 16 --checkers 32 \
       /home/yocto/src/build/sstate-cache/ R2:oe5xrx-yocto-sstate/sstate || true
-    RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
-    RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_SSTATE_KEY" \
-    RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SSTATE_SECRET" \
-    RCLONE_CONFIG_R2_REGION=auto \
-    RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com" \
     rclone copy --transfers 16 --checkers 32 \
       /home/yocto/src/build/downloads/ R2:oe5xrx-yocto-sstate/downloads || true
   else
