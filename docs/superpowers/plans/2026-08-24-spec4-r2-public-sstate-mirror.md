@@ -25,7 +25,7 @@ Each task is tagged `(servers)` or `(linux-image)`. Never delete the Box (Phase 
 - **Cloudflare account/R2 endpoint (servers):** account ID `cef6b7278fa23b4970442ce3a1dfcb32`, EU jurisdiction, S3 endpoint `https://cef6b7278fa23b4970442ce3a1dfcb32.eu.r2.cloudflarestorage.com`. TF providers: `cloudflare/cloudflare ~> 5.0`, `terraform >= 1.8.0`.
 - **Bucket + domain names:** bucket `oe5xrx-yocto-sstate`, public custom domain `sstate.oe5xrx.org`, zone via `var.cloudflare_zone_id`, account via `var.cloudflare_account_id`.
 - **Lifecycle retention: 365 days** (age-based `delete_objects_transition`, builds are infrequent).
-- **Bitwarden:** reuse the existing project `oe5xrx-yocto-cache`. New R2 write secrets `R2_SSTATE_KEY` + `R2_SSTATE_SECRET` (S3 access-key + secret from a dashboard-created R2 API token, scoped Object Read & Write on this one bucket). Secret keys match `^[A-Z][A-Z0-9_]*$`. Machine account (`BWS_ACCESS_TOKEN`) keeps **read**. The old `STORAGE_BOX_*` secrets stay until Phase C.
+- **Bitwarden:** reuse the existing project `oe5xrx-yocto-cache` — **no new project or machine account** (the Bitwarden SM free plan is capped at 3 projects + 3 machine accounts, all already used; a 4th ⇒ paid ~$280/yr). New R2 write secrets `R2_SSTATE_KEY` + `R2_SSTATE_SECRET` (S3 access-key + secret from a dashboard-created R2 API token, scoped Object Read & Write on the one bucket). Secret keys match `^[A-Z][A-Z0-9_]*$`. They are read by the **existing dedicated builder machine accounts** — `yocto-linux-image-readonly` (linux-image CI's `secrets.BWS_ACCESS_TOKEN`) and `yocto-runner` (the on-demand build server) — which already read this project. **Trust boundary:** the servers-deploy account `github-actions-deploy-readonly` also reads this project today (Storage Box secrets); Phase C revokes its read once the Box is gone, leaving builders-only (least-privilege at zero cost). The old `STORAGE_BOX_*` secrets stay until Phase C.
 - **Read config (linux-image):** `SSTATE_MIRRORS = "file://.* https://sstate.oe5xrx.org/sstate/PATH;downloadfilename=PATH"`; `SOURCE_MIRROR_URL = "https://sstate.oe5xrx.org/downloads/"` with `INHERIT += "own-mirrors"`; `DL_DIR`/`SSTATE_DIR` local. Keep `BB_HASHSERVE = ""`, `BB_SIGNATURE_HANDLER = "OEBasicHash"`, `BB_GIT_SHALLOW = "1"` unchanged.
 - **Publish object layout:** local `sstate-cache/` → R2 `sstate/`; local `downloads/` → R2 `downloads/`. One bucket, two prefixes.
 - **Secret handling:** R2 creds via `bws` → job `env:` only, never CLI args or logs; mask before writing to `$GITHUB_ENV`; validate single-line. (Mirrors restic's `RESTIC_R2_*` → `AWS_*` pattern.)
@@ -597,6 +597,10 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - [ ] **Step 5: (operator) remove obsolete Bitwarden secrets**
 
 After merge/apply, delete the now-unused `STORAGE_BOX_PASSWORD`, `STORAGE_BOX_SSH_PUBKEY`, `STORAGE_BOX_SSH_PRIVKEY`, `STORAGE_BOX_HOST`, `STORAGE_BOX_USER` secrets from the `oe5xrx-yocto-cache` Bitwarden project (keep `R2_SSTATE_KEY`/`R2_SSTATE_SECRET`). Documented in the runbook (Task A1).
+
+- [ ] **Step 6: (operator) revoke the servers-deploy account's read on the cache project**
+
+With the Storage Box gone, the `servers` deploy no longer fetches anything from `oe5xrx-yocto-cache`. Revoke `github-actions-deploy-readonly`'s **read** access to the `oe5xrx-yocto-cache` Bitwarden project, leaving only the builder accounts (`yocto-linux-image-readonly`, `yocto-runner`). This finalizes the least-privilege boundary for the public-mirror write creds at zero cost (no new project/account). Also drop the now-dead `fetch-storage-box-secrets` action wiring from `servers` `main.yml` if not already removed with `storage_box.tf`.
 
 ---
 
