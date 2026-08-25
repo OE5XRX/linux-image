@@ -83,7 +83,8 @@ R2_SECRET=$(jq -r '.[]|select(.key=="R2_SSTATE_SECRET")|.value' <<<"$SECRETS")
 [ -n "$R2_SECRET" ] || die_hint "R2_SSTATE_SECRET not found in bws project oe5xrx-yocto-cache" "check BWS_ACCESS_TOKEN read-access"
 # Write R2 creds into /etc/ydev/r2env on the box (mode 600).
 # Secrets are passed via stdin (never in argv — would be visible in /proc/pid/cmdline).
-printf 'R2_SSTATE_KEY=%s\nR2_SSTATE_SECRET=%s\nR2_ACCOUNT_ID=cef6b7278fa23b4970442ce3a1dfcb32\n' \
+# single-quote the opaque values so `. /etc/ydev/r2env` stays whitespace/glob-safe
+printf "R2_SSTATE_KEY='%s'\nR2_SSTATE_SECRET='%s'\nR2_ACCOUNT_ID=cef6b7278fa23b4970442ce3a1dfcb32\n" \
   "$R2_KEY" "$R2_SECRET" \
   | ssh "${YDEV_SSH[@]}" "root@$ip" \
       'install -d -m700 /etc/ydev && umask 077 && cat > /etc/ydev/r2env && chmod 600 /etc/ydev/r2env'

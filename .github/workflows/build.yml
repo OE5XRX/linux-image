@@ -240,7 +240,10 @@ jobs:
           fi
 
       - name: Publish sstate + downloads to R2 mirror
+        # Best-effort: a Bitwarden hiccup or missing R2 creds must not fail the
+        # build — publishing is not a gate, reads still work off the mirror.
         if: always()
+        continue-on-error: true
         env:
           BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
           BWS_SERVER_URL: ${{ secrets.BWS_SERVER_URL }}
