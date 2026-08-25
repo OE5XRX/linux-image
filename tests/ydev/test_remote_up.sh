@@ -9,6 +9,7 @@ echo "$out" | grep -q -- "--type ccx43" || { echo "FAIL type: $out"; exit 1; }
 echo "$out" | grep -q -- "--label managed-by=ydev" || { echo "FAIL label: $out"; exit 1; }
 echo "$out" | grep -q -- "--user-data-from-file" || { echo "FAIL user-data flag: $out"; exit 1; }
 echo "$out" | grep -qi "cloud-init" || { echo "FAIL cloud-init note: $out"; exit 1; }
+echo "$out" | grep -qi "R2" || { echo "FAIL R2 mention missing in dryrun: $out"; exit 1; }
 # teardown must be baked into the cloud-init user-data (dump hook)
 ud=$(YDEV_DUMP_USERDATA=1 bash scripts/ydev/remote-up.sh 2>&1 || true)
 echo "$ud" | grep -q "systemctl enable --now ydev-idle.timer" || { echo "FAIL ud enable timer: $ud"; exit 1; }
@@ -17,4 +18,9 @@ echo "$ud" | grep -q "server delete" || { echo "FAIL ud self-delete: $ud"; exit 
 # the dump hook must NOT leak the real token (redacted for CI logs / test output)
 echo "$ud" | grep -q "TESTTOKEN123" && { echo "FAIL token leaked in dump"; exit 1; }
 echo "$ud" | grep -q "<REDACTED>" || { echo "FAIL token not redacted: $ud"; exit 1; }
+# no Storage Box wiring in the script (check by absence of mount path)
+! grep -qF "mnt/" scripts/ydev/remote-up.sh || { echo "FAIL old mount path still present in remote-up.sh"; exit 1; }
+# R2 cred provisioning is present
+grep -q "R2_SSTATE_KEY" scripts/ydev/remote-up.sh || { echo "FAIL R2_SSTATE_KEY missing from remote-up.sh"; exit 1; }
+grep -q "/etc/ydev/r2env" scripts/ydev/remote-up.sh || { echo "FAIL r2env path missing from remote-up.sh"; exit 1; }
 echo "PASS test_remote_up"
