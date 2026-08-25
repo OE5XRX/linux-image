@@ -10,8 +10,8 @@ needed for local builds.
 `oe5xrx.yml` sets:
 
 ```yaml
-SSTATE_MIRRORS: "file://.* https://sstate.oe5xrx.org/sstate/PATH;add"
-SOURCE_MIRROR_URL: "https://sstate.oe5xrx.org/downloads"
+SSTATE_MIRRORS: "file://.* https://sstate.oe5xrx.org/sstate/PATH;downloadfilename=PATH"
+SOURCE_MIRROR_URL: "https://sstate.oe5xrx.org/downloads/"
 ```
 
 `kas build qemux86-64.yml` (or `raspberrypi4-64.yml`) picks these up
@@ -32,10 +32,11 @@ under the machine accounts `yocto-linux-image-readonly` and `yocto-runner`).
 
 Local developer builds do **not** push back — the mirror stays a clean,
 CI-produced artifact. If you want your local sstate to seed the bucket, upload
-it manually:
+it manually (ensure `RCLONE_CONFIG_R2_*` env vars are exported first, as the
+build scripts do):
 
 ```bash
-rclone copy build/sstate-cache/ r2:oe5xrx-yocto-sstate/sstate/
+rclone copy build/sstate-cache/ R2:oe5xrx-yocto-sstate/sstate/
 ```
 
 ## Cache pruning
