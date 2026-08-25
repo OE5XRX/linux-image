@@ -81,17 +81,13 @@ R2_KEY=$(jq -r '.[]|select(.key=="R2_SSTATE_KEY")|.value' <<<"$SECRETS")
 R2_SECRET=$(jq -r '.[]|select(.key=="R2_SSTATE_SECRET")|.value' <<<"$SECRETS")
 [ -n "$R2_KEY" ] || die_hint "R2_SSTATE_KEY not found in bws project oe5xrx-yocto-cache" "check BWS_ACCESS_TOKEN read-access"
 [ -n "$R2_SECRET" ] || die_hint "R2_SSTATE_SECRET not found in bws project oe5xrx-yocto-cache" "check BWS_ACCESS_TOKEN read-access"
-# Write R2 creds into /etc/ydev/r2env on the box (mode 600; passed as positional
-# args to avoid secrets on remote CLI or in echo output)
-ssh "${YDEV_SSH[@]}" "root@$ip" bash -s -- "$R2_KEY" "$R2_SECRET" <<'EOF'
-  set -euo pipefail
-  R2_SSTATE_KEY="$1"; R2_SSTATE_SECRET="$2"
-  install -d -m700 /etc/ydev
-  printf 'R2_SSTATE_KEY=%s\nR2_SSTATE_SECRET=%s\nR2_ACCOUNT_ID=cef6b7278fa23b4970442ce3a1dfcb32\n' \
-    "$R2_SSTATE_KEY" "$R2_SSTATE_SECRET" > /etc/ydev/r2env
-  chmod 600 /etc/ydev/r2env
-  echo "R2 creds written to /etc/ydev/r2env"
-EOF
+# Write R2 creds into /etc/ydev/r2env on the box (mode 600).
+# Secrets are passed via stdin (never in argv — would be visible in /proc/pid/cmdline).
+printf 'R2_SSTATE_KEY=%s\nR2_SSTATE_SECRET=%s\nR2_ACCOUNT_ID=cef6b7278fa23b4970442ce3a1dfcb32\n' \
+  "$R2_KEY" "$R2_SECRET" \
+  | ssh "${YDEV_SSH[@]}" "root@$ip" \
+      'install -d -m700 /etc/ydev && umask 077 && cat > /etc/ydev/r2env && chmod 600 /etc/ydev/r2env'
+echo "R2 creds written to /etc/ydev/r2env"
 # provisioning succeeded → record the session now (a mid-fail leaves no session;
 # that box still self-deletes via the cloud-init teardown, or `just remote clean`)
 printf '%s %s %s\n' "$id" "$ip" "$(date -u +%FT%TZ)" > "$YDEV_SESSION"
