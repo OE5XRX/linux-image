@@ -47,30 +47,24 @@ local_conf_header:
     # Both providers are pinned: x86 uses linux-yocto, RPi uses linux-raspberrypi.
     PREFERRED_VERSION_linux-yocto = "6.18.%"
     PREFERRED_VERSION_linux-raspberrypi = "6.18.%"
-    # Shared build cache (Spec: 2026-08-01-shared-sstate-mirror). The mount at
-    # /mnt/yocto-shared is a Hetzner Storage Box shared by CI, the interactive
-    # build box (Spec 2) and local dev. Read-mirror + push model:
-    #   - SSTATE_DIR stays LOCAL/fast (network sstate writes are brutally slow).
-    #   - SSTATE_MIRRORS reads prebuilt artifacts from the box (when mounted).
-    #   - DL_DIR is the shared downloads dir on the box (bitbake locks per file).
-    # CI rsyncs the local sstate delta up to the box after each build.
-    # No mount (local dev without the box) -> local dirs, no mirror. Use
-    # os.path.ismount (NOT isdir): the mountpoint directory can exist without
-    # the Storage Box being mounted (e.g. a stale/failed mount), which would
-    # otherwise silently write downloads to local disk and enable the mirror.
-    DL_DIR ?= "${@'/mnt/yocto-shared/downloads' if os.path.ismount('/mnt/yocto-shared') else '${TOPDIR}/downloads'}"
+    # Public read-only build cache on Cloudflare R2 (Spec 4:
+    # 2026-08-24-spec4-r2-public-sstate-mirror). Anyone reads anonymously over
+    # HTTPS; trusted builders (CI + build server) publish new objects via the
+    # S3 API after the build (see build.yml / ydev remote-build). No shared
+    # filesystem, no sshfs — SSTATE_DIR/DL_DIR are LOCAL.
+    DL_DIR ?= "${TOPDIR}/downloads"
     SSTATE_DIR ?= "${TOPDIR}/sstate-cache"
-    SSTATE_MIRRORS ?= "${@'file://.* file:///mnt/yocto-shared/sstate/PATH;downloadfilename=PATH' if os.path.ismount('/mnt/yocto-shared') else ''}"
-    # Deterministic task hashes so the SHARED sstate mirror matches ACROSS
-    # builds. The default local hash-equivalence server (BB_HASHSERVE "auto")
-    # computes per-build unihashes that never line up with a mirror populated by
-    # another build -> "no sstate will match from the mirror". Disable it so
-    # every OE5XRX build produces mutually-matchable sstate. A shared hashserv
-    # (BB_HASHSERVE = "host:port") is the higher-reuse alternative -> Spec 3.
+    SSTATE_MIRRORS ?= "file://.* https://sstate.oe5xrx.org/sstate/PATH;downloadfilename=PATH"
+    # Read-only public source premirror; own-mirrors keeps upstream as fallback.
+    INHERIT += "own-mirrors"
+    SOURCE_MIRROR_URL ?= "https://sstate.oe5xrx.org/downloads/"
+    # Deterministic task hashes so mirror objects match ACROSS builds. Default
+    # hash-equivalence (BB_HASHSERVE "auto") computes per-build unihashes that
+    # never line up with a mirror populated by another build. A shared hashserv
+    # was evaluated and deferred (marginal benefit vs always-on cost).
     BB_HASHSERVE = ""
     BB_SIGNATURE_HANDLER = "OEBasicHash"
-    # Shallow git fetch: only the lockfile-pinned commit, not full history
-    # (the linux-yocto --mirror clone was multi-GB / 85+ min over sshfs).
+    # Shallow git fetch: only the lockfile-pinned commit, not full history.
     BB_GIT_SHALLOW = "1"
 
 # Environment variables kas forwards into the bitbake invocation. kas
