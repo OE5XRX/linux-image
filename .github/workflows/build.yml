@@ -270,7 +270,10 @@ jobs:
           R2_SECRET=$(jq -r '.[]|select(.key=="R2_SSTATE_SECRET")|.value' <<<"$S")
           [ -n "$R2_KEY" ] && [ -n "$R2_SECRET" ] || { echo "::error::R2_SSTATE_* missing in oe5xrx-yocto-cache"; exit 1; }
           echo "::add-mask::$R2_KEY"; echo "::add-mask::$R2_SECRET"
+          # no_check_bucket: the bucket-scoped R2 write token can't HeadBucket at
+          # the account level (403); skip the existence check and PUT directly.
           export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
+                 RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true \
                  RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_KEY" \
                  RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET" \
                  RCLONE_CONFIG_R2_REGION=auto \

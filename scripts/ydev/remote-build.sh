@@ -30,7 +30,9 @@ run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" <<'EOF'
     # shellcheck disable=SC1091
     . /etc/ydev/r2env
     # Export the rclone R2 config once, then reuse it for both uploads.
+    # no_check_bucket: bucket-scoped token can't HeadBucket (403); PUT directly.
     export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
+           RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true \
            RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_SSTATE_KEY" \
            RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SSTATE_SECRET" \
            RCLONE_CONFIG_R2_REGION=auto \
