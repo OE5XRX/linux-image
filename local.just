@@ -1,15 +1,7 @@
 # `just local <recipe>` — build/boot/flash on THIS machine.
 set dotenv-load := true
 
-# Mount the shared Storage Box mirror at /mnt/yocto-shared (idempotent)
-mount:
-    scripts/ydev/local-mount.sh
-
-# Unmount the shared mirror
-umount:
-    scripts/ydev/local-umount.sh
-
-# Build an image locally against the warm mirror (fails if not mounted)
+# Build an image locally (reads sstate from the public R2 mirror via oe5xrx.yml)
 build machine="qemux86-64":
     scripts/ydev/local-build.sh {{machine}}
 

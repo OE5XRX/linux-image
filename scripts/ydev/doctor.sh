@@ -8,15 +8,9 @@ echo "== ydev doctor =="
 # shellcheck disable=SC2016
 chk "just >= 1.31"      'v=$(just --version | grep -oE "[0-9]+\.[0-9]+" | head -1); [ "$(printf "%s\n1.31" "$v" | sort -V | head -1)" = "1.31" ]' "install/upgrade just"
 chk "kas"               'command -v kas'                         "pip install kas"
-chk "sshfs"             'command -v sshfs'                       "sudo apt install sshfs"
+chk "R2 mirror reachable" 'curl -fsI https://sstate.oe5xrx.org/ >/dev/null 2>&1' "check network / mirror status"
 # shellcheck disable=SC2016
 chk ".env present"      '[ -f "${YDEV_ROOT}/.env" ]'            "just init"
-# shellcheck disable=SC2016
-chk "STORAGE_BOX_HOST"  '[ -n "${STORAGE_BOX_HOST:-}" ]'        "set it in .env"
-# shellcheck disable=SC2016
-chk "STORAGE_BOX_USER"  '[ -n "${STORAGE_BOX_USER:-}" ]'        "set it in .env"
-# shellcheck disable=SC2016
-chk "box key"           '[ -f "${HOME}/.ssh/storagebox" ]'      "put STORAGE_BOX_SSH_PRIVKEY there (chmod 600)"
 # remote extras are optional here (Plan B); report as info only
 for t in hcloud bws; do command -v "$t" >/dev/null 2>&1 && echo "ok   $t (remote)" || echo "info $t not installed (only needed for 'just remote …')"; done
 # remote ssh identity: flag a HCLOUD_SSH_KEY that points at a missing file (would password-prompt)

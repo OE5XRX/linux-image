@@ -11,4 +11,11 @@ out=$(YDEV_DRYRUN=1 bash scripts/ydev/remote-build.sh raspberrypi4-64 2>&1)
 echo "$out" | grep -q "rsync" && echo "$out" | grep -q -- "--exclude" || { echo "FAIL rsync: $out"; exit 1; }
 echo "$out" | grep -q -- "--filter=:- .gitignore" || { echo "FAIL gitignore filter (kas layers must be excluded): $out"; exit 1; }
 echo "$out" | grep -q "kas build raspberrypi4-64.yml" || { echo "FAIL kas: $out"; exit 1; }
+# dry-run prints the remote ssh command but the heredoc body runs on the box (not locally),
+# so rclone assertions are on the script content rather than dry-run output
+grep -q "rclone copy" scripts/ydev/remote-build.sh || { echo "FAIL rclone publish missing in script"; exit 1; }
+grep -q "oe5xrx-yocto-sstate/sstate" scripts/ydev/remote-build.sh || { echo "FAIL R2 sstate bucket prefix missing"; exit 1; }
+grep -q "oe5xrx-yocto-sstate/downloads" scripts/ydev/remote-build.sh || { echo "FAIL R2 downloads bucket prefix missing"; exit 1; }
+grep -q "R2_SSTATE_KEY" scripts/ydev/remote-build.sh || { echo "FAIL R2_SSTATE_KEY missing"; exit 1; }
+grep -q "rclone copy" scripts/ydev/remote-build.sh && ! grep -qF "mnt/" scripts/ydev/remote-build.sh || { echo "FAIL old mount path or missing rclone"; exit 1; }
 echo "PASS test_remote_build"

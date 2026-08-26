@@ -11,9 +11,6 @@ out=$(YDEV_DRYRUN=1 run echo hello)
 out=$(YDEV_DRYRUN=0 run echo hello)
 [ "$out" = "hello" ] || { echo "FAIL run-real: '$out'"; exit 1; }
 
-# mirror_mounted(): honours the test override
-YDEV_FORCE_MOUNTED=1 mirror_mounted || { echo "FAIL force-mounted"; exit 1; }
-
 # die_hint(): exits 1 and prints msg + fix to stderr
 if err=$( (die_hint "boom" "do X") 2>&1 ); then echo "FAIL die_hint exit"; exit 1; fi
 echo "$err" | grep -q "boom" || { echo "FAIL die_hint msg"; exit 1; }

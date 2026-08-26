@@ -17,10 +17,6 @@ on:
         description: "Release tag for /etc/issue + /etc/os-release stamp (empty -> dev)"
         type: string
         default: ""
-      clean_cache:
-        description: "Wipe the sstate-cache before building (use once after a major Yocto version bump; downloads/ is kept)"
-        type: boolean
-        default: false
   workflow_call:
     inputs:
       machine:
@@ -31,14 +27,10 @@ on:
         description: "Release tag for /etc/issue + /etc/os-release stamp (empty -> dev)"
         type: string
         default: ""
-      clean_cache:
-        description: "Wipe the sstate-cache before building (use once after a major Yocto version bump; downloads/ is kept)"
-        type: boolean
-        default: false
 
 concurrency:
   # Serialize per target — prevents two builds for the same machine from
-  # stomping each other on the shared Storage Box cache.
+  # stomping each other on the shared R2 mirror.
   group: yocto-build-${{ inputs.machine }}
   cancel-in-progress: false
 
@@ -145,43 +137,6 @@ jobs:
           echo "SERVER_IP=${SERVER_IP}" >> "$GITHUB_ENV"
           echo "Server ${SERVER_ID} created at ${SERVER_IP}"
 
-      - name: Fetch Storage Box creds from Bitwarden
-        env:
-          BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
-          BWS_SERVER_URL: ${{ secrets.BWS_SERVER_URL }}
-        run: |
-          set -euo pipefail
-          # Install bws (pinned + sha256, mirroring servers/cloud-init). jq is
-          # preinstalled on ubuntu-latest.
-          VER=0.5.0
-          SHA=b9296341549d9ba6922da6692b24c4d81d14dc3992597d5a777692aee73b10b2
-          curl -fsSL -o /tmp/bws.zip "https://github.com/bitwarden/sdk-sm/releases/download/bws-v${VER}/bws-x86_64-unknown-linux-gnu-${VER}.zip"
-          echo "${SHA}  /tmp/bws.zip" | sha256sum -c -
-          mkdir -p "$HOME/.local/bin"; unzip -o /tmp/bws.zip -d "$HOME/.local/bin"
-          export PATH="$HOME/.local/bin:$PATH"
-          export BWS_SERVER_URL="${BWS_SERVER_URL:-https://vault.bitwarden.eu}"
-          PROJECTS_JSON=$(bws project list -o json) || { echo "::error::bws project list failed (check BWS_ACCESS_TOKEN / network)"; exit 1; }
-          PROJECT_ID=$(jq -r '.[] | select(.name=="oe5xrx-yocto-cache") | .id' <<<"${PROJECTS_JSON}")
-          [ -n "${PROJECT_ID}" ] || { echo "::error::Bitwarden project oe5xrx-yocto-cache not found (check read-access)"; exit 1; }
-          SECRETS=$(bws secret list -p "${PROJECT_ID}" -o json) || { echo "::error::bws secret list failed for project oe5xrx-yocto-cache"; exit 1; }
-          BOX_HOST=$(jq -r '.[]|select(.key=="STORAGE_BOX_HOST")|.value' <<<"${SECRETS}")
-          BOX_USER=$(jq -r '.[]|select(.key=="STORAGE_BOX_USER")|.value' <<<"${SECRETS}")
-          if [ -z "${BOX_HOST}" ] || [ -z "${BOX_USER}" ]; then
-            echo "::error::STORAGE_BOX_HOST/USER missing in oe5xrx-yocto-cache"; exit 1
-          fi
-          if [[ "${BOX_HOST}" == *$'\n'* || "${BOX_USER}" == *$'\n'* ]]; then
-            echo "::error::STORAGE_BOX_HOST/USER must be single-line"; exit 1
-          fi
-          echo "STORAGE_BOX_HOST=${BOX_HOST}" >> "${GITHUB_ENV}"
-          echo "STORAGE_BOX_USER=${BOX_USER}" >> "${GITHUB_ENV}"
-          # Private key is multi-line (PEM): write straight to a mode-600 file,
-          # NEVER to $GITHUB_ENV or a :: command (masking only covers the first
-          # line → leak/injection). $RUNNER_TEMP is auto-cleaned at job end.
-          KEYFILE="${RUNNER_TEMP}/storagebox_key"
-          ( umask 077; jq -r '.[]|select(.key=="STORAGE_BOX_SSH_PRIVKEY")|.value' <<<"${SECRETS}" > "${KEYFILE}" )
-          [ -s "${KEYFILE}" ] || { echo "::error::STORAGE_BOX_SSH_PRIVKEY missing/empty in oe5xrx-yocto-cache"; exit 1; }
-          echo "STORAGE_BOX_KEYFILE=${KEYFILE}" >> "${GITHUB_ENV}"
-
       - name: Wait for SSH
         run: |
           for i in $(seq 1 30); do
@@ -217,72 +172,6 @@ jobs:
             set -euo pipefail
             useradd -m -s /bin/bash yocto
             echo "yocto ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/yocto
-          EOF
-
-      - name: Mount shared Yocto cache (Storage Box) on build server
-        env:
-          STORAGE_BOX_HOST: ${{ env.STORAGE_BOX_HOST }}
-          STORAGE_BOX_USER: ${{ env.STORAGE_BOX_USER }}
-          STORAGE_BOX_KEYFILE: ${{ env.STORAGE_BOX_KEYFILE }}
-        run: |
-          # Ship the box private key (a file — never an env value) to the server
-          # and SSHFS-mount it. sshfs daemonizes, so the mount survives this SSH
-          # session. allow_other so the unprivileged `yocto` runner user reads it.
-          ssh "root@${SERVER_IP}" 'install -d -m700 /root/.ssh'
-          scp "${STORAGE_BOX_KEYFILE}" "root@${SERVER_IP}:/root/.ssh/storagebox"
-          ssh "root@${SERVER_IP}" 'chmod 600 /root/.ssh/storagebox'
-          ssh "root@${SERVER_IP}" bash -s -- "${STORAGE_BOX_USER}" "${STORAGE_BOX_HOST}" << 'EOF'
-            set -euo pipefail
-            BOX_USER="$1"; BOX_HOST="$2"
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update
-            apt-get install -y --no-install-recommends sshfs rsync
-            grep -q '^user_allow_other' /etc/fuse.conf || echo 'user_allow_other' >> /etc/fuse.conf
-            mkdir -p /mnt/yocto-shared
-            # Hetzner Storage Box SSH/SFTP is on port 23. Map the mount to the
-            # Mount the box's DEFAULT (home) dir with "${BOX_HOST}:" (no path),
-            # NOT ":/" — on a Hetzner Storage Box "/" is the read-only SFTP
-            # chroot root; writes must go into the home. allow_other lets the
-            # unprivileged `yocto` runner user access it; remote ops run as the
-            # single Storage Box SSH user, so yocto's writes are performed as
-            # that user (verified by the write-test below).
-            sshfs -p 23 \
-              -o IdentityFile=/root/.ssh/storagebox,StrictHostKeyChecking=accept-new \
-              -o allow_other,reconnect,ServerAliveInterval=15,ServerAliveCountMax=3 \
-              "${BOX_USER}@${BOX_HOST}:" /mnt/yocto-shared
-            echo "== mount ==";        mount | grep yocto-shared || true
-            echo "== home listing =="; ls -la /mnt/yocto-shared || true
-            echo "== mkdir ==";        mkdir -pv /mnt/yocto-shared/sstate /mnt/yocto-shared/downloads
-            echo "== yocto write-test =="
-            sudo -u yocto sh -c 'touch /mnt/yocto-shared/downloads/.wtest && echo "yocto-write-OK" && rm -f /mnt/yocto-shared/downloads/.wtest'
-            df -h /mnt/yocto-shared
-            # bitbake fetches git-based recipes into DL_DIR (git2/) on the
-            # shared mount, owned by the single Storage Box user — git then
-            # refuses them with "detected dubious ownership". Trust all repos on
-            # this ephemeral build box (system-wide, covers the yocto user).
-            git config --system --add safe.directory '*'
-          EOF
-
-      - name: Wipe stale sstate cache (major Yocto bump)
-        # sstate from an older Yocto release is dead weight after a major
-        # version bump (task hashes never match) and can fill the mount ->
-        # ENOSPC mid-build. downloads/ is version-agnostic, so it is kept.
-        # Guarded: only runs when dispatched/called with clean_cache=true.
-        if: ${{ inputs.clean_cache }}
-        run: |
-          ssh "root@${SERVER_IP}" bash -s << 'EOF'
-            set -euo pipefail
-            # Guard: only wipe when the Storage Box is actually mounted. If the
-            # mount step ever fails but /mnt/yocto-shared exists as a plain dir,
-            # a blind rm would nuke an unrelated host path — bail instead.
-            if ! mountpoint -q /mnt/yocto-shared; then
-              echo "ERROR: /mnt/yocto-shared is not a mountpoint; refusing to wipe" >&2
-              exit 1
-            fi
-            echo "Disk before sstate wipe:"; df -h /mnt/yocto-shared
-            rm -rf /mnt/yocto-shared/sstate
-            mkdir -p /mnt/yocto-shared/sstate
-            echo "Disk after sstate wipe:"; df -h /mnt/yocto-shared
           EOF
 
       - name: Install and start GitHub Actions Runner
@@ -350,21 +239,49 @@ jobs:
             kas build raspberrypi4-64.yml
           fi
 
-      - name: Push sstate delta to shared mirror
+      - name: Publish sstate + downloads to R2 mirror
+        # Best-effort: a Bitwarden hiccup or missing R2 creds must not fail the
+        # build — publishing is not a gate, reads still work off the mirror.
         if: always()
+        continue-on-error: true
+        env:
+          BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
+          BWS_SERVER_URL: ${{ secrets.BWS_SERVER_URL }}
+          R2_ACCOUNT_ID: cef6b7278fa23b4970442ce3a1dfcb32
         run: |
-          # Read-mirror + push: sync only NEW sstate objects this build produced
-          # up to the shared box. --ignore-existing keeps it a cheap delta and
-          # avoids reuploading what the mirror already served us.
-          if mountpoint -q /mnt/yocto-shared; then
-            # --no-owner/group/perms: the shared mount is a single-user Storage
-            # Box (all files owned by the box user), so rsync's default chown/
-            # chgrp/chmod would fail with "Permission denied" on every object.
-            rsync -a --no-owner --no-group --no-perms --ignore-existing build/sstate-cache/ /mnt/yocto-shared/sstate/
-            echo "sstate delta pushed to shared mirror"
-          else
-            echo "::warning::/mnt/yocto-shared not mounted — skipping sstate push"
+          set -euo pipefail
+          export BWS_SERVER_URL="${BWS_SERVER_URL:-https://vault.bitwarden.eu}"
+          # Tools: jq + rclone (this ephemeral build box may lack them). yocto has sudo.
+          command -v jq >/dev/null || sudo apt-get install -y --no-install-recommends jq
+          command -v rclone >/dev/null || { curl -fsSL https://rclone.org/install.sh | sudo bash; }
+          # bws (pinned + sha256, mirrors create-runner's fetch step)
+          if ! command -v bws >/dev/null; then
+            VER=0.5.0
+            SHA=b9296341549d9ba6922da6692b24c4d81d14dc3992597d5a777692aee73b10b2
+            curl -fsSL -o /tmp/bws.zip "https://github.com/bitwarden/sdk-sm/releases/download/bws-v${VER}/bws-x86_64-unknown-linux-gnu-${VER}.zip"
+            echo "${SHA}  /tmp/bws.zip" | sha256sum -c -
+            mkdir -p "$HOME/.local/bin"; unzip -o /tmp/bws.zip -d "$HOME/.local/bin"
           fi
+          export PATH="$HOME/.local/bin:$PATH"
+          PID=$(bws project list -o json | jq -r '.[]|select(.name=="oe5xrx-yocto-cache")|.id')
+          [ -n "$PID" ] || { echo "::error::bws project oe5xrx-yocto-cache not found"; exit 1; }
+          S=$(bws secret list -p "$PID" -o json)
+          R2_KEY=$(jq -r '.[]|select(.key=="R2_SSTATE_KEY")|.value' <<<"$S")
+          R2_SECRET=$(jq -r '.[]|select(.key=="R2_SSTATE_SECRET")|.value' <<<"$S")
+          [ -n "$R2_KEY" ] && [ -n "$R2_SECRET" ] || { echo "::error::R2_SSTATE_* missing in oe5xrx-yocto-cache"; exit 1; }
+          echo "::add-mask::$R2_KEY"; echo "::add-mask::$R2_SECRET"
+          # no_check_bucket: the bucket-scoped R2 write token can't HeadBucket at
+          # the account level (403); skip the existence check and PUT directly.
+          export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
+                 RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true \
+                 RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_KEY" \
+                 RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET" \
+                 RCLONE_CONFIG_R2_REGION=auto \
+                 RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          # Publish only new objects (rclone copy skips equal). A failed publish
+          # warns but never fails the build — the public bucket is not a gate.
+          rclone copy --transfers 16 --checkers 32 build/sstate-cache/ R2:oe5xrx-yocto-sstate/sstate || echo "::warning::sstate publish failed"
+          [ -d build/downloads ] && rclone copy --transfers 16 --checkers 32 build/downloads/ R2:oe5xrx-yocto-sstate/downloads || echo "::warning::downloads publish skipped/failed"
 
       - name: Collect artifacts
         run: |

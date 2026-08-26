@@ -25,7 +25,7 @@ require_env_remote() {
 # changes mid-session (e.g. a MITM appearing after pinning) is caught.
 # Residual: a MITM present from the very first connect isn't detected (Hetzner does
 # not expose host fingerprints for out-of-band verification) — documented in
-# docs/ydev-remote.md. (The box→storagebox sshfs keeps its own accept-new.)
+# docs/ydev-remote.md.
 YDEV_KNOWN_HOSTS="${YDEV_ROOT}/.ydev-known-hosts"
 YDEV_SSH_HK=(-o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=${YDEV_KNOWN_HOSTS}" -o LogLevel=ERROR)
 # ssh identity: optional explicit key (HCLOUD_SSH_KEY, ~ expanded). ssh only

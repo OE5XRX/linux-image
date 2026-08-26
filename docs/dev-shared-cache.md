@@ -1,34 +1,53 @@
-# Local Yocto builds against the shared cache (M920q)
+# Yocto shared cache — public R2 mirror
 
-The CI shares its sstate/downloads via a Hetzner Storage Box. Point your local
-build at the same box so you pull warm sstate instead of compiling everything
-(essential on the 8 GB M920q).
+Builds read warm sstate and source downloads anonymously over HTTPS from the
+public mirror at `https://sstate.oe5xrx.org`. `SSTATE_DIR` and `DL_DIR` remain
+**local**; only the read path goes over the wire. No mounts, no credentials
+needed for local builds.
 
-## One-time: mount the box
-```bash
-# key-only; Hetzner Storage Box SSH/SFTP is on port 23.
-mkdir -p /mnt/yocto-shared
-sudo sshfs -p 23 \
-  -o IdentityFile=$HOME/.ssh/storagebox,allow_other,reconnect,ServerAliveInterval=15 \
-  <box-user>@<box-host>:/ /mnt/yocto-shared
+## How it works
+
+`oe5xrx.yml` sets:
+
+```yaml
+SSTATE_MIRRORS: "file://.* https://sstate.oe5xrx.org/sstate/PATH;downloadfilename=PATH"
+SOURCE_MIRROR_URL: "https://sstate.oe5xrx.org/downloads/"
 ```
-`<box-user>`/`<box-host>` are the Bitwarden secrets `STORAGE_BOX_USER`/`STORAGE_BOX_HOST`
-in the `oe5xrx-yocto-cache` project; `~/.ssh/storagebox` is `STORAGE_BOX_SSH_PRIVKEY`
-from the same project.
 
-## Build
-`kas build qemux86-64.yml` — `oe5xrx.yml` auto-detects the mount and sets
-`SSTATE_MIRRORS`/`DL_DIR` accordingly (`SSTATE_DIR` stays local under `build/`).
-Your local build compiles only what changed; the rest comes from the mirror.
+`kas build qemux86-64.yml` (or `raspberrypi4-64.yml`) picks these up
+automatically. Your build compiles only what is not already in the mirror; the
+rest is fetched straight from HTTPS.
 
-## Note
-Local builds do NOT push sstate back (only CI does, to keep the mirror a clean
-CI-produced artifact). If you want your local sstate to seed the box, rsync it
-up manually: `rsync -a --ignore-existing build/sstate-cache/ /mnt/yocto-shared/sstate/`.
+## Who writes to the mirror
 
-## Cache hardening: lockfiles, shallow fetch, and pruning
+Only trusted builders publish new objects. Two machines write:
+
+- **CI** (`build.yml`) — runs on the self-hosted Hetzner CX43 build server.
+- **ydev** — the remote build server used for interactive development.
+
+Both upload to the R2 bucket `oe5xrx-yocto-sstate` (prefixes `sstate/` and
+`downloads/`) via `rclone`, authenticating with `R2_SSTATE_KEY` /
+`R2_SSTATE_SECRET` from the Bitwarden project `oe5xrx-yocto-cache` (stored
+under the machine accounts `yocto-linux-image-readonly` and `yocto-runner`).
+
+Local developer builds do **not** push back — the mirror stays a clean,
+CI-produced artifact. If you want your local sstate to seed the bucket, upload
+it manually (ensure `RCLONE_CONFIG_R2_*` env vars are exported first, as the
+build scripts do):
+
+```bash
+rclone copy build/sstate-cache/ R2:oe5xrx-yocto-sstate/sstate/
+```
+
+## Cache pruning
+
+An R2 lifecycle rule expires objects older than 365 days. No cron job or manual
+prune script is needed.
+
+## Cache hardening: lockfiles, shallow fetch, and determinism
 
 ### Deterministic sources via kas lockfiles
+
 Every machine target has a committed kas lockfile that pins every layer to an
 exact commit. The per-machine locks are `qemux86-64.lock.yml` and
 `raspberrypi4-64.lock.yml` (the RPi one also pins `meta-raspberrypi`). When you
@@ -37,26 +56,26 @@ auto-loads the matching lockfile — builds are deterministic, and sstate is
 matchable across machines with no "unsafe branch" warnings.
 
 ### Bumping lockfiles
+
 A weekly scheduled workflow regenerates the locks and opens a PR on changes.
 To bump manually: run `kas lock qemux86-64.yml` and `kas lock raspberrypi4-64.yml`,
 then commit both updated lockfiles.
 
 ### Shallow git fetch
+
 `BB_GIT_SHALLOW = "1"` in `oe5xrx.yml` fetches only the pinned commit from each
 layer, not full history. For the kernel, this cuts clone time from ~85 minutes
-to seconds and saves multi-GB on a shallow fetch box. The shared `DL_DIR` stays
-on the Storage Box; only the pinned commit arrives locally.
+to seconds and saves multi-GB on a cold fetch. The shared `DL_DIR` is local;
+only the pinned commit is downloaded.
 
-### Cache pruning
-The nightly `.github/workflows/cache-prune.yml` workflow (and manual
-`workflow_dispatch`) mounts the Storage Box and runs `scripts/cache-prune.sh`:
-pruned sstate keeps only the newest per object (`--remove-duplicated`), aged
-downloads are discarded (default retention is 45 days via `DL_AGE_DAYS`,
-never including current sources), and stale `.lock` / partial files are cleaned.
-**Default is dry-run** (lists only); real deletion requires `workflow_dispatch`
-with `dry_run=0`.
+### Hash determinism
+
+`BB_HASHSERVE = ""` and `BB_SIGNATURE_HANDLER = "OEBasicHash"` are set in
+`oe5xrx.yml`. This keeps task-hash computation reproducible across machines and
+ensures sstate hits are not invalidated by hashserver drift.
 
 ### Kept deliberate pins
+
 The `station-agent` `SRCREV` is pinned by project rule (never `AUTOREV`) and
 stays locked. Kernel version parity pins (`PREFERRED_VERSION_linux-yocto`
 and `PREFERRED_VERSION_linux-raspberrypi` set to `"6.18.%"`) ensure qemu and
