@@ -22,7 +22,7 @@ Each task is tagged `(servers)` or `(linux-image)`. Never delete the Box (Phase 
 
 ## Global Constraints
 
-- **Cloudflare account/R2 endpoint (servers):** account ID `cef6b7278fa23b4970442ce3a1dfcb32`, EU jurisdiction, S3 endpoint `https://cef6b7278fa23b4970442ce3a1dfcb32.eu.r2.cloudflarestorage.com`. TF providers: `cloudflare/cloudflare ~> 5.0`, `terraform >= 1.8.0`.
+- **Cloudflare account/R2 endpoint (servers):** account ID `cef6b7278fa23b4970442ce3a1dfcb32`, **default jurisdiction** (EU *location hint* `eeur`, but jurisdiction=default per the tf-plan) → S3 endpoint is the **standard** `https://cef6b7278fa23b4970442ce3a1dfcb32.r2.cloudflarestorage.com` (NOT the `.eu.` variant — that is only for EU-*jurisdiction* buckets like the tfstate/restic ones). TF providers: `cloudflare/cloudflare ~> 5.0`, `terraform >= 1.8.0`.
 - **Bucket + domain names:** bucket `oe5xrx-yocto-sstate`, public custom domain `sstate.oe5xrx.org`, zone via `var.cloudflare_zone_id`, account via `var.cloudflare_account_id`.
 - **Lifecycle retention: 365 days** (age-based `delete_objects_transition`, builds are infrequent).
 - **Bitwarden:** reuse the existing project `oe5xrx-yocto-cache` — **no new project or machine account** (the Bitwarden SM free plan is capped at 3 projects + 3 machine accounts, all already used; a 4th ⇒ paid ~$280/yr). New R2 write secrets `R2_SSTATE_KEY` + `R2_SSTATE_SECRET` (S3 access-key + secret from a dashboard-created R2 API token, scoped Object Read & Write on the one bucket). Secret keys match `^[A-Z][A-Z0-9_]*$`. They are read by the **existing dedicated builder machine accounts** — `yocto-linux-image-readonly` (linux-image CI's `secrets.BWS_ACCESS_TOKEN`) and `yocto-runner` (the on-demand build server) — which already read this project. **Trust boundary:** the servers-deploy account `github-actions-deploy-readonly` also reads this project today (Storage Box secrets); Phase C revokes its read once the Box is gone, leaving builders-only (least-privilege at zero cost). The old `STORAGE_BOX_*` secrets stay until Phase C.
@@ -226,7 +226,7 @@ export RCLONE_CONFIG_R2_TYPE=s3
 export RCLONE_CONFIG_R2_PROVIDER=Cloudflare
 export RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_KEY"
 export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET"
-export RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com"
+export RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 export RCLONE_CONFIG_R2_REGION=auto
 
 echo "== seeding sstate =="
@@ -362,7 +362,7 @@ Replace the "Push sstate delta to shared mirror" step (`build.yml:353-367`) with
           export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare
           export RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_KEY"
           export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET"
-          export RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com"
+          export RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
           export RCLONE_CONFIG_R2_REGION=auto
           rclone copy --transfers 16 --checkers 32 build/sstate-cache/ R2:oe5xrx-yocto-sstate/sstate  || echo "::warning::sstate publish failed"
           rclone copy --transfers 16 --checkers 32 build/downloads/    R2:oe5xrx-yocto-sstate/downloads || echo "::warning::downloads publish failed"
@@ -417,7 +417,7 @@ sudo -u yocto env \
   RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
   RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_SSTATE_KEY" \
   RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SSTATE_SECRET" \
-  RCLONE_CONFIG_R2_ENDPOINT="https://cef6b7278fa23b4970442ce3a1dfcb32.eu.r2.cloudflarestorage.com" \
+  RCLONE_CONFIG_R2_ENDPOINT="https://cef6b7278fa23b4970442ce3a1dfcb32.r2.cloudflarestorage.com" \
   RCLONE_CONFIG_R2_REGION=auto \
   rclone copy --transfers 16 --checkers 32 \
     /home/yocto/src/build/sstate-cache/ R2:oe5xrx-yocto-sstate/sstate || true

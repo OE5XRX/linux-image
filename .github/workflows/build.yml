@@ -274,7 +274,7 @@ jobs:
                  RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_KEY" \
                  RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET" \
                  RCLONE_CONFIG_R2_REGION=auto \
-                 RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com"
+                 RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
           # Publish only new objects (rclone copy skips equal). A failed publish
           # warns but never fails the build — the public bucket is not a gate.
           rclone copy --transfers 16 --checkers 32 build/sstate-cache/ R2:oe5xrx-yocto-sstate/sstate || echo "::warning::sstate publish failed"
