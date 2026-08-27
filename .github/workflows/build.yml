@@ -135,7 +135,7 @@ jobs:
 
       - name: Install hcloud CLI
         run: |
-          curl -sL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" | tar xz
+          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" | tar xz
           sudo mv hcloud /usr/local/bin/
 
       - name: Create Hetzner server (CCX43)
@@ -366,7 +366,7 @@ jobs:
     steps:
       - name: Delete server
         run: |
-          curl -sL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" | tar xz
+          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" | tar xz
           sudo mv hcloud /usr/local/bin/
           if [ -n "${SERVER_ID}" ]; then
             hcloud server delete "${SERVER_ID}" || true
