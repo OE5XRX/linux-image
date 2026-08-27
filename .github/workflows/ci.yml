@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+# Least privilege: parse/lint/sim jobs only read the repo.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true

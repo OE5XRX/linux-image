@@ -5,8 +5,8 @@ name: Boot & OTA Test
 # asserts a serial banner+login AND an agent check-in/commit. Called by the
 # boot-critical PR workflow (T1) and by the release gate (T1+T2).
 #
-# Runner is a parameter: default GH-hosted ubuntu-latest (TCG). If a feasibility
-# spike shows GH-hosted is insufficient, pass a self-hosted Hetzner label.
+# Runner is a parameter: default GH-hosted ubuntu-latest (TCG); pass a
+# self-hosted Hetzner label if GH-hosted TCG ever proves insufficient.
 
 on:
   workflow_call:
@@ -29,6 +29,10 @@ on:
         description: Previous release tag = slot A for T2 (empty → T1 only).
         type: string
         default: ""
+
+# Least privilege: boots QEMU + downloads a same-run artifact; read-only.
+permissions:
+  contents: read
 
 jobs:
   test:

@@ -28,6 +28,13 @@ on:
         type: string
         default: ""
 
+# Least privilege: this workflow only needs to read the repo (checkout) and
+# upload artifacts via the default token; server provisioning + R2 publish
+# authenticate with their own secrets (GH_PAT / HCLOUD_TOKEN / bws), not the
+# GITHUB_TOKEN.
+permissions:
+  contents: read
+
 concurrency:
   # Serialize per target — prevents two builds for the same machine from
   # stomping each other on the shared R2 mirror.
@@ -43,6 +50,8 @@ jobs:
   create-runner:
     name: Create Hetzner Build Server
     runs-on: ubuntu-latest
+    # Backstop against a hung Hetzner API / apt / SSH-wait parking the job.
+    timeout-minutes: 30
     outputs:
       server-id: ${{ steps.create.outputs.server-id }}
     steps:
@@ -223,6 +232,8 @@ jobs:
     name: Build Yocto Image
     needs: create-runner
     runs-on: oe5xrx-yocto-builder-${{ inputs.machine }}
+    # Warm (R2-cached) build ~10-12 min; cold ~1h48m. 3h caps a wedged build.
+    timeout-minutes: 180
     env:
       LANG: en_US.UTF-8
     steps:
@@ -233,11 +244,10 @@ jobs:
           # OE5XRX_RELEASE_TAG is listed in oe5xrx.yml's `env:` block, so
           # kas picks it up from this workflow's environment and forwards
           # it into bitbake. No BB_ENV_PASSTHROUGH_ADDITIONS dance needed.
-          if [ "${KAS_MACHINE}" = "qemux86-64" ]; then
-            kas build qemux86-64.yml
-          elif [ "${KAS_MACHINE}" = "raspberrypi4-64" ]; then
-            kas build raspberrypi4-64.yml
-          fi
+          # KAS_MACHINE is already validated to one of the two machines by
+          # create-runner's "Validate machine input" step, and the kas config
+          # is always <machine>.yml.
+          kas build "${KAS_MACHINE}.yml"
 
       - name: Publish sstate + downloads to R2 mirror
         # Best-effort: a Bitwarden hiccup or missing R2 creds must not fail the
@@ -254,7 +264,7 @@ jobs:
           # Tools: jq + rclone (this ephemeral build box may lack them). yocto has sudo.
           command -v jq >/dev/null || sudo apt-get install -y --no-install-recommends jq
           command -v rclone >/dev/null || { curl -fsSL https://rclone.org/install.sh | sudo bash; }
-          # bws (pinned + sha256, mirrors create-runner's fetch step)
+          # bws (pinned + sha256) — fetched here on the build box to read R2 creds
           if ! command -v bws >/dev/null; then
             VER=0.5.0
             SHA=b9296341549d9ba6922da6692b24c4d81d14dc3992597d5a777692aee73b10b2

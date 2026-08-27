@@ -9,6 +9,11 @@ permissions:
   contents: write
   pull-requests: write
 
+# A manual dispatch must not race the Monday cron onto the same bump branch/PR.
+concurrency:
+  group: lockfile-bump
+  cancel-in-progress: false
+
 jobs:
   bump:
     runs-on: ubuntu-latest
