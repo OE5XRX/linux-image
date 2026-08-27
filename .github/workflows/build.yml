@@ -28,12 +28,16 @@ on:
         type: string
         default: ""
 
-# Least privilege: this workflow only needs to read the repo (checkout) and
-# upload artifacts via the default token; server provisioning + R2 publish
-# authenticate with their own secrets (GH_PAT / HCLOUD_TOKEN / bws), not the
-# GITHUB_TOKEN.
+# Least privilege: read the repo (checkout) + the Actions API. As a reusable
+# workflow, this block is the MAXIMUM its jobs get (further capped by the
+# caller) — the callers (boot-ota-pr.yml, release.yml) grant exactly
+# contents+actions:read, so declaring less here would strip the `actions: read`
+# that upload-artifact / same-run consumers rely on. Server provisioning + R2
+# publish authenticate with their own secrets (GH_PAT / HCLOUD_TOKEN / bws),
+# not the GITHUB_TOKEN — no write scope is needed.
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   # Serialize per target — prevents two builds for the same machine from

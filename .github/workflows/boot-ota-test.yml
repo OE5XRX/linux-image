@@ -30,9 +30,13 @@ on:
         type: string
         default: ""
 
-# Least privilege: boots QEMU + downloads a same-run artifact; read-only.
+# Least privilege: boots QEMU + downloads a same-run artifact. As a reusable
+# workflow this block caps its jobs, so it must keep `actions: read` — the
+# callers grant it for the download-artifact step, and declaring only
+# contents:read here would strip it and break the artifact download.
 permissions:
   contents: read
+  actions: read
 
 jobs:
   test:
