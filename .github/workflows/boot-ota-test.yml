@@ -5,8 +5,8 @@ name: Boot & OTA Test
 # asserts a serial banner+login AND an agent check-in/commit. Called by the
 # boot-critical PR workflow (T1) and by the release gate (T1+T2).
 #
-# Runner is a parameter: default GH-hosted ubuntu-latest (TCG). If a feasibility
-# spike shows GH-hosted is insufficient, pass a self-hosted Hetzner label.
+# Runner is a parameter: default GH-hosted ubuntu-latest (TCG); pass a
+# self-hosted Hetzner label if GH-hosted TCG ever proves insufficient.
 
 on:
   workflow_call:
@@ -30,6 +30,14 @@ on:
         type: string
         default: ""
 
+# Least privilege: boots QEMU + downloads a same-run artifact. As a reusable
+# workflow this block caps its jobs, so it must keep `actions: read` — the
+# callers grant it for the download-artifact step, and declaring only
+# contents:read here would strip it and break the artifact download.
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   test:
     name: Boot & OTA (${{ inputs.machine }})
@@ -38,11 +46,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - name: Install QEMU + OVMF + deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf grub-common grub2-common python3-pip
-          sudo python3 -m pip install --break-system-packages -r tests/ota-integration/requirements.txt
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf grub-common grub2-common
+          # Test deps go into setup-python's isolated env (NOT system python).
+          # The runner ships a debian-packaged cryptography with no pip RECORD,
+          # so `pip --break-system-packages` on system python cannot upgrade it
+          # to requirements.txt's cryptography>=43 ("Cannot uninstall ... RECORD
+          # file not found"). setup-python's env is not externally-managed, so a
+          # plain pip install works — same approach as ci.yml.
+          python -m pip install -r tests/ota-integration/requirements.txt
 
       - name: Download build-under-test artifact
         uses: actions/download-artifact@v8
