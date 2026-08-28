@@ -18,14 +18,14 @@ jobs:
   bump:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
 
       - name: Install kas
-        run: pip install kas
+        run: pip install -r .github/requirements-kas.txt
 
       - name: Regenerate lockfiles
         run: |
@@ -33,7 +33,7 @@ jobs:
           kas lock raspberrypi4-64.yml
 
       - name: Open PR if the locks changed
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
         with:
           add-paths: |
             qemux86-64.lock.yml

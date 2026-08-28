@@ -17,7 +17,7 @@ jobs:
     name: Require pinned SRCREV + signed FM artifacts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Fail if station-agent SRCREV is AUTOREV
         run: |
@@ -48,7 +48,7 @@ jobs:
           echo "OK — station-agent pinned to $sha"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
 
       - name: Fail if FM artifacts are unpinned or unsigned
         # Single source of truth: bump-fw-release.sh --check re-fetches every pinned

@@ -16,3 +16,35 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
+
+  # Pinned CI Python deps — keeps the kas pin and the OTA-integration test
+  # deps current with monthly bump PRs.
+  - package-ecosystem: "pip"
+    directory: "/.github"            # requirements-kas.txt (shared kas pin)
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "04:00"
+      timezone: "Europe/Vienna"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  - package-ecosystem: "pip"
+    directory: "/tests/ota-integration"   # OTA-integration test requirements
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "04:00"
+      timezone: "Europe/Vienna"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

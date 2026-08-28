@@ -27,6 +27,30 @@ on:
         description: "Release tag for /etc/issue + /etc/os-release stamp (empty -> dev)"
         type: string
         default: ""
+  # Per-PR x86 build feedback. COMPLEMENTARY to boot-ota-pr.yml: this paths
+  # list is kept DISJOINT from boot-ota-pr.yml's, so any single change fires
+  # exactly one x64 builder — never both. boot-ota-pr.yml already builds x64
+  # (+ runs QEMU boot/OTA tests) for: files/wic, recipes-bsp,
+  # recipes-core/{ab-layout,images,station-agent}, tests/ota-integration.
+  # Everything else that affects a build lives here. On pull_request there is
+  # no `machine` input, so the env block below defaults it to qemux86-64.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'oe5xrx.yml'
+      - 'qemux86-64.yml'
+      - 'raspberrypi4-64.yml'
+      - '*.lock.yml'
+      - 'meta-oe5xrx-remotestation/conf/**'
+      - 'meta-oe5xrx-remotestation/recipes-kernel/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/base-files/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-boot-robustness/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-fm-firmware/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-slot-udev/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/packagegroups/**'
+      - '.github/workflows/build.yml'
 
 # Least privilege: read the repo (checkout) + the Actions API. As a reusable
 # workflow, this block is the MAXIMUM its jobs get (further capped by the
@@ -40,20 +64,30 @@ permissions:
   actions: read
 
 concurrency:
-  # Serialize per target — prevents two builds for the same machine from
-  # stomping each other on the shared R2 mirror.
-  group: yocto-build-${{ inputs.machine }}
-  cancel-in-progress: false
+  # PR builds: one per PR+machine; a new push cancels the stale run.
+  # Release/dispatch builds: serialized per machine (shared 'release' suffix)
+  # and NEVER cancelled — a publish must run to completion. The two never
+  # share a group, so a PR build can't cancel a release build for the same
+  # machine.
+  group: yocto-build-${{ inputs.machine || 'qemux86-64' }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  KAS_MACHINE: ${{ inputs.machine }}
+  # inputs.machine is empty on pull_request (no inputs) -> default to x86.
+  KAS_MACHINE: ${{ inputs.machine || 'qemux86-64' }}
   OE5XRX_RELEASE_TAG: ${{ inputs.release_tag || 'dev' }}
-  BUILDER_LABEL: oe5xrx-yocto-builder-${{ inputs.machine }}
+  BUILDER_LABEL: oe5xrx-yocto-builder-${{ inputs.machine || 'qemux86-64' }}
+  # Pinned (was `releases/latest`) for reproducibility. Not a github-action,
+  # so dependabot won't bump it — refresh by hand when a new hcloud CLI ships.
+  HCLOUD_CLI_VERSION: v1.67.0
 
 jobs:
   create-runner:
     name: Create Hetzner Build Server
     runs-on: ubuntu-latest
+    # Skip draft PRs — don't spin an (expensive) Hetzner box for WIP pushes.
+    # For dispatch/workflow_call there is no pull_request, so this is true.
+    if: ${{ !github.event.pull_request.draft }}
     # Backstop against a hung Hetzner API / apt / SSH-wait parking the job.
     timeout-minutes: 30
     outputs:
@@ -65,7 +99,7 @@ jobs:
         # reach `hcloud server create` before exploding on the missing
         # volume.
         env:
-          MACHINE: ${{ inputs.machine }}
+          MACHINE: ${{ inputs.machine || 'qemux86-64' }}
         run: |
           case "$MACHINE" in
             qemux86-64|raspberrypi4-64) ;;
@@ -101,7 +135,7 @@ jobs:
 
       - name: Install hcloud CLI
         run: |
-          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz
+          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" | tar xz
           sudo mv hcloud /usr/local/bin/
 
       - name: Create Hetzner server (CCX43)
@@ -176,7 +210,6 @@ jobs:
               xz-utils debianutils iputils-ping python3-git python3-jinja2 \
               python3-subunit zstd liblz4-tool file locales libacl1
             locale-gen en_US.UTF-8
-            pip3 install kas --break-system-packages
           EOF
 
       - name: Create yocto build user
@@ -235,13 +268,20 @@ jobs:
   build:
     name: Build Yocto Image
     needs: create-runner
-    runs-on: oe5xrx-yocto-builder-${{ inputs.machine }}
+    runs-on: oe5xrx-yocto-builder-${{ inputs.machine || 'qemux86-64' }}
     # Warm (R2-cached) build ~10-12 min; cold ~1h48m. 3h caps a wedged build.
     timeout-minutes: 180
     env:
       LANG: en_US.UTF-8
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install kas (pinned)
+        # Installed here rather than in create-runner so it can read the
+        # dependabot-tracked pin (.github/requirements-kas.txt), which only
+        # exists on the box after this job's checkout. sudo -> system-wide so
+        # `kas` is on PATH for the build step below.
+        run: sudo pip3 install --break-system-packages -r .github/requirements-kas.txt
 
       - name: Build with Kas
         run: |
@@ -313,7 +353,7 @@ jobs:
           ls -lh artifacts/
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: yocto-image-${{ env.KAS_MACHINE }}
           path: artifacts/
@@ -332,7 +372,7 @@ jobs:
     steps:
       - name: Delete server
         run: |
-          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz | tar xz
+          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" | tar xz
           sudo mv hcloud /usr/local/bin/
           if [ -n "${SERVER_ID}" ]; then
             hcloud server delete "${SERVER_ID}" || true
