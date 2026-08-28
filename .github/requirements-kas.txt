@@ -1,0 +1,4 @@
+# Pinned kas version — single source for every CI kas install (ci.yml parse
+# check, build.yml Yocto build, lockfile-bump.yml). Dependabot (pip ecosystem,
+# directory /.github) opens bump PRs for this file.
+kas==5.5

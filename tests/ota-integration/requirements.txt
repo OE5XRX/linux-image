@@ -1,4 +1,6 @@
-pytest>=8
-pexpect>=4.9
-pyyaml>=6
-cryptography>=43
+# OTA-integration test deps — pinned for reproducibility. Dependabot (pip
+# ecosystem, directory /tests/ota-integration) opens bump PRs for this file.
+pytest==9.1.1
+pexpect==4.9.0
+pyyaml==6.0.3
+cryptography==50.0.1

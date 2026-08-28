@@ -210,7 +210,6 @@ jobs:
               xz-utils debianutils iputils-ping python3-git python3-jinja2 \
               python3-subunit zstd liblz4-tool file locales libacl1
             locale-gen en_US.UTF-8
-            pip3 install kas --break-system-packages
           EOF
 
       - name: Create yocto build user
@@ -276,6 +275,13 @@ jobs:
       LANG: en_US.UTF-8
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install kas (pinned)
+        # Installed here rather than in create-runner so it can read the
+        # dependabot-tracked pin (.github/requirements-kas.txt), which only
+        # exists on the box after this job's checkout. sudo -> system-wide so
+        # `kas` is on PATH for the build step below.
+        run: sudo pip3 install --break-system-packages -r .github/requirements-kas.txt
 
       - name: Build with Kas
         run: |
