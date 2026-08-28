@@ -90,13 +90,20 @@ class _Handler(BaseHTTPRequestHandler):
             # Stream the payload (a real rootfs is hundreds of MB) rather than
             # reading it all into memory — with an accurate Content-Length.
             size = os.path.getsize(ctl.payload_path)
+            # Count the download BEFORE writing the body. This handler runs on a
+            # server thread; a client's urlopen().read() returns as soon as it has
+            # the bytes, so a test asserting `downloads == 1` right after the read
+            # would race an increment placed AFTER the write. Bumping it here (same
+            # thread, sequenced before the body) guarantees: client received body
+            # ⟹ counter already incremented. Single writer (this thread), so no
+            # lost-update; the GIL makes the new value visible to the reader.
+            ctl.downloads += 1
             self.send_response(200)
             self.send_header("Content-Type", "application/x-bzip2")
             self.send_header("Content-Length", str(size))
             self.end_headers()
             with open(ctl.payload_path, "rb") as fh:
                 shutil.copyfileobj(fh, self.wfile)
-            ctl.downloads += 1
             return
         return self._send_json(404, {"detail": "not found"})
 
