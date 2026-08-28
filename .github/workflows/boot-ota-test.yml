@@ -46,11 +46,21 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+
       - name: Install QEMU + OVMF + deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf grub-common grub2-common python3-pip
-          sudo python3 -m pip install --break-system-packages -r tests/ota-integration/requirements.txt
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf grub-common grub2-common
+          # Test deps go into setup-python's isolated env (NOT system python).
+          # The runner ships a debian-packaged cryptography with no pip RECORD,
+          # so `pip --break-system-packages` on system python cannot upgrade it
+          # to requirements.txt's cryptography>=43 ("Cannot uninstall ... RECORD
+          # file not found"). setup-python's env is not externally-managed, so a
+          # plain pip install works — same approach as ci.yml.
+          python -m pip install -r tests/ota-integration/requirements.txt
 
       - name: Download build-under-test artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
