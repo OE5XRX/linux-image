@@ -146,8 +146,10 @@ jobs:
         run: |
           set -euo pipefail
           # Dedicated-vCPU CCX43: faster + more consistent than the cost-optimized
-          # cx tier, and less exposed to its capacity crunch. Location is fixed to
-          # fsn1 because the persistent cache volume is location-bound (no fallback).
+          # cx tier, and less exposed to its capacity crunch. Location fsn1 is just
+          # the current default — nothing pins us here anymore: the old location-
+          # bound sstate cache volume was replaced by the region-agnostic public R2
+          # mirror (Spec 4), so nbg1/hel1 would work equally as a fallback.
           # Hetzner can still transiently reject placement (resource_unavailable), so
           # retry with exponential backoff before giving up.
           ATTEMPTS=5
