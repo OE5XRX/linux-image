@@ -89,4 +89,4 @@ CM4/QEMU: /mnt/dev/station_agent ──(systemd dev-override wrapper)──► s
 
 ## Prod-Sicherheit (zusammengefasst)
 
-sshfs-Client + `dev-override` + `/mnt/dev` existieren **ausschließlich** im `-dev-image`. Prod behält die gepinnte SRCREV-Recipe unverändert. Der CI-Guard erzwingt die Trennung. Das schützt **beide** Produktions-Deployments gleichermaßen: CM4 am Berg und die QEMU-Sim-Station auf Proxmox. `run-qemu.sh --dev-agent` bootet explizit das Dev-Image und berührt den Prod-Image-Pfad nicht.
+sshfs-Client + `dev-override` + `/mnt/dev/station_agent` existieren **ausschließlich** im `-dev-image`. Das Prod-Image-Recipe `oe5xrx-remotestation-image.bb` bleibt unverändert (0 Hunks). Der `station-agent`-SRCREV-Pin wird auf den fast-dev-loop-Merge gebumpt — ein normaler, prod-safer Dependency-Bump (additive Agent-Features: `selftest serial`, `trace_serial`, Short-Write-Härtung), kein AUTOREV. Der CI-Guard erzwingt die Trennung der Dev-Artefakte. Das schützt **beide** Produktions-Deployments gleichermaßen: CM4 am Berg und die QEMU-Sim-Station auf Proxmox. `run-qemu.sh --dev-agent` bootet explizit das Dev-Image und berührt den Prod-Image-Pfad nicht.

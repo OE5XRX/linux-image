@@ -10,10 +10,10 @@
 
 ## Global Constraints
 
-- Dev-only Artefakte (sshfs-fuse, fuse, `oe5xrx-dev-agent-mount`, `dev-override.conf`) dürfen **niemals** ins Prod-Image. Das Dev-Image `require`t das Prod-Image (Einbahn) — dev-Zusätze via `IMAGE_INSTALL +=` im Dev-Recipe.
-- **Active-Slot/Prod-Pfad unangetastet:** SRCREV-Pin der `station-agent`-Recipe bleibt; das Prod-Image `oe5xrx-remotestation-image.bb` wird **nicht** modifiziert.
+- Dev-only Artefakte (sshfs-fuse, fuse3, `oe5xrx-dev-agent-mount`, `dev-override.conf`) dürfen **niemals** ins Prod-Image. Das Dev-Image `require`t das Prod-Image (Einbahn) — dev-Zusätze via `IMAGE_INSTALL +=` im Dev-Recipe.
+- **Active-Slot/Prod-Pfad unangetastet:** Das Prod-Image `oe5xrx-remotestation-image.bb` wird **nicht** modifiziert. Der `station-agent`-SRCREV-Pin wird auf den fast-dev-loop-Merge gebumpt (normaler prod-safer Dependency-Bump, kein AUTOREV).
 - `qemux86-64` ist auch ein Prod-Target (Proxmox-Sim-Station) — der Dev-Loop hängt nur am `-dev-image`, `run-qemu.sh --dev-agent` bootet explizit das Dev-Image.
-- sshfs/fuse existieren im Tree: `meta-openembedded/meta-filesystems/recipes-filesystems/sshfs-fuse/` und `.../recipes-support/fuse/fuse_2.9.9.bb`.
+- sshfs/fuse3 existieren im Tree: `meta-openembedded/meta-filesystems/recipes-filesystems/sshfs-fuse/` und `meta-openembedded/meta-oe/recipes-support/fuse/fuse3_*.bb`.
 - Commit-Messages enden mit `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 - Branch: `feat/fast-dev-loop` (existiert, Spec committed).
 
