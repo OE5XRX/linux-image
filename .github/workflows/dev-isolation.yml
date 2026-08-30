@@ -13,3 +13,11 @@ jobs:
       - uses: actions/checkout@v6
       - name: Prod-safety lint
         run: bash scripts/l0-dev-packages-lint.sh
+
+  dev-launch:
+    name: Dev-agent launcher fallback selection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Launcher mount-vs-baked selection test
+        run: bash tests/dev-loop/test_dev_launch.sh

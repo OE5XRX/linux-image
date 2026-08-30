@@ -167,6 +167,15 @@ done
 # --- Locate the wic ---
 # Accept both the Yocto-native name (*.rootfs.wic, from local builds and CI
 # artifacts) and the release-asset name (oe5xrx-qemux86-64-<tag>.wic).
+# --dev-agent narrows the search to the dev-image artifact so a prod wic sitting
+# in the same deploy dir can't be booted by accident; the default path excludes
+# the dev-image wic for the same reason (both match the generic *.rootfs.wic).
+if [ "${DEV_AGENT}" -eq 1 ]; then
+    WIC_FIND=( -name 'oe5xrx-remotestation-dev-image-*.rootfs.wic' )
+else
+    WIC_FIND=( '(' -name '*.rootfs.wic' -o -name "${RELEASE_ASSET_GLOB}.wic" ')'
+               -not -name 'oe5xrx-remotestation-dev-image-*' )
+fi
 WIC=""
 for search_dir in \
     "${REPO_ROOT}/build/tmp/deploy/images/qemux86-64" \
@@ -174,14 +183,22 @@ for search_dir in \
     "${RELEASE_DIR}"; do
     [ -n "${search_dir}" ] && [ -d "${search_dir}" ] || continue
     WIC=$(find "${search_dir}" -maxdepth 2 \
-        \( -name '*.rootfs.wic' -o -name "${RELEASE_ASSET_GLOB}.wic" \) \
+        "${WIC_FIND[@]}" \
         -not -name '*.bz2' -not -name '*.xz' -not -name '*.gz' \
         -print -quit 2>/dev/null || true)
     [ -n "${WIC}" ] && break
 done
 
 if [ -z "${WIC}" ]; then
-    cat >&2 <<EOF
+    if [ "${DEV_AGENT}" -eq 1 ]; then
+        cat >&2 <<EOF
+ERROR: no qemux86-64 dev-image wic found (oe5xrx-remotestation-dev-image-*.rootfs.wic).
+
+--dev-agent needs the DEV image built locally:
+    kas build --target oe5xrx-remotestation-dev-image qemux86-64.yml
+EOF
+    else
+        cat >&2 <<EOF
 ERROR: no qemux86-64 wic found.
 
 Options:
@@ -189,6 +206,7 @@ Options:
     $0 --fetch                     pull the latest CI artifact
     $0 --release                   pull the latest published release
 EOF
+    fi
     exit 1
 fi
 
