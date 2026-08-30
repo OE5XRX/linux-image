@@ -157,7 +157,7 @@ while [ $# -gt 0 ]; do
         --dev-agent)
             DEV_AGENT=1
             echo "==> Dev-Agent-Modus: bootet das Dev-Image; nach Boot mounten mit:" >&2
-            echo "    scripts/dev-mount.sh localhost:${SSH_PORT} 10.0.2.2 \$(cd .. && pwd)/station-manager" >&2
+            echo "    scripts/dev-mount.sh localhost:${SSH_PORT} 10.0.2.2 ${REPO_ROOT%/*}/station-manager" >&2
             shift
             ;;
         -h|--help) usage 0 ;;

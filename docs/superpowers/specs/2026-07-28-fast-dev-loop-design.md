@@ -43,8 +43,8 @@ Das Gerät mountet `station_agent/` vom Dev-Rechner nach `/mnt/dev/station_agent
 ### 3. systemd-Drop-in mit garantiertem Fallback
 
 `station-agent.service.d/dev-override.conf` (nur im Dev-Image installiert):
-- Setzt `WorkingDirectory` + `PYTHONPATH` so, dass der Agent aus `/mnt/dev/station_agent` läuft **wenn gemountet**.
-- **Fallback-Mechanismus:** Ein Wrapper (`ExecStart=/usr/bin/station-agent-dev-launch`) wählt zur Startzeit die Quelle: Mount vorhanden und importierbar → Mount; sonst → gebackener Agent. So bootet das Gerät auch ohne Host/Netz sauber mit dem gebackenen Agent.
+- Überschreibt ausschließlich `ExecStart` auf den Wrapper `/usr/bin/station-agent-dev-launch` (sonst setzt das Drop-in nichts).
+- **Fallback-Mechanismus:** Der Wrapper wählt zur Startzeit die Quelle: Mount vorhanden und importierbar → Agent aus `/mnt/dev/station_agent` (Wrapper setzt dafür `PYTHONPATH`); sonst → gebackener Agent. So bootet das Gerät auch ohne Host/Netz sauber mit dem gebackenen Agent.
 - Kein `ConditionPathIsMountPoint` als harte Bedingung (die würde den Service bei fehlendem Mount ganz überspringen statt zurückzufallen).
 
 ### 4. `run-qemu.sh` → `--dev-agent`-Flag
@@ -53,7 +53,7 @@ Neues Flag: bootet das Dev-Image, richtet den Port-Forward/Route so ein, dass de
 
 ### 5. Prod-Safety-Guard (CI)
 
-Analog zum bestehenden AUTOREV-Preflight: ein CI-Check, der verifiziert, dass `sshfs-fuse`/`fuse` und das `dev-override`-Drop-in **nicht** im Produktions-Image-Manifest landen. Verhindert, dass der Live-Mount-Pfad je in Prod driftet (Anti-Divergenz).
+Analog zum bestehenden AUTOREV-Preflight: ein CI-Check, der verifiziert, dass `sshfs-fuse`/`fuse3` und das `dev-override`-Drop-in **nicht** im Produktions-Image-Manifest landen. Verhindert, dass der Live-Mount-Pfad je in Prod driftet (Anti-Divergenz).
 
 ### 6. justfile (linux-image)
 
@@ -78,7 +78,7 @@ CM4/QEMU: /mnt/dev/station_agent ──(systemd dev-override wrapper)──► s
 
 - Boot-Test: Dev-Image bootet **ohne** Mount sauber durch (Fallback auf gebackenen Agent) — verhindert Brick-Regression.
 - Mount-Test: nach `dev-mount.sh` läuft der Agent nachweislich aus `/mnt/dev/station_agent` (z.B. Marker-Datei/Version im Log).
-- CI-Guard-Test: Prod-Image-Manifest enthält kein sshfs/fuse/dev-override.
+- CI-Guard-Test: Prod-Image-Manifest enthält kein sshfs-fuse/fuse3/dev-override.
 - Bestehende OTA-Integrationstests (`tests/ota-integration/`) bleiben unberührt.
 
 ## Bewusst NICHT in dieser Spec (YAGNI / Folge-Schritte)

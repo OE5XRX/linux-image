@@ -4,9 +4,9 @@
 
 **Goal:** Den `station-agent` im **Dev-Image** aus einem Live-Mount vom Host laufen lassen (sshfs), mit garantiertem Fallback auf den gebackenen Agent, plus QEMU-Integration, host-seitige Mount/Loop-Scripts (just) und einen Prod-Safety-Guard.
 
-**Architecture:** Ein neues **dev-only** Recipe `oe5xrx-dev-agent-mount` liefert (a) einen systemd-Drop-in, der `station-agent.service` auf einen Wrapper umbiegt, und (b) den Wrapper `station-agent-dev-launch`, der zur Startzeit die Quelle wählt: `/mnt/dev/station_agent` wenn gemountet, sonst der gebackene Agent (nie gebrickt). sshfs/fuse und dieses Recipe landen **ausschließlich** im `-dev-image` (das `require`t das Prod-Image, Einbahn — kann nie in Prod leaken). Ein statischer CI-Lint erzwingt die Trennung. Host-seitig mountet `dev-mount.sh` das Repo per sshfs aufs Gerät; `run-qemu.sh --dev-agent` und ein justfile bündeln den Loop.
+**Architecture:** Ein neues **dev-only** Recipe `oe5xrx-dev-agent-mount` liefert (a) einen systemd-Drop-in, der `station-agent.service` auf einen Wrapper umbiegt, und (b) den Wrapper `station-agent-dev-launch`, der zur Startzeit die Quelle wählt: `/mnt/dev/station_agent` wenn gemountet, sonst der gebackene Agent (nie gebrickt). sshfs-fuse/fuse3 und dieses Recipe landen **ausschließlich** im `-dev-image` (das `require`t das Prod-Image, Einbahn — kann nie in Prod leaken). Ein statischer CI-Lint erzwingt die Trennung. Host-seitig mountet `dev-mount.sh` das Repo per sshfs aufs Gerät; `run-qemu.sh --dev-agent` und ein justfile bündeln den Loop.
 
-**Tech Stack:** Yocto/BitBake (poky), systemd Drop-ins, sshfs-fuse/fuse (meta-openembedded/meta-filesystems), QEMU user-net, bash, just.
+**Tech Stack:** Yocto/BitBake (poky), systemd Drop-ins, sshfs-fuse/fuse3 (meta-openembedded/meta-filesystems + meta-oe), QEMU user-net, bash, just.
 
 ## Global Constraints
 
@@ -318,7 +318,7 @@ for pkg in ${DEV_PKGS}; do
 done
 
 # Sicherstellen, dass das Dev-Image das Prod-Image require't (Einbahn-Invariante).
-if ! grep -Eq '^\s*require\s+oe5xrx-remotestation-image\.bb' "${DEV}"; then
+if ! grep -Eq '^[[:space:]]*require[[:space:]]+oe5xrx-remotestation-image\.bb' "${DEV}"; then
     echo "::error file=${DEV}::dev image must 'require oe5xrx-remotestation-image.bb'"
     fail=1
 fi
