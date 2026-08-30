@@ -2,7 +2,7 @@
 # mount instead of the ~30-min image-build cycle (dev-image only).
 #
 # Boot a dev-image target FIRST, then attach the live loop:
-#   local QEMU:  `just local qemu dev`   (blocks with the serial console)
+#   local QEMU:  `just local qemu --dev`   (blocks with the serial console)
 #   real CM4:    it is already running
 # then, in another terminal, `just dev qemu` / `just dev cm4` / `just dev attach ...`.
 set dotenv-load := true
@@ -16,7 +16,7 @@ sm_repo := env_var_or_default("SM_REPO", justfile_directory() + "/../station-man
 attach target host_addr repo=sm_repo:
     scripts/dev-attach.sh {{target}} {{host_addr}} {{repo}}
 
-# Attach to a locally-booted QEMU dev-image (boot it first: `just local qemu dev`).
+# Attach to a locally-booted QEMU dev-image (boot it first: `just local qemu --dev`).
 qemu:
     scripts/dev-attach.sh localhost:{{qemu_ssh_port}} 10.0.2.2 {{sm_repo}}
 

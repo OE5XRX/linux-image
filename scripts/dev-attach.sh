@@ -2,7 +2,7 @@
 # Fast-Dev-Loop attach: mount the host's station_agent onto a RUNNING dev-image
 # target, restart the agent, and follow its logs. Target-agnostic — works for a
 # locally-booted QEMU (localhost:2222) and a real CM4 (LAN IP) alike. Booting the
-# target is a separate step (`just local qemu dev`, or a CM4 that is already up).
+# target is a separate step (`just local qemu --dev`, or a CM4 that is already up).
 #   <device-host>  ssh target of the device (CM4 LAN IP, or localhost:2222 for QEMU)
 #   <host-addr>    host address AS SEEN BY THE DEVICE (CM4: laptop LAN IP; QEMU: 10.0.2.2)
 #   <repo-path>    absolute path of the station-manager repo on the host

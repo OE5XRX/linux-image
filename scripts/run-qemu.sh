@@ -5,13 +5,18 @@
 # layout, matching the RPi production image as closely as possible.
 #
 # Usage:
-#   scripts/run-qemu.sh                      boot image from local build or cache
+#   scripts/run-qemu.sh                      boot image (auto-detect; errors if ambiguous)
+#   scripts/run-qemu.sh --local              force the local Yocto build
+#   scripts/run-qemu.sh --dist               force the remote-downloaded image (dist/)
 #   scripts/run-qemu.sh --fetch              pull the latest CI artifact first
 #   scripts/run-qemu.sh --fetch <run-id>     pull a specific GitHub Actions run
 #   scripts/run-qemu.sh --release            pull the latest published release
 #   scripts/run-qemu.sh --release <tag>      pull a specific release (e.g. v1-alpha)
-#   scripts/run-qemu.sh --dev-agent          boot the dev-image (live-mount the agent after)
+#   scripts/run-qemu.sh --dev                boot the dev-image (live-mount the agent after)
 #   scripts/run-qemu.sh -h | --help          this help
+#
+# Source flags select WHICH image; --dev selects the dev variant. They combine,
+# e.g. `--dist --dev` boots the downloaded dev-image.
 #
 # Environment overrides:
 #   SSH_PORT=2222    host port that maps to guest's sshd (default 2222)
@@ -54,6 +59,15 @@ SSH_PORT="${SSH_PORT:-2222}"
 MEM="${MEM:-1024}"
 CPUS="${CPUS:-2}"
 DEV_AGENT="${DEV_AGENT:-0}"
+SOURCE=""   # explicit image source (local|dist|artifact|release); empty = auto-detect
+
+set_source() {  # enforce a single explicit source
+    if [ -n "${SOURCE}" ] && [ "${SOURCE}" != "$1" ]; then
+        echo "ERROR: pick one image source (--${SOURCE} vs --$1)." >&2
+        exit 2
+    fi
+    SOURCE="$1"
+}
 
 usage() {
     sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'
@@ -136,7 +150,10 @@ fetch_release() {
 # --- Arg parsing ---
 while [ $# -gt 0 ]; do
     case "$1" in
+        --local) set_source local; shift ;;
+        --dist)  set_source dist;  shift ;;
         --fetch)
+            set_source artifact
             fetch_artifact "${2:-}"
             # If a run-id was passed, skip it; otherwise leave other args alone.
             if [ -n "${2:-}" ] && [[ "${2}" =~ ^[0-9]+$ ]]; then
@@ -146,6 +163,7 @@ while [ $# -gt 0 ]; do
             fi
             ;;
         --release)
+            set_source release
             # Optional positional tag; anything starting with '-' is another flag.
             if [ -n "${2:-}" ] && [[ "${2}" != -* ]]; then
                 fetch_release "${2}"
@@ -155,7 +173,7 @@ while [ $# -gt 0 ]; do
                 shift
             fi
             ;;
-        --dev-agent)
+        --dev-agent|--dev)
             DEV_AGENT=1
             echo "==> Dev-Agent-Modus: bootet das Dev-Image. In einem 2. Terminal andocken mit:" >&2
             echo "    just dev qemu   (bzw. just dev attach localhost:${SSH_PORT} 10.0.2.2 ${REPO_ROOT%/*}/station-manager)" >&2
@@ -167,38 +185,68 @@ while [ $# -gt 0 ]; do
 done
 
 # --- Locate the wic ---
-# Accept both the Yocto-native name (*.rootfs.wic, from local builds and CI
-# artifacts) and the release-asset name (oe5xrx-qemux86-64-<tag>.wic).
-# --dev-agent narrows the search to the dev-image artifact so a prod wic sitting
-# in the same deploy dir can't be booted by accident; the default path excludes
-# the dev-image wic for the same reason (both match the generic *.rootfs.wic).
+# Sources, in listing order: local build, remote download (dist/), CI artifact
+# (--fetch), release (--release). A source flag (--local/--dist/--fetch/--release)
+# picks exactly one; with no flag we auto-detect but REFUSE TO GUESS when more
+# than one source has a candidate — you disambiguate with a flag.
+# --dev-agent narrows to the dev-image wic (the default excludes it), so prod and
+# dev never shadow each other within a dir.
 if [ "${DEV_AGENT}" -eq 1 ]; then
     WIC_FIND=( -name 'oe5xrx-remotestation-dev-image-*.rootfs.wic' )
+    label="dev-image wic"
 else
     WIC_FIND=( '(' -name '*.rootfs.wic' -o -name "${RELEASE_ASSET_GLOB}.wic" ')'
                -not -name 'oe5xrx-remotestation-dev-image-*' )
+    label="wic"
 fi
-WIC=""
-for search_dir in \
-    "${REPO_ROOT}/build/tmp/deploy/images/qemux86-64" \
-    "${REPO_ROOT}/dist/qemux86-64" \
-    "${ARTIFACT_DIR}" \
-    "${RELEASE_DIR}"; do
-    [ -n "${search_dir}" ] && [ -d "${search_dir}" ] || continue
-    WIC=$(find "${search_dir}" -maxdepth 2 \
-        "${WIC_FIND[@]}" \
+
+find_wic() {  # $1 = dir -> prints the first matching (variant-filtered) wic, or nothing
+    local d="$1"
+    [ -n "${d}" ] && [ -d "${d}" ] || return 0
+    find "${d}" -maxdepth 2 "${WIC_FIND[@]}" \
         -not -name '*.bz2' -not -name '*.xz' -not -name '*.gz' \
-        -print -quit 2>/dev/null || true)
-    [ -n "${WIC}" ] && break
-done
+        -print -quit 2>/dev/null || true
+}
+
+src_dir() {  # $1 = source name -> its directory
+    case "$1" in
+        local)    printf '%s' "${REPO_ROOT}/build/tmp/deploy/images/qemux86-64" ;;
+        dist)     printf '%s' "${REPO_ROOT}/dist/qemux86-64" ;;
+        artifact) printf '%s' "${ARTIFACT_DIR}" ;;
+        release)  printf '%s' "${RELEASE_DIR}" ;;
+    esac
+}
+
+WIC=""
+if [ -n "${SOURCE}" ]; then
+    # Explicit source: use exactly that one.
+    WIC=$(find_wic "$(src_dir "${SOURCE}")")
+    [ -n "${WIC}" ] || { echo "ERROR: no qemux86-64 ${label} in the --${SOURCE} source." >&2; exit 1; }
+else
+    # Auto-detect: gather candidates across all sources; refuse to guess if >1.
+    found=""
+    for name in local dist artifact release; do
+        w=$(find_wic "$(src_dir "${name}")")
+        if [ -n "${w}" ]; then
+            found="${found} ${name}"
+            [ -z "${WIC}" ] && WIC="${w}"
+        fi
+    done
+    if [ "$(echo ${found} | wc -w)" -gt 1 ]; then
+        echo "ERROR: multiple qemux86-64 ${label}s found (sources:${found})." >&2
+        echo "Refusing to guess — pick one: --local | --dist | --fetch | --release" >&2
+        exit 1
+    fi
+fi
 
 if [ -z "${WIC}" ]; then
     if [ "${DEV_AGENT}" -eq 1 ]; then
         cat >&2 <<EOF
 ERROR: no qemux86-64 dev-image wic found (oe5xrx-remotestation-dev-image-*.rootfs.wic).
 
---dev-agent needs the DEV image built locally:
-    kas build --target oe5xrx-remotestation-dev-image qemux86-64.yml
+--dev-agent needs the DEV image built (locally or on the box), e.g.:
+    just local build --dev
+    just remote build --dev && just remote download --dev
 EOF
     else
         cat >&2 <<EOF

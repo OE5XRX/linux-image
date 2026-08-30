@@ -6,11 +6,11 @@ set dotenv-load := true
 build *args:
     scripts/ydev/local-build.sh {{args}}
 
-# Boot the built qemux86-64 image locally in QEMU (serial in this terminal).
-# `just local qemu --dev` boots the dev-image instead — then attach the Fast-Dev-Loop
-# from another terminal with `just dev qemu`.
+# Boot a qemux86-64 image locally (serial in this terminal). Passes flags through:
+# --local/--dist/--fetch/--release pick the source, --dev the dev-image variant.
+# `just local qemu --dev` boots the local dev-image; attach with `just dev qemu`.
 qemu *args:
-    scripts/run-qemu.sh {{ if args =~ '(^| )--?dev($| )' { "--dev-agent" } else { "" } }}
+    scripts/run-qemu.sh {{args}}
 
 # Write the raspberrypi4-64 .wic to an SD/device (guarded). No device -> lists candidates.
 flash device="":
