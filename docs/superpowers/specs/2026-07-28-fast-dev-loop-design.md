@@ -30,7 +30,7 @@ Der gebackene Agent im Rootfs bleibt **immer** lauffähig; der Mount ist nur ein
 
 In `oe5xrx-remotestation-dev-image.bb` (NUR dort, nie im Prod-Image):
 - `sshfs-fuse` + `fuse3` zu `IMAGE_INSTALL` hinzufügen (sshfs 3.x linkt libfuse3). `sshfs-fuse` kommt aus `meta-filesystems`, das dafür im Layer-Set aktiviert wird.
-- Den vollen Mount-Point `/mnt/dev/station_agent` im `oe5xrx-dev-agent-mount`-Recipe backen. Das Rootfs ist read-only, also muss das Verzeichnis zur Boot-Zeit schon existieren — `dev-mount.sh` kann es nicht per `mkdir` anlegen.
+- Den vollen Mount-Point `/mnt/dev/station_agent` im `oe5xrx-dev-agent-mount`-Recipe backen. Das Rootfs ist read-only, also muss das Verzeichnis zur Boot-Zeit schon existieren — der Host-seitige Attach (`dev-attach.sh`) kann es nicht per `mkdir` anlegen.
 
 ### 2. sshfs-Mount des Host-Repos
 
@@ -38,7 +38,7 @@ Das Gerät mountet `station_agent/` vom Dev-Rechner nach `/mnt/dev/station_agent
 - **CM4:** Host-LAN-IP.
 - **QEMU:** Host über `10.0.2.2` (User-Net-Gateway; run-qemu nutzt bereits `-netdev user … hostfwd`).
 - Host muss `sshd` laufen haben (Dev-Laptop). Auth via SSH-Key.
-- Realisiert als Helfer-Script `scripts/dev-mount.sh <device-host> <host-addr> <repo-path>` (device-host darf `host:port` sein, z.B. `localhost:2222` für QEMU → wird zu `ssh -p` aufgelöst), das per SSH aufs Gerät geht und dort den sshfs-Mount zurück zum Host aufsetzt (idempotent: erst prüfen ob schon gemountet).
+- Realisiert als Helfer-Script `scripts/dev-attach.sh <device-host> <host-addr> <repo-path>` (device-host darf `host:port` sein, z.B. `localhost:2222` für QEMU → wird zu `ssh -p` aufgelöst): setzt per SSH den idempotenten sshfs-Mount zurück zum Host auf, startet dann den Agent neu und folgt dem Log (Mount + Restart + Logs in einem Schritt).
 
 ### 3. systemd-Drop-in mit garantiertem Fallback
 
@@ -59,7 +59,7 @@ Analog zum bestehenden AUTOREV-Preflight: ein CI-Check, der verifiziert, dass `s
 
 Dünne Recipes, echte Logik in `scripts/*.sh`, Hosts/Secrets aus ungetrackter `.env` mit Env-Override:
 - `dev-qemu` — `scripts/run-qemu.sh --dev-agent`
-- `dev-cm4 host=$cm4_host` — Mount sicherstellen (`dev-mount.sh`) → `ssh root@{{host}} systemctl restart station-agent` → `journalctl -f` (+ Serial-Trace)
+- `dev-cm4 host=$cm4_host` — Mount+Restart+Logs (`dev-attach.sh`) → `ssh root@{{host}} systemctl restart station-agent` → `journalctl -f` (+ Serial-Trace)
 - `build machine=qemux86-64` — `kas build …`
 - `flash-sd device=…` — Dev-Image auf SD schreiben (Tier-2-Reflash)
 
@@ -77,7 +77,7 @@ CM4/QEMU: /mnt/dev/station_agent ──(systemd dev-override wrapper)──► s
 ## Testing
 
 - Boot-Test: Dev-Image bootet **ohne** Mount sauber durch (Fallback auf gebackenen Agent) — verhindert Brick-Regression.
-- Mount-Test: nach `dev-mount.sh` läuft der Agent nachweislich aus `/mnt/dev/station_agent` (z.B. Marker-Datei/Version im Log).
+- Mount-Test: nach `dev-attach.sh` läuft der Agent nachweislich aus `/mnt/dev/station_agent` (z.B. Marker-Datei/Version im Log).
 - CI-Guard-Test: Prod-Image-Manifest enthält kein sshfs-fuse/fuse3/dev-override.
 - Bestehende OTA-Integrationstests (`tests/ota-integration/`) bleiben unberührt.
 
