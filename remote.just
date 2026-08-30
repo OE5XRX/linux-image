@@ -13,9 +13,10 @@ down:
 # Delete ALL orphaned ydev boxes (label-scoped; never touches CI)
 clean:
     scripts/ydev/remote-clean.sh
-# Build on the session box (reads from public R2 sstate mirror, publishes new entries; fails if no box)
-build machine="qemux86-64":
-    scripts/ydev/remote-build.sh {{machine}}
+# Build on the session box (reads from public R2 sstate mirror, publishes new entries; fails if no box).
+# `just remote build qemux86-64 dev` builds the dev-image (cheap sstate delta).
+build machine="qemux86-64" variant="":
+    scripts/ydev/remote-build.sh {{machine}} {{variant}}
 # Download the built images from the box to dist/<machine>/
 download machine="qemux86-64":
     scripts/ydev/remote-download.sh {{machine}}

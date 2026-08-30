@@ -56,6 +56,10 @@ jobs:
     with:
       machine: qemux86-64
       release_tag: ""
+      # Also build the fast-dev-loop dev-image in the same invocation (cheap
+      # sstate delta) so its recipe/mountpoint/layer changes are build-verified,
+      # not just parse-checked.
+      dev_image: true
     secrets: inherit
 
   test:
