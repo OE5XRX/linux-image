@@ -20,8 +20,9 @@
 #
 # Image discovery order:
 #   1. local Yocto build:  build/tmp/deploy/images/qemux86-64/*.rootfs.wic
-#   2. CI artifact cache:  build/qemu-cache/yocto-image-qemux86-64/*.rootfs.wic
-#   3. Release cache:      build/qemu-cache/release-<tag>/oe5xrx-qemux86-64-<tag>.wic
+#   2. remote download:    dist/qemux86-64/*.rootfs.wic  (just remote download)
+#   3. CI artifact cache:  build/qemu-cache/yocto-image-qemux86-64/*.rootfs.wic
+#   4. Release cache:      build/qemu-cache/release-<tag>/oe5xrx-qemux86-64-<tag>.wic
 #
 # A/B boot testing (from inside the guest):
 #   grub-editenv /boot/EFI/BOOT/grubenv list
@@ -180,6 +181,7 @@ fi
 WIC=""
 for search_dir in \
     "${REPO_ROOT}/build/tmp/deploy/images/qemux86-64" \
+    "${REPO_ROOT}/dist/qemux86-64" \
     "${ARTIFACT_DIR}" \
     "${RELEASE_DIR}"; do
     [ -n "${search_dir}" ] && [ -d "${search_dir}" ] || continue
