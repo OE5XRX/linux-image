@@ -111,7 +111,7 @@ IMAGE_INSTALL += " \
     vim \
     curl \
     sshfs-fuse \
-    fuse \
+    fuse3 \
     oe5xrx-dev-agent-mount \
 "
 ```

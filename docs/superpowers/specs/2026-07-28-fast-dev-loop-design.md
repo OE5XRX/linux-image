@@ -26,11 +26,11 @@ Der gebackene Agent im Rootfs bleibt **immer** lauffähig; der Mount ist nur ein
 
 ## Komponenten (dieses Repo)
 
-### 1. Dev-Image bekommt sshfs + fuse
+### 1. Dev-Image bekommt sshfs + fuse3
 
 In `oe5xrx-remotestation-dev-image.bb` (NUR dort, nie im Prod-Image):
-- `sshfs-fuse` + `fuse` zu `IMAGE_INSTALL` hinzufügen.
-- Ein Mount-Point-Verzeichnis `/mnt/dev` anlegen (auf der beschreibbaren `/mnt/data`-Overlay-Ebene bzw. tmpfs — nicht im read-only Rootfs).
+- `sshfs-fuse` + `fuse3` zu `IMAGE_INSTALL` hinzufügen (sshfs 3.x linkt libfuse3). `sshfs-fuse` kommt aus `meta-filesystems`, das dafür im Layer-Set aktiviert wird.
+- Den vollen Mount-Point `/mnt/dev/station_agent` im `oe5xrx-dev-agent-mount`-Recipe backen. Das Rootfs ist read-only, also muss das Verzeichnis zur Boot-Zeit schon existieren — `dev-mount.sh` kann es nicht per `mkdir` anlegen.
 
 ### 2. sshfs-Mount des Host-Repos
 
@@ -38,7 +38,7 @@ Das Gerät mountet `station_agent/` vom Dev-Rechner nach `/mnt/dev/station_agent
 - **CM4:** Host-LAN-IP.
 - **QEMU:** Host über `10.0.2.2` (User-Net-Gateway; run-qemu nutzt bereits `-netdev user … hostfwd`).
 - Host muss `sshd` laufen haben (Dev-Laptop). Auth via SSH-Key.
-- Realisiert als Helfer-Script `scripts/dev-mount.sh <host> <host-repo-path>`, das per SSH aufs Gerät geht und dort den sshfs-Mount zurück zum Host aufsetzt (idempotent: erst prüfen ob schon gemountet).
+- Realisiert als Helfer-Script `scripts/dev-mount.sh <device-host> <host-addr> <repo-path>` (device-host darf `host:port` sein, z.B. `localhost:2222` für QEMU → wird zu `ssh -p` aufgelöst), das per SSH aufs Gerät geht und dort den sshfs-Mount zurück zum Host aufsetzt (idempotent: erst prüfen ob schon gemountet).
 
 ### 3. systemd-Drop-in mit garantiertem Fallback
 

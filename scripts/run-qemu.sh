@@ -10,6 +10,7 @@
 #   scripts/run-qemu.sh --fetch <run-id>     pull a specific GitHub Actions run
 #   scripts/run-qemu.sh --release            pull the latest published release
 #   scripts/run-qemu.sh --release <tag>      pull a specific release (e.g. v1-alpha)
+#   scripts/run-qemu.sh --dev-agent          boot the dev-image (live-mount the agent after)
 #   scripts/run-qemu.sh -h | --help          this help
 #
 # Environment overrides:

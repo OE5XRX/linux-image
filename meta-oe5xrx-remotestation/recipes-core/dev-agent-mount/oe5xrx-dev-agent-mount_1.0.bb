@@ -21,7 +21,9 @@ do_install() {
     install -m 0644 ${UNPACKDIR}/dev-override.conf \
         ${D}${sysconfdir}/systemd/system/station-agent.service.d/dev-override.conf
 
-    install -d ${D}/mnt/dev
+    # Bake the full sshfs mountpoint. The rootfs is read-only, so dev-mount.sh
+    # cannot mkdir /mnt/dev/station_agent at runtime — it must already exist.
+    install -d ${D}/mnt/dev/station_agent
 }
 
 FILES:${PN} += " \
