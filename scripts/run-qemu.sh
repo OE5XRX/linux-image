@@ -250,12 +250,16 @@ ERROR: no qemux86-64 dev-image wic found (oe5xrx-remotestation-dev-image-*.rootf
 EOF
     else
         cat >&2 <<EOF
-ERROR: no qemux86-64 wic found.
+ERROR: no qemux86-64 wic found in any source (local build, dist/, CI artifact, release).
 
-Options:
-    kas build qemux86-64.yml       build it locally
+Get one, then re-run:
+    kas build qemux86-64.yml       build the prod image locally
+    just local build --dev         build the dev image locally
+    just remote download           pull an image built on the box (-> dist/)
     $0 --fetch                     pull the latest CI artifact
     $0 --release                   pull the latest published release
+
+Once more than one exists, pick a source: --local | --dist | --fetch | --release
 EOF
     fi
     exit 1

@@ -11,6 +11,10 @@ out=$(YDEV_DRYRUN=1 bash scripts/ydev/remote-build.sh raspberrypi4-64 2>&1)
 echo "$out" | grep -q "rsync" && echo "$out" | grep -q -- "--exclude" || { echo "FAIL rsync: $out"; exit 1; }
 echo "$out" | grep -q -- "--filter=:- .gitignore" || { echo "FAIL gitignore filter (kas layers must be excluded): $out"; exit 1; }
 echo "$out" | grep -q "kas build raspberrypi4-64.yml" || { echo "FAIL kas: $out"; exit 1; }
+# --dev flag -> dev-image target in the dry-run kas line (machine still optional)
+out=$(YDEV_DRYRUN=1 bash scripts/ydev/remote-build.sh --dev 2>&1)
+echo "$out" | grep -q -- "kas build --target oe5xrx-remotestation-dev-image qemux86-64.yml" \
+  || { echo "FAIL dev target: $out"; exit 1; }
 # dry-run prints the remote ssh command but the heredoc body runs on the box (not locally),
 # so rclone assertions are on the script content rather than dry-run output
 grep -q "rclone copy" scripts/ydev/remote-build.sh || { echo "FAIL rclone publish missing in script"; exit 1; }
