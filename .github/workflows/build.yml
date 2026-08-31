@@ -17,6 +17,10 @@ on:
         description: "Release tag for /etc/issue + /etc/os-release stamp (empty -> dev)"
         type: string
         default: ""
+      dev_image:
+        description: "Also build the dev-image target (fast-dev-loop) in the same invocation"
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       machine:
@@ -27,6 +31,10 @@ on:
         description: "Release tag for /etc/issue + /etc/os-release stamp (empty -> dev)"
         type: string
         default: ""
+      dev_image:
+        description: "Also build the dev-image target (fast-dev-loop) in the same invocation"
+        type: boolean
+        default: false
   # Per-PR x86 build feedback. COMPLEMENTARY to boot-ota-pr.yml: this paths
   # list is kept DISJOINT from boot-ota-pr.yml's, so any single change fires
   # exactly one x64 builder — never both. boot-ota-pr.yml already builds x64
@@ -286,6 +294,9 @@ jobs:
         run: sudo pip3 install --break-system-packages -r .github/requirements-kas.txt
 
       - name: Build with Kas
+        env:
+          # Typed boolean input — safe to test in shell (never free-form text).
+          DEV_IMAGE: ${{ inputs.dev_image }}
         run: |
           # OE5XRX_RELEASE_TAG is listed in oe5xrx.yml's `env:` block, so
           # kas picks it up from this workflow's environment and forwards
@@ -293,7 +304,26 @@ jobs:
           # KAS_MACHINE is already validated to one of the two machines by
           # create-runner's "Validate machine input" step, and the kas config
           # is always <machine>.yml.
-          kas build "${KAS_MACHINE}.yml"
+          if [ "${DEV_IMAGE}" = "true" ]; then
+            # Build prod + dev in ONE invocation: BitBake builds every shared
+            # recipe once (kernel/systemd/station-agent/…), so the dev image is
+            # just its extra packages + one more rootfs assembly — a cheap delta,
+            # not a second full build.
+            kas build \
+              --target oe5xrx-remotestation-image \
+              --target oe5xrx-remotestation-dev-image \
+              "${KAS_MACHINE}.yml"
+          else
+            kas build "${KAS_MACHINE}.yml"
+          fi
+
+      - name: Verify dev-image wic built
+        if: ${{ inputs.dev_image }}
+        run: |
+          set -euo pipefail
+          wic=$(find build/tmp/deploy/images -name 'oe5xrx-remotestation-dev-image-*.rootfs.wic' -print -quit)
+          [ -n "${wic}" ] || { echo "::error::dev-image target produced no .rootfs.wic"; exit 1; }
+          echo "dev-image wic built: ${wic} ($(du -h "${wic}" | cut -f1))"
 
       - name: Publish sstate + downloads to R2 mirror
         # Best-effort: a Bitwarden hiccup or missing R2 creds must not fail the
@@ -345,12 +375,16 @@ jobs:
           # Follow symlinks (-L) so we capture real kernel/rootfs files, not links.
           # Include rootfs (ext4/wic), kernel (bzImage/Image/zImage), device tree,
           # and qemuboot.conf (runqemu metadata — helpful for local boot).
+          # Exclude the dev-image rootfs/wic: this artifact feeds the boot/OTA
+          # test, which must boot the PROD image. The dev image is build-verified
+          # separately ("Verify dev-image wic built"), not shipped here.
           find -L build/tmp/deploy/images/ \
             \( -name "*.ext4" -o -name "*.wic" -o -name "*.wic.gz" \
                -o -name "*.wic.bz2" -o -name "*.wic.xz" \
                -o -name "bzImage-*" -o -name "Image-*" -o -name "zImage-*" \
                -o -name "*.qemuboot.conf" -o -name "*.dtb" \) \
             -not -name "*.p7" \
+            -not -name "oe5xrx-remotestation-dev-image-*" \
             | while read -r f; do cp -L "$f" artifacts/; done
           ls -lh artifacts/
 

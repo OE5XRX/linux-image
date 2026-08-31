@@ -5,12 +5,18 @@
 # layout, matching the RPi production image as closely as possible.
 #
 # Usage:
-#   scripts/run-qemu.sh                      boot image from local build or cache
+#   scripts/run-qemu.sh                      boot image (auto-detect; errors if ambiguous)
+#   scripts/run-qemu.sh --local              force the local Yocto build
+#   scripts/run-qemu.sh --dist               force the remote-downloaded image (dist/)
 #   scripts/run-qemu.sh --fetch              pull the latest CI artifact first
 #   scripts/run-qemu.sh --fetch <run-id>     pull a specific GitHub Actions run
 #   scripts/run-qemu.sh --release            pull the latest published release
 #   scripts/run-qemu.sh --release <tag>      pull a specific release (e.g. v1-alpha)
+#   scripts/run-qemu.sh --dev                boot the dev-image (live-mount the agent after)
 #   scripts/run-qemu.sh -h | --help          this help
+#
+# Source flags select WHICH image; --dev selects the dev variant. They combine,
+# e.g. `--dist --dev` boots the downloaded dev-image.
 #
 # Environment overrides:
 #   SSH_PORT=2222    host port that maps to guest's sshd (default 2222)
@@ -19,8 +25,9 @@
 #
 # Image discovery order:
 #   1. local Yocto build:  build/tmp/deploy/images/qemux86-64/*.rootfs.wic
-#   2. CI artifact cache:  build/qemu-cache/yocto-image-qemux86-64/*.rootfs.wic
-#   3. Release cache:      build/qemu-cache/release-<tag>/oe5xrx-qemux86-64-<tag>.wic
+#   2. remote download:    dist/qemux86-64/*.rootfs.wic  (just remote download)
+#   3. CI artifact cache:  build/qemu-cache/yocto-image-qemux86-64/*.rootfs.wic
+#   4. Release cache:      build/qemu-cache/release-<tag>/oe5xrx-qemux86-64-<tag>.wic
 #
 # A/B boot testing (from inside the guest):
 #   grub-editenv /boot/EFI/BOOT/grubenv list
@@ -51,6 +58,16 @@ RELEASE_DIR=""   # set by fetch_release; also searched when locating the wic
 SSH_PORT="${SSH_PORT:-2222}"
 MEM="${MEM:-1024}"
 CPUS="${CPUS:-2}"
+DEV_AGENT="${DEV_AGENT:-0}"
+SOURCE=""   # explicit image source (local|dist|artifact|release); empty = auto-detect
+
+set_source() {  # enforce a single explicit source
+    if [ -n "${SOURCE}" ] && [ "${SOURCE}" != "$1" ]; then
+        echo "ERROR: pick one image source (--${SOURCE} vs --$1)." >&2
+        exit 2
+    fi
+    SOURCE="$1"
+}
 
 usage() {
     sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'
@@ -133,7 +150,10 @@ fetch_release() {
 # --- Arg parsing ---
 while [ $# -gt 0 ]; do
     case "$1" in
+        --local) set_source local; shift ;;
+        --dist)  set_source dist;  shift ;;
         --fetch)
+            set_source artifact
             fetch_artifact "${2:-}"
             # If a run-id was passed, skip it; otherwise leave other args alone.
             if [ -n "${2:-}" ] && [[ "${2}" =~ ^[0-9]+$ ]]; then
@@ -143,6 +163,7 @@ while [ $# -gt 0 ]; do
             fi
             ;;
         --release)
+            set_source release
             # Optional positional tag; anything starting with '-' is another flag.
             if [ -n "${2:-}" ] && [[ "${2}" != -* ]]; then
                 fetch_release "${2}"
@@ -152,36 +173,95 @@ while [ $# -gt 0 ]; do
                 shift
             fi
             ;;
+        --dev-agent|--dev)
+            DEV_AGENT=1
+            echo "==> Dev-Agent-Modus: bootet das Dev-Image. In einem 2. Terminal andocken mit:" >&2
+            echo "    just dev qemu   (bzw. just dev attach localhost:${SSH_PORT} 10.0.2.2 ${REPO_ROOT%/*}/station-manager)" >&2
+            shift
+            ;;
         -h|--help) usage 0 ;;
         *) echo "Unknown arg: $1" >&2; usage 2 ;;
     esac
 done
 
 # --- Locate the wic ---
-# Accept both the Yocto-native name (*.rootfs.wic, from local builds and CI
-# artifacts) and the release-asset name (oe5xrx-qemux86-64-<tag>.wic).
-WIC=""
-for search_dir in \
-    "${REPO_ROOT}/build/tmp/deploy/images/qemux86-64" \
-    "${ARTIFACT_DIR}" \
-    "${RELEASE_DIR}"; do
-    [ -n "${search_dir}" ] && [ -d "${search_dir}" ] || continue
-    WIC=$(find "${search_dir}" -maxdepth 2 \
-        \( -name '*.rootfs.wic' -o -name "${RELEASE_ASSET_GLOB}.wic" \) \
+# Sources, in listing order: local build, remote download (dist/), CI artifact
+# (--fetch), release (--release). A source flag (--local/--dist/--fetch/--release)
+# picks exactly one; with no flag we auto-detect but REFUSE TO GUESS when more
+# than one source has a candidate — you disambiguate with a flag.
+# --dev-agent narrows to the dev-image wic (the default excludes it), so prod and
+# dev never shadow each other within a dir.
+if [ "${DEV_AGENT}" -eq 1 ]; then
+    WIC_FIND=( -name 'oe5xrx-remotestation-dev-image-*.rootfs.wic' )
+    label="dev-image wic"
+else
+    WIC_FIND=( '(' -name '*.rootfs.wic' -o -name "${RELEASE_ASSET_GLOB}.wic" ')'
+               -not -name 'oe5xrx-remotestation-dev-image-*' )
+    label="wic"
+fi
+
+find_wic() {  # $1 = dir -> prints the first matching (variant-filtered) wic, or nothing
+    local d="$1"
+    [ -n "${d}" ] && [ -d "${d}" ] || return 0
+    find "${d}" -maxdepth 2 "${WIC_FIND[@]}" \
         -not -name '*.bz2' -not -name '*.xz' -not -name '*.gz' \
-        -print -quit 2>/dev/null || true)
-    [ -n "${WIC}" ] && break
-done
+        -print -quit 2>/dev/null || true
+}
+
+src_dir() {  # $1 = source name -> its directory
+    case "$1" in
+        local)    printf '%s' "${REPO_ROOT}/build/tmp/deploy/images/qemux86-64" ;;
+        dist)     printf '%s' "${REPO_ROOT}/dist/qemux86-64" ;;
+        artifact) printf '%s' "${ARTIFACT_DIR}" ;;
+        release)  printf '%s' "${RELEASE_DIR}" ;;
+    esac
+}
+
+WIC=""
+if [ -n "${SOURCE}" ]; then
+    # Explicit source: use exactly that one.
+    WIC=$(find_wic "$(src_dir "${SOURCE}")")
+    [ -n "${WIC}" ] || { echo "ERROR: no qemux86-64 ${label} in the --${SOURCE} source." >&2; exit 1; }
+else
+    # Auto-detect: gather candidates across all sources; refuse to guess if >1.
+    found=""
+    for name in local dist artifact release; do
+        w=$(find_wic "$(src_dir "${name}")")
+        if [ -n "${w}" ]; then
+            found="${found} ${name}"
+            [ -z "${WIC}" ] && WIC="${w}"
+        fi
+    done
+    if [ "$(echo ${found} | wc -w)" -gt 1 ]; then
+        echo "ERROR: multiple qemux86-64 ${label}s found (sources:${found})." >&2
+        echo "Refusing to guess — pick one: --local | --dist | --fetch | --release" >&2
+        exit 1
+    fi
+fi
 
 if [ -z "${WIC}" ]; then
-    cat >&2 <<EOF
-ERROR: no qemux86-64 wic found.
+    if [ "${DEV_AGENT}" -eq 1 ]; then
+        cat >&2 <<EOF
+ERROR: no qemux86-64 dev-image wic found (oe5xrx-remotestation-dev-image-*.rootfs.wic).
 
-Options:
-    kas build qemux86-64.yml       build it locally
+--dev needs the DEV image built (locally or on the box), e.g.:
+    just local build --dev
+    just remote build --dev && just remote download --dev
+EOF
+    else
+        cat >&2 <<EOF
+ERROR: no qemux86-64 wic found in any source (local build, dist/, CI artifact, release).
+
+Get one, then re-run:
+    kas build qemux86-64.yml       build the prod image locally
+    just local build --dev         build the dev image locally
+    just remote download           pull an image built on the box (-> dist/)
     $0 --fetch                     pull the latest CI artifact
     $0 --release                   pull the latest published release
+
+Once more than one exists, pick a source: --local | --dist | --fetch | --release
 EOF
+    fi
     exit 1
 fi
 

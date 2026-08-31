@@ -2,8 +2,15 @@
 set -euo pipefail
 # shellcheck disable=SC1091
 . "$(dirname "$0")/remote-lib.sh"; load_env; require_session
-machine="${1:-qemux86-64}"
-case "$machine" in qemux86-64|raspberrypi4-64) ;; *) die_hint "unknown machine '$machine'" "qemux86-64 | raspberrypi4-64";; esac
+# Flexible args in any order: an optional machine + an optional --dev flag.
+machine="qemux86-64"; dev=0
+for a in "$@"; do
+  case "$a" in
+    --dev|dev)                  dev=1 ;;
+    qemux86-64|raspberrypi4-64) machine="$a" ;;
+    *) die_hint "unknown arg '$a'" "usage: just remote build [qemux86-64|raspberrypi4-64] [--dev]" ;;
+  esac
+done
 ip=$(session_ip); ydev_ssh_args
 # sync source to the yocto user's home. Honour .gitignore so the kas-cloned
 # upstream layers (bitbake/openembedded-core/meta-*) and build caches are NOT
@@ -16,12 +23,14 @@ run rsync -az --delete \
   --filter=':- .gitignore' \
   -e "$(ydev_rsh)" "${YDEV_ROOT}/" "root@${ip}:/home/yocto/src/"
 if [ "${YDEV_DRYRUN:-0}" = "1" ]; then
-  echo "DRYRUN: kas build ${machine}.yml"
+  echo "DRYRUN: kas build$([ "$dev" = 1 ] && printf ' --target oe5xrx-remotestation-dev-image') ${machine}.yml"
 fi
-run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" <<'EOF'
+run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" "$dev" <<'EOF'
   set -euo pipefail
-  m="$1"; chown -R yocto:yocto /home/yocto/src
-  sudo -u yocto -H bash -lc "cd ~/src && export PATH=\$HOME/.local/bin:\$PATH && kas build ${m}.yml"
+  m="$1"; d="${2:-0}"; chown -R yocto:yocto /home/yocto/src
+  # dev=1 -> build the dev-image target; else default (prod) target.
+  tgt=""; [ "$d" = "1" ] && tgt="--target oe5xrx-remotestation-dev-image"
+  sudo -u yocto -H bash -lc "cd ~/src && export PATH=\$HOME/.local/bin:\$PATH && kas build ${tgt} ${m}.yml"
   # publish new sstate + downloads to R2 (creds written by remote-up.sh).
   # Guard: if r2env is missing (box not provisioned via remote-up), skip the
   # publish with a clear message instead of a confusing "No such file".

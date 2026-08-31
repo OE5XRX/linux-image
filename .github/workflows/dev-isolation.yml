@@ -1,0 +1,23 @@
+name: Dev-Isolation
+on:
+  pull_request: {}
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  dev-isolation:
+    name: Dev-only packages stay out of prod image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Prod-safety lint
+        run: bash scripts/l0-dev-packages-lint.sh
+
+  dev-launch:
+    name: Dev-agent launcher fallback selection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Launcher mount-vs-baked selection test
+        run: bash tests/dev-loop/test_dev_launch.sh
