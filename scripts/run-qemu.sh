@@ -244,7 +244,7 @@ if [ -z "${WIC}" ]; then
         cat >&2 <<EOF
 ERROR: no qemux86-64 dev-image wic found (oe5xrx-remotestation-dev-image-*.rootfs.wic).
 
---dev-agent needs the DEV image built (locally or on the box), e.g.:
+--dev needs the DEV image built (locally or on the box), e.g.:
     just local build --dev
     just remote build --dev && just remote download --dev
 EOF
