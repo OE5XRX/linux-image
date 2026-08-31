@@ -30,4 +30,5 @@ FILES:${PN} += " \
     ${bindir}/station-agent-dev-launch \
     ${sysconfdir}/systemd/system/station-agent.service.d/dev-override.conf \
     /mnt/dev \
+    /mnt/dev/station_agent \
 "
