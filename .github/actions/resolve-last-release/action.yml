@@ -29,9 +29,11 @@ runs:
         REPO: ${{ inputs.repo }}
       run: |
         set -euo pipefail
-        # `// ""` so zero releases yield an empty string, not the literal "null"
-        # that `.[0].tagName` produces on an empty array — the callers treat
-        # empty as "bootstrap, skip the cross-build OTA leg".
-        tag=$(gh release list -R "$REPO" -L 1 --exclude-drafts --exclude-pre-releases --json tagName -q '.[0].tagName // ""' || true)
+        # `// ""` yields an empty string on zero releases (empty array), which the
+        # callers treat as "bootstrap -> skip the cross-build OTA leg". No
+        # `|| true`: a genuine gh/API/auth/network failure must fail the step
+        # loudly rather than masquerade as "no release" and silently skip the OTA
+        # gate (false green).
+        tag=$(gh release list -R "$REPO" -L 1 --exclude-drafts --exclude-pre-releases --json tagName -q '.[0].tagName // ""')
         echo "Last release: ${tag:-<none>}"
         echo "tag=$tag" >> "$GITHUB_OUTPUT"
