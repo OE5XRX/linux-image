@@ -33,4 +33,6 @@ grep -q "oe5xrx-yocto-sstate/sstate" scripts/ydev/remote-build.sh || { echo "FAI
 grep -q "oe5xrx-yocto-sstate/downloads" scripts/ydev/remote-build.sh || { echo "FAIL R2 downloads bucket prefix missing"; exit 1; }
 grep -q "R2_SSTATE_KEY" scripts/ydev/remote-build.sh || { echo "FAIL R2_SSTATE_KEY missing"; exit 1; }
 grep -q "rclone copy" scripts/ydev/remote-build.sh && ! grep -qF "mnt/" scripts/ydev/remote-build.sh || { echo "FAIL old mount path or missing rclone"; exit 1; }
+# release-tag passthrough into the box kas env (parity with old build.yml stamping)
+grep -q "OE5XRX_RELEASE_TAG" scripts/ydev/remote-build.sh || { echo "FAIL release-tag passthrough missing"; exit 1; }
 echo "PASS test_remote_build"

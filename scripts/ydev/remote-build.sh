@@ -31,9 +31,10 @@ if [ "${YDEV_DRYRUN:-0}" = "1" ]; then
     echo "DRYRUN: kas build$([ "$dev" = 1 ] && printf ' --target oe5xrx-remotestation-dev-image') ${machine}.yml"
   fi
 fi
-run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" "$dev" "$both" <<'EOF'
+rt="${OE5XRX_RELEASE_TAG:-}"
+run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" "$dev" "$both" "$rt" <<'EOF'
   set -euo pipefail
-  m="$1"; d="${2:-0}"; b="${3:-0}"; chown -R yocto:yocto /home/yocto/src
+  m="$1"; d="${2:-0}"; b="${3:-0}"; rt="${4:-}"; chown -R yocto:yocto /home/yocto/src
   # b=1 -> prod+dev in one invocation; d=1 -> dev only; else prod only.
   if [ "$b" = "1" ]; then
     tgt="--target oe5xrx-remotestation-image --target oe5xrx-remotestation-dev-image"
@@ -42,7 +43,9 @@ run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" "$dev" "$both" <<'EO
   else
     tgt=""
   fi
-  sudo -u yocto -H bash -lc "cd ~/src && export PATH=\$HOME/.local/bin:\$PATH && kas build ${tgt} ${m}.yml"
+  # Forward the release tag so BitBake stamps /etc/issue + os-release (oe5xrx.yml
+  # lists OE5XRX_RELEASE_TAG in its env: block). Empty -> box default applies.
+  sudo -u yocto -H bash -lc "cd ~/src && export PATH=\$HOME/.local/bin:\$PATH && export OE5XRX_RELEASE_TAG='${rt}' && kas build ${tgt} ${m}.yml"
   # publish new sstate + downloads to R2 (creds written by remote-up.sh).
   # Guard: if r2env is missing (box not provisioned via remote-up), skip the
   # publish with a clear message instead of a confusing "No such file".
