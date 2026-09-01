@@ -29,8 +29,13 @@ permissions:
   actions: read
 
 concurrency:
-  group: yocto-build-${{ inputs.machine || 'qemux86-64' }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Group on the caller's ref (inherited under workflow_call — this is the ref
+  # checkout runs against): refs/pull/<n>/merge for a PR gives per-PR isolation;
+  # refs/tags/<tag> for a release gives per-tag isolation and never shares a
+  # group with a PR build. Deliberately NOT keyed on github.event_name, which is
+  # ambiguous under workflow_call — a tag build must never be cancelled.
+  group: yocto-build-${{ inputs.machine }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   KAS_MACHINE: ${{ inputs.machine || 'qemux86-64' }}
