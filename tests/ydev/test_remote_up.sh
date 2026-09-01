@@ -9,6 +9,11 @@ echo "$out" | grep -q -- "--type ccx43" || { echo "FAIL type: $out"; exit 1; }
 echo "$out" | grep -q -- "--label managed-by=ydev" || { echo "FAIL label: $out"; exit 1; }
 echo "$out" | grep -q -- "--user-data-from-file" || { echo "FAIL user-data flag: $out"; exit 1; }
 echo "$out" | grep -qi "cloud-init" || { echo "FAIL cloud-init note: $out"; exit 1; }
+# box name is parameterisable (CI passes a unique per-run name)
+out2=$(YDEV_SESSION_NAME=ci-42-1-qemux86-64 bash scripts/ydev/remote-up.sh 2>&1 || true)
+echo "$out2" | grep -q -- "--name ci-42-1-qemux86-64" || { echo "FAIL custom name: $out2"; exit 1; }
+# default is still ydev-session when unset
+echo "$out" | grep -q -- "--name ydev-session" || { echo "FAIL default name: $out"; exit 1; }
 echo "$out" | grep -qi "R2" || { echo "FAIL R2 mention missing in dryrun: $out"; exit 1; }
 # teardown must be baked into the cloud-init user-data (dump hook)
 ud=$(YDEV_DUMP_USERDATA=1 bash scripts/ydev/remote-up.sh 2>&1 || true)
