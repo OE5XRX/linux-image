@@ -2,7 +2,9 @@
 set -euo pipefail
 # shellcheck disable=SC1091
 . "$(dirname "$0")/remote-lib.sh"; load_env; require_session
-# Flexible args in any order: an optional machine + an optional --dev flag.
+# Flexible args in any order: an optional machine + an optional target flag.
+# --dev = dev-image only; --both = prod + dev in one kas run; none = prod only.
+# (--dev and --both are mutually exclusive.)
 machine="qemux86-64"; dev=0; both=0
 for a in "$@"; do
   case "$a" in
