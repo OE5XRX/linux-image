@@ -64,7 +64,7 @@ env:
   KAS_MACHINE: ${{ inputs.machine || 'qemux86-64' }}
   OE5XRX_RELEASE_TAG: ${{ inputs.release_tag || 'dev' }}
   # ydev CI config (shared-vCPU CPX; short idle + hard max-life self-teardown)
-  YDEV_SERVER_TYPE: cpx51
+  YDEV_SERVER_TYPE: cpx62
   YDEV_LOCATION: fsn1
   YDEV_IDLE_MINUTES: "10"
   YDEV_MAX_HOURS: "3"
@@ -101,9 +101,14 @@ jobs:
             *) echo "::error::Unsupported machine '$MACHINE'. Must be qemux86-64 or raspberrypi4-64." >&2; exit 1 ;;
           esac
 
-      - name: Install hcloud + bws
+      - name: Install hcloud + bws (+ jq/unzip)
         run: |
           set -euo pipefail
+          # jq (used by remote-up.sh) + unzip (used below for bws) ship on
+          # ubuntu-latest today, but install explicitly so a runner-image change
+          # can't silently break provisioning.
+          command -v jq >/dev/null && command -v unzip >/dev/null \
+            || { sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends jq unzip; }
           curl -fsSL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" | tar xz
           sudo mv hcloud /usr/local/bin/
           VER=0.5.0

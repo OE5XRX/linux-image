@@ -42,4 +42,7 @@ out=$(YDEV_DRYRUN=1 bash scripts/ydev/remote-build.sh 2>&1)
 echo "$out" | grep -q "OE5XRX_RELEASE_TAG=<box-default>" || { echo "FAIL box-default tag marker missing: $out"; exit 1; }
 # belt: the actual export into the yocto kas env is present in the script body
 grep -q "export OE5XRX_RELEASE_TAG" scripts/ydev/remote-build.sh || { echo "FAIL export missing"; exit 1; }
+# the tag is %q-escaped before the box bash -lc (injection-safe; free-form dispatch input)
+grep -q 'printf .%q. "$rt"' scripts/ydev/remote-build.sh || { echo "FAIL release tag not %q-escaped"; exit 1; }
+grep -qF "OE5XRX_RELEASE_TAG='\${rt}'" scripts/ydev/remote-build.sh && { echo "FAIL raw unescaped tag interpolation still present"; exit 1; }
 echo "PASS test_remote_build"
