@@ -24,14 +24,15 @@ run rsync -az --delete \
   --exclude '.env' --exclude '.env.*' --exclude '.ydev-session' \
   --filter=':- .gitignore' \
   -e "$(ydev_rsh)" "${YDEV_ROOT}/" "root@${ip}:/home/yocto/src/"
+rt="${OE5XRX_RELEASE_TAG:-}"
 if [ "${YDEV_DRYRUN:-0}" = "1" ]; then
   if [ "$both" = 1 ]; then
     echo "DRYRUN: kas build --target oe5xrx-remotestation-image --target oe5xrx-remotestation-dev-image ${machine}.yml"
   else
     echo "DRYRUN: kas build$([ "$dev" = 1 ] && printf ' --target oe5xrx-remotestation-dev-image') ${machine}.yml"
   fi
+  echo "DRYRUN: OE5XRX_RELEASE_TAG=${rt:-<box-default>}"
 fi
-rt="${OE5XRX_RELEASE_TAG:-}"
 run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" "$dev" "$both" "$rt" <<'EOF'
   set -euo pipefail
   m="$1"; d="${2:-0}"; b="${3:-0}"; rt="${4:-}"; chown -R yocto:yocto /home/yocto/src

@@ -34,5 +34,12 @@ grep -q "oe5xrx-yocto-sstate/downloads" scripts/ydev/remote-build.sh || { echo "
 grep -q "R2_SSTATE_KEY" scripts/ydev/remote-build.sh || { echo "FAIL R2_SSTATE_KEY missing"; exit 1; }
 grep -q "rclone copy" scripts/ydev/remote-build.sh && ! grep -qF "mnt/" scripts/ydev/remote-build.sh || { echo "FAIL old mount path or missing rclone"; exit 1; }
 # release-tag passthrough into the box kas env (parity with old build.yml stamping)
-grep -q "OE5XRX_RELEASE_TAG" scripts/ydev/remote-build.sh || { echo "FAIL release-tag passthrough missing"; exit 1; }
+# explicit tag is surfaced in the dryrun and forwarded verbatim
+out=$(OE5XRX_RELEASE_TAG=2026.09.01-07 YDEV_DRYRUN=1 bash scripts/ydev/remote-build.sh 2>&1)
+echo "$out" | grep -q "OE5XRX_RELEASE_TAG=2026.09.01-07" || { echo "FAIL release tag not forwarded in dryrun: $out"; exit 1; }
+# unset tag -> box default marker (empty stays empty; oe5xrx.yml default applies on the box)
+out=$(YDEV_DRYRUN=1 bash scripts/ydev/remote-build.sh 2>&1)
+echo "$out" | grep -q "OE5XRX_RELEASE_TAG=<box-default>" || { echo "FAIL box-default tag marker missing: $out"; exit 1; }
+# belt: the actual export into the yocto kas env is present in the script body
+grep -q "export OE5XRX_RELEASE_TAG" scripts/ydev/remote-build.sh || { echo "FAIL export missing"; exit 1; }
 echo "PASS test_remote_build"
