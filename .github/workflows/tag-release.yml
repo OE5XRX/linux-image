@@ -1,4 +1,4 @@
-name: Tag release
+name: "Release · Step 1 · Tag & Dispatch"
 
 # One-button release entrypoint (Flow 1 of the two-step release). Runs on the
 # default branch, validates + computes the next version, creates and pushes the
@@ -26,7 +26,7 @@ concurrency:
 jobs:
   preflight:
     name: Preflight
-    uses: ./.github/workflows/preflight.yml
+    uses: ./.github/workflows/_preflight.yml
 
   tag:
     name: Compute version + push tag

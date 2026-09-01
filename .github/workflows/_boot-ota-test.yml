@@ -44,6 +44,16 @@ jobs:
     runs-on: ${{ inputs.runner_label }}
     timeout-minutes: 60
     steps:
+      - name: Validate machine (boot/OTA stack is x86-only)
+        # The QEMU boot + OTA integration test only runs qemux86-64 (qemu-system-x86).
+        # The machine input exists for symmetry/future targets, but fail fast on any
+        # other value so a misconfigured caller gets a clear error, not a confusing
+        # "won't boot" deep in QEMU.
+        env:
+          MACHINE: ${{ inputs.machine }}
+        run: |
+          [ "$MACHINE" = "qemux86-64" ] || { echo "::error::_boot-ota-test currently supports qemux86-64 only (QEMU x86 boot); got '$MACHINE'." >&2; exit 1; }
+
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6

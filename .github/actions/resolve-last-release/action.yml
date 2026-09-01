@@ -1,0 +1,39 @@
+name: Resolve last release
+description: >
+  Resolve the latest published release tag (excludes drafts + pre-releases) via
+  the GitHub CLI. Output is empty when no release exists yet. This is slot A for
+  the cross-build OTA test — used by pr.yml and release.yml so the query lives in
+  one place.
+
+inputs:
+  repo:
+    description: "owner/repo to query (github.repository)."
+    required: true
+  github-token:
+    description: "Token for gh (pass github.token)."
+    required: true
+
+outputs:
+  tag:
+    description: "Latest published release tag, or empty string if none exists."
+    value: ${{ steps.last.outputs.tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Latest published release
+      id: last
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ inputs.repo }}
+      run: |
+        set -euo pipefail
+        # `// ""` yields an empty string on zero releases (empty array), which the
+        # callers treat as "bootstrap -> skip the cross-build OTA leg". No
+        # `|| true`: a genuine gh/API/auth/network failure must fail the step
+        # loudly rather than masquerade as "no release" and silently skip the OTA
+        # gate (false green).
+        tag=$(gh release list -R "$REPO" -L 1 --exclude-drafts --exclude-pre-releases --json tagName -q '.[0].tagName // ""')
+        echo "Last release: ${tag:-<none>}"
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
