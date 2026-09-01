@@ -29,6 +29,9 @@ runs:
         REPO: ${{ inputs.repo }}
       run: |
         set -euo pipefail
-        tag=$(gh release list -R "$REPO" -L 1 --exclude-drafts --exclude-pre-releases --json tagName -q '.[0].tagName' || true)
+        # `// ""` so zero releases yield an empty string, not the literal "null"
+        # that `.[0].tagName` produces on an empty array — the callers treat
+        # empty as "bootstrap, skip the cross-build OTA leg".
+        tag=$(gh release list -R "$REPO" -L 1 --exclude-drafts --exclude-pre-releases --json tagName -q '.[0].tagName // ""' || true)
         echo "Last release: ${tag:-<none>}"
         echo "tag=$tag" >> "$GITHUB_OUTPUT"
