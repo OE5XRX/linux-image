@@ -4,22 +4,11 @@ name: Build Yocto Image
 # scripts (scripts/ydev/remote-*). The box arms its own cloud-init teardown
 # (idle + max-life + self-heal) at boot; the explicit remote-down.sh below is
 # the happy-path teardown, the cloud-init net catches run cancellation.
+#
+# REUSABLE BUILDING BLOCK (workflow_call only — no own trigger, hence the `_`
+# filename prefix). Invoked by pr.yml (per PR) and release.yml (per tag). The
+# PR path list that used to live here now lives in pr.yml, the single PR entry.
 on:
-  workflow_dispatch:
-    inputs:
-      machine:
-        description: "Target machine"
-        type: choice
-        options: [qemux86-64, raspberrypi4-64]
-        default: qemux86-64
-      release_tag:
-        description: "Release tag for /etc/issue + /etc/os-release stamp (empty -> dev)"
-        type: string
-        default: ""
-      dev_image:
-        description: "Also build the dev-image target (fast-dev-loop) in the same invocation"
-        type: boolean
-        default: false
   workflow_call:
     inputs:
       machine:
@@ -34,23 +23,6 @@ on:
         description: "Also build the dev-image target (fast-dev-loop) in the same invocation"
         type: boolean
         default: false
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'oe5xrx.yml'
-      - 'qemux86-64.yml'
-      - 'raspberrypi4-64.yml'
-      - '*.lock.yml'
-      - 'meta-oe5xrx-remotestation/conf/**'
-      - 'meta-oe5xrx-remotestation/recipes-kernel/**'
-      - 'meta-oe5xrx-remotestation/recipes-core/base-files/**'
-      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-boot-robustness/**'
-      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-fm-firmware/**'
-      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/**'
-      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/**'
-      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-slot-udev/**'
-      - 'meta-oe5xrx-remotestation/recipes-core/packagegroups/**'
-      - '.github/workflows/build.yml'
 
 permissions:
   contents: read

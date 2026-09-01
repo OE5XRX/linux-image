@@ -1,0 +1,91 @@
+name: PR Build + Boot/OTA
+
+# THE single PR entry point for anything that affects the image build. On a PR
+# touching any build-relevant path it builds the x86 image (prod + fast-dev-loop
+# dev image, cheap sstate delta) and runs BOTH the boot smoke (T1) and the
+# cross-build OTA cycle (T2, slot A = latest published release; T2 skips
+# gracefully at bootstrap when no release exists yet).
+#
+# Design: the Yocto build is a reusable building block (_build.yml) with no own
+# trigger; this is the one place a PR build is triggered, with one path list.
+# Every image-affecting PR is boot-tested — no separate build-only entry point.
+#
+# Draft PRs do NOT trigger the (expensive) Hetzner build + QEMU test — mark the
+# PR ready for review to run it (also fires `ready_for_review`).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      # kas configs + lockfiles
+      - 'oe5xrx.yml'
+      - 'qemux86-64.yml'
+      - 'raspberrypi4-64.yml'
+      - '*.lock.yml'
+      # image-affecting layer content
+      - 'meta-oe5xrx-remotestation/conf/**'
+      - 'meta-oe5xrx-remotestation/files/wic/**'
+      - 'meta-oe5xrx-remotestation/recipes-bsp/**'
+      - 'meta-oe5xrx-remotestation/recipes-kernel/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/ab-layout/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/base-files/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/images/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-boot-robustness/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-fm-firmware/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-slot-udev/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/packagegroups/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/station-agent/**'
+      - 'tests/ota-integration/**'
+      # the build/test plumbing itself
+      - '.github/workflows/pr.yml'
+      - '.github/workflows/_build.yml'
+      - '.github/workflows/_boot-ota-test.yml'
+
+permissions:
+  contents: read
+  actions: read        # download-artifact from the build job in the same run
+
+concurrency:
+  group: pr-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  resolve-slot-a:
+    name: Resolve slot A (last release)
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.last.outputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - id: last
+        uses: ./.github/actions/resolve-last-release
+        with:
+          repo: ${{ github.repository }}
+          github-token: ${{ github.token }}
+
+  build-x64:
+    name: Build qemux86-64 (dev)
+    if: ${{ !github.event.pull_request.draft }}
+    uses: ./.github/workflows/_build.yml
+    with:
+      machine: qemux86-64
+      release_tag: ""
+      # Also build the fast-dev-loop dev-image in the same invocation (cheap
+      # sstate delta) so its recipe/mountpoint/layer changes are build-verified,
+      # not just parse-checked.
+      dev_image: true
+    secrets: inherit
+
+  test:
+    name: Boot + cross-build OTA (T1+T2)
+    if: ${{ !github.event.pull_request.draft }}
+    needs: [build-x64, resolve-slot-a]
+    uses: ./.github/workflows/_boot-ota-test.yml
+    with:
+      machine: qemux86-64
+      new_artifact: yocto-image-qemux86-64
+      expected_tag: dev
+      last_release_tag: ${{ needs.resolve-slot-a.outputs.tag }}
+    secrets: inherit
