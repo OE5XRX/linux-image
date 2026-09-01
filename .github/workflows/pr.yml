@@ -41,6 +41,7 @@ on:
       - '.github/workflows/pr.yml'
       - '.github/workflows/_build.yml'
       - '.github/workflows/_boot-ota-test.yml'
+      - '.github/actions/resolve-last-release/**'
 
 permissions:
   contents: read
