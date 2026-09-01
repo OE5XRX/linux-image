@@ -87,3 +87,20 @@ jobs:
             meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/files/sim-harness.sh \
             tests/sim-harness/test_sim_harness.sh \
             scripts/bump-fw-release.sh
+
+  ydev-scripts:
+    name: ydev scripts (lint + dry-run tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends shellcheck
+      - name: Shellcheck ydev scripts
+        run: shellcheck -e SC1091 -e SC2039 scripts/ydev/*.sh scripts/ydev/box/ydev-watchdog.sh
+      - name: Run ydev dry-run tests
+        run: |
+          set -euo pipefail
+          for t in tests/ydev/test_*.sh; do
+            echo "== $t =="
+            bash "$t"
+          done

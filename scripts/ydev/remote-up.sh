@@ -11,7 +11,7 @@ if [ -f "$YDEV_SESSION" ] && [ "${YDEV_DRYRUN:-0}" != 1 ]; then
   fi
   echo "stale .ydev-session — recreating"; rm -f "$YDEV_SESSION"
 fi
-TYPE="${YDEV_SERVER_TYPE:-ccx43}"; LOC="${YDEV_LOCATION:-fsn1}"; NAME="ydev-session"
+TYPE="${YDEV_SERVER_TYPE:-ccx43}"; LOC="${YDEV_LOCATION:-fsn1}"; NAME="${YDEV_SESSION_NAME:-ydev-session}"
 IDLE="${YDEV_IDLE_MINUTES:-30}"; MAXH="${YDEV_MAX_HOURS:-4}"
 # guard: these land unquoted in the box-side systemd-run/env — a bad value would
 # abort teardown-arming under the box's `set -e`, defeating the whole guarantee
@@ -50,7 +50,7 @@ UD
 OUT=$(run hcloud server create --name "$NAME" --type "$TYPE" --image ubuntu-24.04 \
         --ssh-key "$HCLOUD_SSH_KEY_NAME" --location "$LOC" --label "managed-by=ydev" \
         --user-data-from-file - --output json <<<"$USERDATA")
-[ "${YDEV_DRYRUN:-0}" = 1 ] && { echo "DRYRUN: hcloud server create --type $TYPE --label managed-by=ydev --user-data-from-file - (teardown via cloud-init: idle ${IDLE}m/max ${MAXH}h; would parse id/ip, provision R2 creds)"; exit 0; }
+[ "${YDEV_DRYRUN:-0}" = 1 ] && { echo "DRYRUN: hcloud server create --name $NAME --type $TYPE --label managed-by=ydev --user-data-from-file - (teardown via cloud-init: idle ${IDLE}m/max ${MAXH}h; would parse id/ip, provision R2 creds)"; exit 0; }
 id=$(jq -r '.server.id' <<<"$OUT"); ip=$(hcloud server ip "$id")
 # fresh per-session host-key pin (new box, possibly a recycled IP)
 rm -f "$YDEV_KNOWN_HOSTS"

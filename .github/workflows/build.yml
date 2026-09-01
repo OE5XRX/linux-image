@@ -1,17 +1,16 @@
 name: Build Yocto Image
 
-# Full Yocto builds. Routine pushes go through ci.yml (parse checks only).
-# Invoked either manually (workflow_dispatch) or as a reusable workflow
-# from release.yml (workflow_call) — the latter builds both targets.
+# Full Yocto builds on an on-demand Hetzner box driven over SSH via the ydev
+# scripts (scripts/ydev/remote-*). The box arms its own cloud-init teardown
+# (idle + max-life + self-heal) at boot; the explicit remote-down.sh below is
+# the happy-path teardown, the cloud-init net catches run cancellation.
 on:
   workflow_dispatch:
     inputs:
       machine:
         description: "Target machine"
         type: choice
-        options:
-          - qemux86-64
-          - raspberrypi4-64
+        options: [qemux86-64, raspberrypi4-64]
         default: qemux86-64
       release_tag:
         description: "Release tag for /etc/issue + /etc/os-release stamp (empty -> dev)"
@@ -35,13 +34,6 @@ on:
         description: "Also build the dev-image target (fast-dev-loop) in the same invocation"
         type: boolean
         default: false
-  # Per-PR x86 build feedback. COMPLEMENTARY to boot-ota-pr.yml: this paths
-  # list is kept DISJOINT from boot-ota-pr.yml's, so any single change fires
-  # exactly one x64 builder — never both. boot-ota-pr.yml already builds x64
-  # (+ runs QEMU boot/OTA tests) for: files/wic, recipes-bsp,
-  # recipes-core/{ab-layout,images,station-agent}, tests/ota-integration.
-  # Everything else that affects a build lives here. On pull_request there is
-  # no `machine` input, so the env block below defaults it to qemux86-64.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -60,386 +52,116 @@ on:
       - 'meta-oe5xrx-remotestation/recipes-core/packagegroups/**'
       - '.github/workflows/build.yml'
 
-# Least privilege: read the repo (checkout) + the Actions API. As a reusable
-# workflow, this block is the MAXIMUM its jobs get (further capped by the
-# caller) — the callers (boot-ota-pr.yml, release.yml) grant exactly
-# contents+actions:read, so declaring less here would strip the `actions: read`
-# that upload-artifact / same-run consumers rely on. Server provisioning + R2
-# publish authenticate with their own secrets (GH_PAT / HCLOUD_TOKEN / bws),
-# not the GITHUB_TOKEN — no write scope is needed.
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  # PR builds: one per PR+machine; a new push cancels the stale run.
-  # Release/dispatch builds: serialized per machine (shared 'release' suffix)
-  # and NEVER cancelled — a publish must run to completion. The two never
-  # share a group, so a PR build can't cancel a release build for the same
-  # machine.
   group: yocto-build-${{ inputs.machine || 'qemux86-64' }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # inputs.machine is empty on pull_request (no inputs) -> default to x86.
   KAS_MACHINE: ${{ inputs.machine || 'qemux86-64' }}
   OE5XRX_RELEASE_TAG: ${{ inputs.release_tag || 'dev' }}
-  BUILDER_LABEL: oe5xrx-yocto-builder-${{ inputs.machine || 'qemux86-64' }}
-  # Pinned (was `releases/latest`) for reproducibility. Not a github-action,
-  # so dependabot won't bump it — refresh by hand when a new hcloud CLI ships.
+  # ydev CI config (shared-vCPU CPX; short idle + hard max-life self-teardown)
+  YDEV_SERVER_TYPE: cpx62
+  YDEV_LOCATION: fsn1
+  YDEV_IDLE_MINUTES: "10"
+  YDEV_MAX_HOURS: "3"
+  # Pinned for reproducibility; bump in one place. Not a github-action, so
+  # dependabot won't touch it — refresh by hand when a new hcloud CLI ships.
   HCLOUD_CLI_VERSION: v1.67.0
 
 jobs:
-  create-runner:
-    name: Create Hetzner Build Server
+  build:
+    name: Build Yocto Image
     runs-on: ubuntu-latest
-    # Skip draft PRs — don't spin an (expensive) Hetzner box for WIP pushes.
-    # For dispatch/workflow_call there is no pull_request, so this is true.
+    # Skip draft PRs — don't spin an (expensive) box for WIP pushes. For
+    # dispatch/workflow_call there is no pull_request, so this is true.
     if: ${{ !github.event.pull_request.draft }}
-    # Backstop against a hung Hetzner API / apt / SSH-wait parking the job.
-    timeout-minutes: 30
-    outputs:
-      server-id: ${{ steps.create.outputs.server-id }}
+    # Above the box's own YDEV_MAX_HOURS (=3h) so the box self-teardown is the
+    # inner cap for a wedged build; +buffer for provisioning + download.
+    timeout-minutes: 210
+    env:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+      HCLOUD_SSH_KEY_NAME: ${{ secrets.HCLOUD_SSH_KEY_NAME }}
+      BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
+      BWS_SERVER_URL: ${{ secrets.BWS_SERVER_URL }}
+      DEV_IMAGE: ${{ inputs.dev_image }}
+      YDEV_SESSION_NAME: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.machine || 'qemux86-64' }}
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
       - name: Validate machine input
-        # workflow_dispatch has a choice enum; workflow_call only has
-        # `type: string`. Fail fast here so a typo or new caller can't
-        # reach `hcloud server create` before exploding on the missing
-        # volume.
         env:
           MACHINE: ${{ inputs.machine || 'qemux86-64' }}
         run: |
           case "$MACHINE" in
             qemux86-64|raspberrypi4-64) ;;
-            *)
-              echo "::error::Unsupported machine '$MACHINE'. Must be qemux86-64 or raspberrypi4-64." >&2
-              exit 1
-              ;;
+            *) echo "::error::Unsupported machine '$MACHINE'. Must be qemux86-64 or raspberrypi4-64." >&2; exit 1 ;;
           esac
 
-      - name: Generate Runner Registration Token via API
-        id: runner-token
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-          GH_REPO: ${{ github.repository }}
+      - name: Install hcloud + bws (+ jq/unzip)
         run: |
-          RUNNER_TOKEN=$(curl -sX POST \
-            -H "Authorization: token ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GH_REPO}/actions/runners/registration-token" \
-            | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
-          echo "::add-mask::${RUNNER_TOKEN}"
-          echo "token=${RUNNER_TOKEN}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          # jq (used by remote-up.sh) + unzip (used below for bws) ship on
+          # ubuntu-latest today, but install explicitly so a runner-image change
+          # can't silently break provisioning.
+          command -v jq >/dev/null && command -v unzip >/dev/null \
+            || { sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends jq unzip; }
+          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" | tar xz
+          sudo mv hcloud /usr/local/bin/
+          VER=0.5.0
+          SHA=b9296341549d9ba6922da6692b24c4d81d14dc3992597d5a777692aee73b10b2
+          curl -fsSL -o /tmp/bws.zip "https://github.com/bitwarden/sdk-sm/releases/download/bws-v${VER}/bws-x86_64-unknown-linux-gnu-${VER}.zip"
+          echo "${SHA}  /tmp/bws.zip" | sha256sum -c -
+          sudo unzip -o /tmp/bws.zip -d /usr/local/bin
 
       - name: Setup SSH key
         env:
           SSH_PRIVATE_KEY: ${{ secrets.HCLOUD_SSH_PRIVATE_KEY }}
         run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
-          echo "${SSH_PRIVATE_KEY}" > ~/.ssh/hetzner
+          # printf, not echo: preserves the key bytes exactly (echo can mangle
+          # escapes / drop the trailing newline across shells).
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/hetzner
           chmod 600 ~/.ssh/hetzner
-          echo "StrictHostKeyChecking no" >> ~/.ssh/config
-          echo "IdentityFile ~/.ssh/hetzner" >> ~/.ssh/config
+          echo "HCLOUD_SSH_KEY=$HOME/.ssh/hetzner" >> "$GITHUB_ENV"
 
-      - name: Install hcloud CLI
-        run: |
-          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" | tar xz
-          sudo mv hcloud /usr/local/bin/
+      - name: Provision on-demand build box
+        run: bash scripts/ydev/remote-up.sh
 
-      - name: Create Hetzner server (CCX43)
-        id: create
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          HCLOUD_SSH_KEY_NAME: ${{ secrets.HCLOUD_SSH_KEY_NAME }}
+      - name: Build with kas
         run: |
           set -euo pipefail
-          # Dedicated-vCPU CCX43: faster + more consistent than the cost-optimized
-          # cx tier, and less exposed to its capacity crunch. Location fsn1 is just
-          # the current default — nothing pins us here anymore: the old location-
-          # bound sstate cache volume was replaced by the region-agnostic public R2
-          # mirror (Spec 4), so nbg1/hel1 would work equally as a fallback.
-          # Hetzner can still transiently reject placement (resource_unavailable), so
-          # retry with exponential backoff before giving up.
-          ATTEMPTS=5
-          DELAY=30
-          SERVER_ID=""
-          err="$(mktemp)"
-          for i in $(seq 1 "${ATTEMPTS}"); do
-            echo "hcloud server create attempt ${i}/${ATTEMPTS} (ccx43 @ fsn1)..."
-            if OUT=$(hcloud server create \
-                  --name "${BUILDER_LABEL}" \
-                  --type ccx43 \
-                  --image ubuntu-24.04 \
-                  --ssh-key "${HCLOUD_SSH_KEY_NAME}" \
-                  --location fsn1 \
-                  --output json 2>"${err}"); then
-              SERVER_ID=$(printf '%s' "${OUT}" | python3 -c "import sys,json; print(json.load(sys.stdin)['server']['id'])")
-              echo "Server created: ${SERVER_ID}"
-              break
-            fi
-            echo "::warning::server create failed (attempt ${i}/${ATTEMPTS}): $(cat "${err}")"
-            if [ "${i}" -lt "${ATTEMPTS}" ]; then
-              echo "Retrying in ${DELAY}s (Hetzner capacity may free up)..."
-              sleep "${DELAY}"
-              DELAY=$(( DELAY * 2 ))
-              [ "${DELAY}" -gt 300 ] && DELAY=300
-            fi
-          done
-          if [ -z "${SERVER_ID}" ]; then
-            echo "::error::Could not create ccx43 in fsn1 after ${ATTEMPTS} attempts (likely resource_unavailable). Re-run the job or retry later." >&2
-            exit 1
-          fi
-          SERVER_IP=$(hcloud server ip "${SERVER_ID}")
-          echo "server-id=${SERVER_ID}" >> "$GITHUB_OUTPUT"
-          echo "SERVER_IP=${SERVER_IP}" >> "$GITHUB_ENV"
-          echo "Server ${SERVER_ID} created at ${SERVER_IP}"
-
-      - name: Wait for SSH
-        run: |
-          for i in $(seq 1 30); do
-            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${SERVER_IP}" true 2>/dev/null; then
-              echo "SSH ready after ${i} attempts"
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "SSH did not become ready within 5 minutes" >&2
-          exit 1
-
-      - name: Install Yocto build dependencies
-        run: |
-          ssh "root@${SERVER_IP}" bash -s << 'EOF'
-            set -euo pipefail
-            # Fix Ubuntu 24.04 AppArmor restriction on user namespaces (required by Bitbake)
-            sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update
-            apt-get install -y --no-install-recommends \
-              gawk wget git diffstat unzip texinfo gcc build-essential \
-              chrpath socat cpio python3 python3-pip python3-pexpect \
-              xz-utils debianutils iputils-ping python3-git python3-jinja2 \
-              python3-subunit zstd liblz4-tool file locales libacl1
-            locale-gen en_US.UTF-8
-          EOF
-
-      - name: Create yocto build user
-        run: |
-          ssh "root@${SERVER_IP}" bash -s << 'EOF'
-            set -euo pipefail
-            useradd -m -s /bin/bash yocto
-            echo "yocto ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/yocto
-          EOF
-
-      - name: Install and start GitHub Actions Runner
-        env:
-          RUNNER_REG_TOKEN: ${{ steps.runner-token.outputs.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          ssh "root@${SERVER_IP}" bash -s -- \
-            "${BUILDER_LABEL}" "${RUNNER_REG_TOKEN}" "${GH_REPO}" << 'SETUP_SCRIPT'
-            set -euo pipefail
-            LABEL=$1; TOKEN=$2; REPO=$3
-
-            mkdir -p /opt/actions-runner
-            chown yocto:yocto /opt/actions-runner
-            su - yocto -c "
-              cd /opt/actions-runner
-              RUNNER_VERSION=\$(curl -s https://api.github.com/repos/actions/runner/releases/latest \
-                | python3 -c \"import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))\")
-              curl -sL \"https://github.com/actions/runner/releases/download/v\${RUNNER_VERSION}/actions-runner-linux-x64-\${RUNNER_VERSION}.tar.gz\" | tar xz
-              ./config.sh \
-                --url \"https://github.com/${REPO}\" \
-                --token \"${TOKEN}\" \
-                --labels \"${LABEL}\" \
-                --name \"${LABEL}\" \
-                --ephemeral \
-                --unattended
-            "
-
-            cat > /etc/systemd/system/gh-runner.service << 'UNIT'
-          [Unit]
-          Description=GitHub Actions Runner
-          After=network-online.target
-          [Service]
-          Type=simple
-          User=yocto
-          WorkingDirectory=/opt/actions-runner
-          ExecStart=/opt/actions-runner/run.sh
-          [Install]
-          WantedBy=multi-user.target
-          UNIT
-            systemctl daemon-reload
-            systemctl start gh-runner
-          SETUP_SCRIPT
-
-          # Give the runner a moment to connect to GitHub
-          sleep 10
-
-  build:
-    name: Build Yocto Image
-    needs: create-runner
-    runs-on: oe5xrx-yocto-builder-${{ inputs.machine || 'qemux86-64' }}
-    # Warm (R2-cached) build ~10-12 min; cold ~1h48m. 3h caps a wedged build.
-    timeout-minutes: 180
-    env:
-      LANG: en_US.UTF-8
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-      - name: Install kas (pinned)
-        # Installed here rather than in create-runner so it can read the
-        # dependabot-tracked pin (.github/requirements-kas.txt), which only
-        # exists on the box after this job's checkout. sudo -> system-wide so
-        # `kas` is on PATH for the build step below.
-        run: sudo pip3 install --break-system-packages -r .github/requirements-kas.txt
-
-      - name: Build with Kas
-        env:
-          # Typed boolean input — safe to test in shell (never free-form text).
-          DEV_IMAGE: ${{ inputs.dev_image }}
-        run: |
-          # OE5XRX_RELEASE_TAG is listed in oe5xrx.yml's `env:` block, so
-          # kas picks it up from this workflow's environment and forwards
-          # it into bitbake. No BB_ENV_PASSTHROUGH_ADDITIONS dance needed.
-          # KAS_MACHINE is already validated to one of the two machines by
-          # create-runner's "Validate machine input" step, and the kas config
-          # is always <machine>.yml.
           if [ "${DEV_IMAGE}" = "true" ]; then
-            # Build prod + dev in ONE invocation: BitBake builds every shared
-            # recipe once (kernel/systemd/station-agent/…), so the dev image is
-            # just its extra packages + one more rootfs assembly — a cheap delta,
-            # not a second full build.
-            kas build \
-              --target oe5xrx-remotestation-image \
-              --target oe5xrx-remotestation-dev-image \
-              "${KAS_MACHINE}.yml"
+            bash scripts/ydev/remote-build.sh "${KAS_MACHINE}" --both
           else
-            kas build "${KAS_MACHINE}.yml"
+            bash scripts/ydev/remote-build.sh "${KAS_MACHINE}"
           fi
+
+      - name: Download images
+        run: bash scripts/ydev/remote-download.sh "${KAS_MACHINE}"
 
       - name: Verify dev-image wic built
         if: ${{ inputs.dev_image }}
         run: |
           set -euo pipefail
-          wic=$(find build/tmp/deploy/images -name 'oe5xrx-remotestation-dev-image-*.rootfs.wic' -print -quit)
-          [ -n "${wic}" ] || { echo "::error::dev-image target produced no .rootfs.wic"; exit 1; }
+          wic=$(find "dist/${KAS_MACHINE}" -name 'oe5xrx-remotestation-dev-image-*.wic*' -print -quit)
+          [ -n "${wic}" ] || { echo "::error::dev-image target produced no .wic"; exit 1; }
           echo "dev-image wic built: ${wic} ($(du -h "${wic}" | cut -f1))"
 
-      - name: Publish sstate + downloads to R2 mirror
-        # Best-effort: a Bitwarden hiccup or missing R2 creds must not fail the
-        # build — publishing is not a gate, reads still work off the mirror.
-        if: always()
-        continue-on-error: true
-        env:
-          BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
-          BWS_SERVER_URL: ${{ secrets.BWS_SERVER_URL }}
-          R2_ACCOUNT_ID: cef6b7278fa23b4970442ce3a1dfcb32
-        run: |
-          set -euo pipefail
-          export BWS_SERVER_URL="${BWS_SERVER_URL:-https://vault.bitwarden.eu}"
-          # Tools: jq + rclone (this ephemeral build box may lack them). yocto has sudo.
-          command -v jq >/dev/null || sudo apt-get install -y --no-install-recommends jq
-          command -v rclone >/dev/null || { curl -fsSL https://rclone.org/install.sh | sudo bash; }
-          # bws (pinned + sha256) — fetched here on the build box to read R2 creds
-          if ! command -v bws >/dev/null; then
-            VER=0.5.0
-            SHA=b9296341549d9ba6922da6692b24c4d81d14dc3992597d5a777692aee73b10b2
-            curl -fsSL -o /tmp/bws.zip "https://github.com/bitwarden/sdk-sm/releases/download/bws-v${VER}/bws-x86_64-unknown-linux-gnu-${VER}.zip"
-            echo "${SHA}  /tmp/bws.zip" | sha256sum -c -
-            mkdir -p "$HOME/.local/bin"; unzip -o /tmp/bws.zip -d "$HOME/.local/bin"
-          fi
-          export PATH="$HOME/.local/bin:$PATH"
-          PID=$(bws project list -o json | jq -r '.[]|select(.name=="oe5xrx-yocto-cache")|.id')
-          [ -n "$PID" ] || { echo "::error::bws project oe5xrx-yocto-cache not found"; exit 1; }
-          S=$(bws secret list -p "$PID" -o json)
-          R2_KEY=$(jq -r '.[]|select(.key=="R2_SSTATE_KEY")|.value' <<<"$S")
-          R2_SECRET=$(jq -r '.[]|select(.key=="R2_SSTATE_SECRET")|.value' <<<"$S")
-          [ -n "$R2_KEY" ] && [ -n "$R2_SECRET" ] || { echo "::error::R2_SSTATE_* missing in oe5xrx-yocto-cache"; exit 1; }
-          echo "::add-mask::$R2_KEY"; echo "::add-mask::$R2_SECRET"
-          # no_check_bucket: the bucket-scoped R2 write token can't HeadBucket at
-          # the account level (403); skip the existence check and PUT directly.
-          export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare \
-                 RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true \
-                 RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_KEY" \
-                 RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET" \
-                 RCLONE_CONFIG_R2_REGION=auto \
-                 RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-          # Publish only new objects (rclone copy skips equal). A failed publish
-          # warns but never fails the build — the public bucket is not a gate.
-          rclone copy --transfers 16 --checkers 32 build/sstate-cache/ R2:oe5xrx-yocto-sstate/sstate || echo "::warning::sstate publish failed"
-          [ -d build/downloads ] && rclone copy --transfers 16 --checkers 32 build/downloads/ R2:oe5xrx-yocto-sstate/downloads || echo "::warning::downloads publish skipped/failed"
-
-      - name: Collect artifacts
-        run: |
-          mkdir -p artifacts
-          # Follow symlinks (-L) so we capture real kernel/rootfs files, not links.
-          # Include rootfs (ext4/wic), kernel (bzImage/Image/zImage), device tree,
-          # and qemuboot.conf (runqemu metadata — helpful for local boot).
-          # Exclude the dev-image rootfs/wic: this artifact feeds the boot/OTA
-          # test, which must boot the PROD image. The dev image is build-verified
-          # separately ("Verify dev-image wic built"), not shipped here.
-          find -L build/tmp/deploy/images/ \
-            \( -name "*.ext4" -o -name "*.wic" -o -name "*.wic.gz" \
-               -o -name "*.wic.bz2" -o -name "*.wic.xz" \
-               -o -name "bzImage-*" -o -name "Image-*" -o -name "zImage-*" \
-               -o -name "*.qemuboot.conf" -o -name "*.dtb" \) \
-            -not -name "*.p7" \
-            -not -name "oe5xrx-remotestation-dev-image-*" \
-            | while read -r f; do cp -L "$f" artifacts/; done
-          ls -lh artifacts/
+      - name: Collect prod-only artifacts
+        run: bash scripts/ydev/ci-collect-prod-artifacts.sh "${KAS_MACHINE}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: yocto-image-${{ env.KAS_MACHINE }}
           path: artifacts/
-          # Keep builds short — each Yocto artifact is ~420MB and we build
-          # often. Org storage fills up fast otherwise.
           retention-days: 7
 
-  cleanup:
-    name: Delete Hetzner Server
-    needs: [create-runner, build]
-    runs-on: ubuntu-latest
-    if: always()
-    env:
-      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-      SERVER_ID: ${{ needs.create-runner.outputs.server-id }}
-    steps:
-      - name: Delete server
-        run: |
-          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" | tar xz
-          sudo mv hcloud /usr/local/bin/
-          if [ -n "${SERVER_ID}" ]; then
-            hcloud server delete "${SERVER_ID}" || true
-            echo "Server ${SERVER_ID} deleted"
-          else
-            echo "No server to delete"
-          fi
-
-      - name: Deregister runner (if still registered)
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-          GH_REPO: ${{ github.repository }}
-          RUNNER_LABEL: ${{ env.BUILDER_LABEL }}
-        run: |
-          # Find and remove the runner if it's still registered
-          RUNNER_ID=$(curl -s \
-            -H "Authorization: token ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${GH_REPO}/actions/runners" \
-            | python3 -c "
-          import sys, json
-          data = json.load(sys.stdin)
-          for r in data.get('runners', []):
-              if r['name'] == '${RUNNER_LABEL}':
-                  print(r['id'])
-                  break
-          " 2>/dev/null || true)
-          if [ -n "${RUNNER_ID}" ]; then
-            curl -sX DELETE \
-              -H "Authorization: token ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${GH_REPO}/actions/runners/${RUNNER_ID}" || true
-            echo "Runner ${RUNNER_LABEL} deregistered"
-          fi
+      - name: Teardown build box
+        if: always()
+        run: bash scripts/ydev/remote-down.sh
