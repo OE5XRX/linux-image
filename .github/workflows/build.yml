@@ -68,6 +68,9 @@ env:
   YDEV_LOCATION: fsn1
   YDEV_IDLE_MINUTES: "10"
   YDEV_MAX_HOURS: "3"
+  # Pinned for reproducibility; bump in one place. Not a github-action, so
+  # dependabot won't touch it — refresh by hand when a new hcloud CLI ships.
+  HCLOUD_CLI_VERSION: v1.67.0
 
 jobs:
   build:
@@ -101,7 +104,7 @@ jobs:
       - name: Install hcloud + bws
         run: |
           set -euo pipefail
-          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/v1.67.0/hcloud-linux-amd64.tar.gz" | tar xz
+          curl -fsSL "https://github.com/hetznercloud/cli/releases/download/${HCLOUD_CLI_VERSION}/hcloud-linux-amd64.tar.gz" | tar xz
           sudo mv hcloud /usr/local/bin/
           VER=0.5.0
           SHA=b9296341549d9ba6922da6692b24c4d81d14dc3992597d5a777692aee73b10b2
