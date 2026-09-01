@@ -3,14 +3,16 @@ set -euo pipefail
 # shellcheck disable=SC1091
 . "$(dirname "$0")/remote-lib.sh"; load_env; require_session
 # Flexible args in any order: an optional machine + an optional --dev flag.
-machine="qemux86-64"; dev=0
+machine="qemux86-64"; dev=0; both=0
 for a in "$@"; do
   case "$a" in
+    --both|both)                both=1 ;;
     --dev|dev)                  dev=1 ;;
     qemux86-64|raspberrypi4-64) machine="$a" ;;
-    *) die_hint "unknown arg '$a'" "usage: just remote build [qemux86-64|raspberrypi4-64] [--dev]" ;;
+    *) die_hint "unknown arg '$a'" "usage: just remote build [qemux86-64|raspberrypi4-64] [--dev|--both]" ;;
   esac
 done
+[ "$both" = 1 ] && [ "$dev" = 1 ] && die_hint "--both and --dev are mutually exclusive" "pick one"
 ip=$(session_ip); ydev_ssh_args
 # sync source to the yocto user's home. Honour .gitignore so the kas-cloned
 # upstream layers (bitbake/openembedded-core/meta-*) and build caches are NOT
@@ -23,13 +25,23 @@ run rsync -az --delete \
   --filter=':- .gitignore' \
   -e "$(ydev_rsh)" "${YDEV_ROOT}/" "root@${ip}:/home/yocto/src/"
 if [ "${YDEV_DRYRUN:-0}" = "1" ]; then
-  echo "DRYRUN: kas build$([ "$dev" = 1 ] && printf ' --target oe5xrx-remotestation-dev-image') ${machine}.yml"
+  if [ "$both" = 1 ]; then
+    echo "DRYRUN: kas build --target oe5xrx-remotestation-image --target oe5xrx-remotestation-dev-image ${machine}.yml"
+  else
+    echo "DRYRUN: kas build$([ "$dev" = 1 ] && printf ' --target oe5xrx-remotestation-dev-image') ${machine}.yml"
+  fi
 fi
-run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" "$dev" <<'EOF'
+run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" "$dev" "$both" <<'EOF'
   set -euo pipefail
-  m="$1"; d="${2:-0}"; chown -R yocto:yocto /home/yocto/src
-  # dev=1 -> build the dev-image target; else default (prod) target.
-  tgt=""; [ "$d" = "1" ] && tgt="--target oe5xrx-remotestation-dev-image"
+  m="$1"; d="${2:-0}"; b="${3:-0}"; chown -R yocto:yocto /home/yocto/src
+  # b=1 -> prod+dev in one invocation; d=1 -> dev only; else prod only.
+  if [ "$b" = "1" ]; then
+    tgt="--target oe5xrx-remotestation-image --target oe5xrx-remotestation-dev-image"
+  elif [ "$d" = "1" ]; then
+    tgt="--target oe5xrx-remotestation-dev-image"
+  else
+    tgt=""
+  fi
   sudo -u yocto -H bash -lc "cd ~/src && export PATH=\$HOME/.local/bin:\$PATH && kas build ${tgt} ${m}.yml"
   # publish new sstate + downloads to R2 (creds written by remote-up.sh).
   # Guard: if r2env is missing (box not provisioned via remote-up), skip the

@@ -15,6 +15,17 @@ echo "$out" | grep -q "kas build raspberrypi4-64.yml" || { echo "FAIL kas: $out"
 out=$(YDEV_DRYRUN=1 bash scripts/ydev/remote-build.sh --dev 2>&1)
 echo "$out" | grep -q -- "kas build --target oe5xrx-remotestation-dev-image qemux86-64.yml" \
   || { echo "FAIL dev target: $out"; exit 1; }
+# --both -> prod AND dev target in one kas invocation (CI dev_image=true path)
+out=$(YDEV_DRYRUN=1 bash scripts/ydev/remote-build.sh --both 2>&1)
+echo "$out" | grep -q -- "kas build --target oe5xrx-remotestation-image --target oe5xrx-remotestation-dev-image qemux86-64.yml" \
+  || { echo "FAIL both targets: $out"; exit 1; }
+# --both with an explicit machine still works
+out=$(YDEV_DRYRUN=1 bash scripts/ydev/remote-build.sh raspberrypi4-64 --both 2>&1)
+echo "$out" | grep -q -- "kas build --target oe5xrx-remotestation-image --target oe5xrx-remotestation-dev-image raspberrypi4-64.yml" \
+  || { echo "FAIL both targets rpi: $out"; exit 1; }
+# --both and --dev are mutually exclusive
+out=$(YDEV_DRYRUN=1 bash scripts/ydev/remote-build.sh --both --dev 2>&1) || true
+echo "$out" | grep -q "mutually exclusive" || { echo "FAIL both+dev guard (output: $out)"; exit 1; }
 # dry-run prints the remote ssh command but the heredoc body runs on the box (not locally),
 # so rclone assertions are on the script content rather than dry-run output
 grep -q "rclone copy" scripts/ydev/remote-build.sh || { echo "FAIL rclone publish missing in script"; exit 1; }
