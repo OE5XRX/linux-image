@@ -33,9 +33,16 @@ if [ "${YDEV_DRYRUN:-0}" = "1" ]; then
   fi
   echo "DRYRUN: OE5XRX_RELEASE_TAG=${rt:-<box-default>}"
 fi
-run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" "$dev" "$both" "$rt" <<'EOF'
+# base64 the tag across the ssh command line: OpenSSH space-joins the remote argv
+# WITHOUT quoting, so a tag with whitespace/metacharacters would re-parse in the
+# remote login shell (command injection on the box, which runs as root). base64 is
+# metacharacter-free and space-free; the heredoc decodes it back. $machine/$dev/$both
+# are validated/0-1, so only the free-form tag needs this. (%q below then guards the
+# inner `bash -lc` layer.)
+rtb64=$(printf '%s' "$rt" | base64 | tr -d '\n')
+run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" "$dev" "$both" "$rtb64" <<'EOF'
   set -euo pipefail
-  m="$1"; d="${2:-0}"; b="${3:-0}"; rt="${4:-}"; chown -R yocto:yocto /home/yocto/src
+  m="$1"; d="${2:-0}"; b="${3:-0}"; rt=$(printf '%s' "${4:-}" | base64 -d); chown -R yocto:yocto /home/yocto/src
   # b=1 -> prod+dev in one invocation; d=1 -> dev only; else prod only.
   if [ "$b" = "1" ]; then
     tgt="--target oe5xrx-remotestation-image --target oe5xrx-remotestation-dev-image"

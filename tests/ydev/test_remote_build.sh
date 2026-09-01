@@ -47,4 +47,7 @@ grep -q 'printf .%q. "$rt"' scripts/ydev/remote-build.sh || { echo "FAIL release
 grep -qF "OE5XRX_RELEASE_TAG='\${rt}'" scripts/ydev/remote-build.sh && { echo "FAIL raw unescaped tag interpolation still present"; exit 1; }
 # empty tag must NOT be exported (an empty export overrides oe5xrx.yml's "dev" default)
 grep -q '\[ -n "$rt" \] && rt_export=' scripts/ydev/remote-build.sh || { echo "FAIL empty tag not guarded — would override box default"; exit 1; }
+# the tag crosses the ssh command line base64-encoded (ssh space-joins argv unquoted -> injection)
+grep -q 'base64' scripts/ydev/remote-build.sh || { echo "FAIL tag not base64-encoded across ssh boundary"; exit 1; }
+grep -qF 'bash -s -- "$machine" "$dev" "$both" "$rt"' scripts/ydev/remote-build.sh && { echo "FAIL raw tag still passed as ssh arg"; exit 1; }
 echo "PASS test_remote_build"
