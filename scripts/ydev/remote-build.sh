@@ -44,13 +44,16 @@ run ssh "${YDEV_SSH[@]}" "root@${ip}" bash -s -- "$machine" "$dev" "$both" "$rt"
   else
     tgt=""
   fi
-  # Forward the release tag so BitBake stamps /etc/issue + os-release (oe5xrx.yml
-  # lists OE5XRX_RELEASE_TAG in its env: block). Empty -> box default applies.
-  # %q-escape it (like remote-up.sh does for R2 creds): the tag can come from a
-  # free-form workflow_dispatch input, so a quote/newline must not break out of
-  # the inner `bash -lc` string. printf %q yields a single injection-safe token.
-  rtq=$(printf '%q' "$rt")
-  sudo -u yocto -H bash -lc "cd ~/src && export PATH=\$HOME/.local/bin:\$PATH && export OE5XRX_RELEASE_TAG=${rtq} && kas build ${tgt} ${m}.yml"
+  # Forward the release tag so BitBake stamps /etc/issue + os-release. oe5xrx.yml
+  # lists OE5XRX_RELEASE_TAG in its env: block with a "dev" default, and kas passes
+  # the env value through — so ONLY export when non-empty. An empty export would
+  # OVERRIDE that "dev" default and produce an empty stamp. %q-escape it (like
+  # remote-up.sh does for R2 creds): the tag can come from a free-form
+  # workflow_dispatch input, so a quote/newline must not break out of the inner
+  # `bash -lc` string.
+  rt_export=""
+  [ -n "$rt" ] && rt_export="export OE5XRX_RELEASE_TAG=$(printf '%q' "$rt") && "
+  sudo -u yocto -H bash -lc "cd ~/src && export PATH=\$HOME/.local/bin:\$PATH && ${rt_export}kas build ${tgt} ${m}.yml"
   # publish new sstate + downloads to R2 (creds written by remote-up.sh).
   # Guard: if r2env is missing (box not provisioned via remote-up), skip the
   # publish with a clear message instead of a confusing "No such file".

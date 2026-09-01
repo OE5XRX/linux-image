@@ -123,7 +123,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
-          echo "${SSH_PRIVATE_KEY}" > ~/.ssh/hetzner
+          # printf, not echo: preserves the key bytes exactly (echo can mangle
+          # escapes / drop the trailing newline across shells).
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/hetzner
           chmod 600 ~/.ssh/hetzner
           echo "HCLOUD_SSH_KEY=$HOME/.ssh/hetzner" >> "$GITHUB_ENV"
 

@@ -45,4 +45,6 @@ grep -q "export OE5XRX_RELEASE_TAG" scripts/ydev/remote-build.sh || { echo "FAIL
 # the tag is %q-escaped before the box bash -lc (injection-safe; free-form dispatch input)
 grep -q 'printf .%q. "$rt"' scripts/ydev/remote-build.sh || { echo "FAIL release tag not %q-escaped"; exit 1; }
 grep -qF "OE5XRX_RELEASE_TAG='\${rt}'" scripts/ydev/remote-build.sh && { echo "FAIL raw unescaped tag interpolation still present"; exit 1; }
+# empty tag must NOT be exported (an empty export overrides oe5xrx.yml's "dev" default)
+grep -q '\[ -n "$rt" \] && rt_export=' scripts/ydev/remote-build.sh || { echo "FAIL empty tag not guarded — would override box default"; exit 1; }
 echo "PASS test_remote_build"

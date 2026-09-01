@@ -19,7 +19,7 @@
 - **Laptop-Semantik von `remote-*.sh` bleibt erhalten:** `--dev` = nur dev-Target; Default = nur prod. Neue CI-Fähigkeiten werden additiv ergänzt, nie durch Umdefinition bestehender Flags.
 - **Actions pinnen** mit Commit-SHA + `# vX`-Kommentar (Repo-Konvention; siehe bestehende `build.yml`).
 - **Secrets** nur über Job/Step-`env:`-Block, nie als CLI-Arg.
-- **CPX-Server-Typ** (shared vCPU) statt `ccx43` — konkreter SKU: `cpx51` (16 vCPU / 32 GB), via `YDEV_SERVER_TYPE`.
+- **CPX-Server-Typ** (shared vCPU) statt `ccx43` — konkreter SKU: `cpx62` (CPX Gen2), via `YDEV_SERVER_TYPE`. (`cpx51` war zunächst geplant, ist aber in `fsn1` nicht mehr bestellbar → im ersten Live-Run auf `cpx62` korrigiert.)
 - **CI-Teardown-Defaults:** `YDEV_IDLE_MINUTES=10`, `YDEV_MAX_HOURS=3`.
 - Shell: `set -euo pipefail`; Skripte müssen `shellcheck -e SC1091 -e SC2039` sauber sein.
 - Commit-Trailer: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
@@ -486,7 +486,7 @@ env:
   KAS_MACHINE: ${{ inputs.machine || 'qemux86-64' }}
   OE5XRX_RELEASE_TAG: ${{ inputs.release_tag || 'dev' }}
   # ydev CI config (shared-vCPU CPX; short idle + hard max-life self-teardown)
-  YDEV_SERVER_TYPE: cpx51
+  YDEV_SERVER_TYPE: cpx62
   YDEV_LOCATION: fsn1
   YDEV_IDLE_MINUTES: "10"
   YDEV_MAX_HOURS: "3"
