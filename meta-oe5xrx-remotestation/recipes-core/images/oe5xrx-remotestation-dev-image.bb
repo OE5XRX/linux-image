@@ -4,6 +4,9 @@ LICENSE = "MIT"
 
 inherit core-image
 require oe5xrx-remotestation-image.bb
+# This is the development variant — overrides the prod default so the baked
+# VARIANT_ID marker is unfalsifiable at build time.
+OE5XRX_IMAGE_VARIANT = "dev"
 
 IMAGE_FEATURES += " \
     ssh-server-openssh \

@@ -115,6 +115,14 @@ jobs:
       - name: Prod-safety lint
         run: bash scripts/l0-dev-packages-lint.sh
 
+  image-variant:
+    name: Image-variant marker wired in both recipes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Image-variant marker lint
+        run: bash scripts/l1-image-variant-lint.sh
+
   dev-launch:
     name: Dev-agent launcher fallback selection
     runs-on: ubuntu-latest
