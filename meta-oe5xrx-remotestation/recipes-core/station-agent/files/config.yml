@@ -18,5 +18,11 @@ log_level: INFO
 terminal_enabled: true
 terminal_shell: /bin/sh
 
+# Persistent control channel (D3): browser control panel, TX-lock and module
+# slot discovery. Enabled so a freshly-flashed station is controllable out of
+# the box (provisioning renders the same default; see station-manager
+# apps/provisioning/config_render.py).
+control_enabled: true
+
 # Bootloader for A/B partition management: auto | grub | uboot
 bootloader: auto
