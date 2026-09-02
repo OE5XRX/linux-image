@@ -176,7 +176,7 @@ python stamp_release() {
         'VERSION': tag,
         'VERSION_ID': tag,
         'OE5XRX_RELEASE': tag,
-        'VARIANT': 'Development' if variant == 'dev' else 'Release',
+        'VARIANT': variant.capitalize(),
         'VARIANT_ID': variant,
     }
 

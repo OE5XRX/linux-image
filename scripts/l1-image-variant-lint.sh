@@ -9,10 +9,10 @@ PROD="${IMG_DIR}/oe5xrx-remotestation-image.bb"
 DEV="${IMG_DIR}/oe5xrx-remotestation-dev-image.bb"
 fail=0
 
-grep -Eq '^\s*OE5XRX_IMAGE_VARIANT\s*\?\?=\s*"release"' "${PROD}" || {
+grep -Eq '^[[:space:]]*OE5XRX_IMAGE_VARIANT[[:space:]]*\?\?=[[:space:]]*"release"' "${PROD}" || {
   echo "::error file=${PROD}::prod image must weak-default OE5XRX_IMAGE_VARIANT to \"release\""; fail=1; }
 
-grep -Eq '^\s*OE5XRX_IMAGE_VARIANT\s*=\s*"dev"' "${DEV}" || {
+grep -Eq '^[[:space:]]*OE5XRX_IMAGE_VARIANT[[:space:]]*=[[:space:]]*"dev"' "${DEV}" || {
   echo "::error file=${DEV}::dev image must set OE5XRX_IMAGE_VARIANT = \"dev\""; fail=1; }
 
 grep -q "'VARIANT_ID': variant" "${PROD}" || {

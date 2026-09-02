@@ -207,6 +207,7 @@ jobs:
             for pair in "release:staging/${machine}" "dev:staging-dev/${machine}"; do
               channel="${pair%%:*}"
               dir="${pair##*:}"
+              src=""; srcext=""
               read -r src srcext < <(pick_wic "${dir}" || true) || true
               if [ -z "${src:-}" ]; then
                 echo "No ${channel} image artifact for ${machine}" >&2
