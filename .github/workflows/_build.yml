@@ -139,6 +139,18 @@ jobs:
           path: artifacts/
           retention-days: 7
 
+      - name: Collect dev artifacts
+        if: ${{ inputs.dev_image }}
+        run: bash scripts/ydev/ci-collect-dev-artifacts.sh "${KAS_MACHINE}"
+
+      - name: Upload dev artifacts
+        if: ${{ inputs.dev_image }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: yocto-image-${{ env.KAS_MACHINE }}-dev
+          path: artifacts-dev/
+          retention-days: 7
+
       - name: Teardown build box
         if: always()
         run: bash scripts/ydev/remote-down.sh
