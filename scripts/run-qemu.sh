@@ -27,7 +27,7 @@
 #   1. local Yocto build:  build/tmp/deploy/images/qemux86-64/*.rootfs.wic
 #   2. remote download:    dist/qemux86-64/*.rootfs.wic  (just remote download)
 #   3. CI artifact cache:  build/qemu-cache/yocto-image-qemux86-64/*.rootfs.wic
-#   4. Release cache:      build/qemu-cache/release-<tag>/oe5xrx-qemux86-64-<tag>.wic
+#   4. Release cache:      build/qemu-cache/release-<tag>/oe5xrx-qemux86-64-release-<tag>.wic
 #
 # A/B boot testing (from inside the guest):
 #   grub-editenv /boot/EFI/BOOT/grubenv list
@@ -46,7 +46,7 @@ set -euo pipefail
 
 REPO="OE5XRX/linux-image"
 ARTIFACT_NAME="yocto-image-qemux86-64"
-RELEASE_ASSET_GLOB="oe5xrx-qemux86-64-*"
+RELEASE_ASSET_GLOB="oe5xrx-qemux86-64-release-*"
 
 # Resolve the repo root (script lives at <repo>/scripts/).
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"

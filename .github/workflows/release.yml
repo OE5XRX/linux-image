@@ -118,6 +118,7 @@ jobs:
     with:
       machine: qemux86-64
       release_tag: ${{ needs.validate-tag.outputs.release_tag }}
+      dev_image: true
     secrets: inherit
 
   build-rpi:
@@ -128,6 +129,7 @@ jobs:
     with:
       machine: raspberrypi4-64
       release_tag: ${{ needs.validate-tag.outputs.release_tag }}
+      dev_image: true
     secrets: inherit
 
   gate:
@@ -169,6 +171,18 @@ jobs:
           name: yocto-image-raspberrypi4-64
           path: staging/raspberrypi4-64
 
+      - name: Download x86-64 dev artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: yocto-image-qemux86-64-dev
+          path: staging-dev/qemux86-64
+
+      - name: Download Raspberry Pi dev artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: yocto-image-raspberrypi4-64-dev
+          path: staging-dev/raspberrypi4-64
+
       - name: Install cosign
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
 
@@ -178,29 +192,32 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          for machine in qemux86-64 raspberrypi4-64; do
-            src=""
-            srcext=""
+
+          pick_wic() {  # $1 = staging dir; echoes "src ext" or empty
+            local dir="$1" ext match
             for ext in wic.bz2 wic.xz wic.gz wic; do
-              match=$(ls "staging/${machine}"/*.${ext} 2>/dev/null | head -1 || true)
-              if [ -n "${match}" ]; then
-                src="${match}"
-                srcext="${ext}"
-                break
-              fi
+              match=$(ls "${dir}"/*.${ext} 2>/dev/null | head -1 || true)
+              if [ -n "${match}" ]; then echo "${match} ${ext}"; return 0; fi
             done
-            if [ -z "${src}" ]; then
-              echo "No image artifact for ${machine}" >&2
-              exit 1
-            fi
+            return 1
+          }
 
-            dest="release/oe5xrx-${machine}-${TAG}.${srcext}"
-            cp "${src}" "${dest}"
-            (cd release && sha256sum "$(basename "${dest}")" > "$(basename "${dest}").sha256")
-
-            cosign sign-blob --yes \
-              --bundle "${dest}.bundle" \
-              "${dest}"
+          for machine in qemux86-64 raspberrypi4-64; do
+            # release channel ← prod staging ; dev channel ← dev staging
+            for pair in "release:staging/${machine}" "dev:staging-dev/${machine}"; do
+              channel="${pair%%:*}"
+              dir="${pair##*:}"
+              src=""; srcext=""
+              read -r src srcext < <(pick_wic "${dir}" || true) || true
+              if [ -z "${src:-}" ]; then
+                echo "No ${channel} image artifact for ${machine}" >&2
+                exit 1
+              fi
+              dest="release/oe5xrx-${machine}-${channel}-${TAG}.${srcext}"
+              cp "${src}" "${dest}"
+              (cd release && sha256sum "$(basename "${dest}")" > "$(basename "${dest}").sha256")
+              cosign sign-blob --yes --bundle "${dest}.bundle" "${dest}"
+            done
           done
           ls -lh release/
 
@@ -222,10 +239,10 @@ jobs:
             Pre-built Yocto images for both supported targets. Published only
             after passing the boot + cross-build OTA integration gate.
 
-            | Target | File |
-            |---|---|
-            | Raspberry Pi CM4 | `oe5xrx-raspberrypi4-64-${{ env.TAG }}.wic.bz2` |
-            | QEMU x86-64 | `oe5xrx-qemux86-64-${{ env.TAG }}.wic.bz2` |
+            | Target | Release | Dev |
+            |---|---|---|
+            | Raspberry Pi CM4 | `oe5xrx-raspberrypi4-64-release-${{ env.TAG }}.wic.bz2` | `oe5xrx-raspberrypi4-64-dev-${{ env.TAG }}.wic.bz2` |
+            | QEMU x86-64 | `oe5xrx-qemux86-64-release-${{ env.TAG }}.wic.bz2` | `oe5xrx-qemux86-64-dev-${{ env.TAG }}.wic.bz2` |
 
             Each image ships with a `.sha256` checksum and a `.bundle`
             cosign signature. Verification instructions are in

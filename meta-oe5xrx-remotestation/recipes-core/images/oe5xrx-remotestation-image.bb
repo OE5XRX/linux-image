@@ -121,6 +121,10 @@ ROOTFS_POSTPROCESS_COMMAND += "create_agent_dirs;"
 # heartbeat's os_version field, so replacing the Yocto/Poky defaults here
 # surfaces the release in the web UI.
 OE5XRX_RELEASE_TAG ??= "dev"
+# Baked image variant/channel (release, dev, …). Weak default so the dev
+# image can override it after `require`. Written into /etc/os-release as
+# VARIANT_ID by stamp_release() below; the release asset name mirrors it.
+OE5XRX_IMAGE_VARIANT ??= "release"
 
 python stamp_release() {
     # Python so we don't have to worry about shell quoting at all — we
@@ -144,6 +148,13 @@ python stamp_release() {
             "[A-Za-z0-9._-]; pick a cleaner git tag."
         )
 
+    variant = d.getVar('OE5XRX_IMAGE_VARIANT') or 'release'
+    if not re.fullmatch(r'[a-z0-9-]+', variant):
+        bb.fatal(
+            f"OE5XRX_IMAGE_VARIANT={variant!r} must be a lowercase slug "
+            "[a-z0-9-]; it becomes VARIANT_ID and the release asset token."
+        )
+
     etc_dir = os.path.join(rootfs, 'etc')
     os.makedirs(etc_dir, exist_ok=True)
 
@@ -165,6 +176,8 @@ python stamp_release() {
         'VERSION': tag,
         'VERSION_ID': tag,
         'OE5XRX_RELEASE': tag,
+        'VARIANT': variant.capitalize(),
+        'VARIANT_ID': variant,
     }
 
     with open(os_release) as f:
