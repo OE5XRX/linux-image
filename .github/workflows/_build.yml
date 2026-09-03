@@ -42,7 +42,11 @@ env:
   OE5XRX_RELEASE_TAG: ${{ inputs.release_tag || 'dev' }}
   # ydev CI config (shared-vCPU CPX; short idle + hard max-life self-teardown)
   YDEV_SERVER_TYPE: cpx62
-  YDEV_LOCATION: fsn1
+  # Ordered datacenter fallback: Falkenstein (fsn1) regularly runs full, so
+  # remote-up.sh tries the next EU location (all offer cpx62) rather than
+  # failing the build. Use YDEV_LOCATIONS (plural), NOT YDEV_LOCATION — the
+  # singular var pins ONE location and would disable the fallback.
+  YDEV_LOCATIONS: fsn1 nbg1 hel1
   YDEV_IDLE_MINUTES: "10"
   YDEV_MAX_HOURS: "3"
   # Pinned for reproducibility; bump in one place. Not a github-action, so
