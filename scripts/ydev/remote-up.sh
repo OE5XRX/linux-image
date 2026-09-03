@@ -11,7 +11,14 @@ if [ -f "$YDEV_SESSION" ] && [ "${YDEV_DRYRUN:-0}" != 1 ]; then
   fi
   echo "stale .ydev-session — recreating"; rm -f "$YDEV_SESSION"
 fi
-TYPE="${YDEV_SERVER_TYPE:-ccx43}"; LOC="${YDEV_LOCATION:-fsn1}"; NAME="${YDEV_SESSION_NAME:-ydev-session}"
+TYPE="${YDEV_SERVER_TYPE:-ccx43}"; NAME="${YDEV_SESSION_NAME:-ydev-session}"
+# Datacenter fallback: try locations in order until one has capacity for
+# $TYPE. Falkenstein (fsn1) regularly runs full; nbg1 and hel1 are EU peers
+# that also offer ccx43. Override the whole ordered list with YDEV_LOCATIONS
+# ("nbg1 hel1 fsn1"), or pin a single location with YDEV_LOCATION (back-compat).
+if [ -n "${YDEV_LOCATIONS:-}" ]; then LOCATIONS="$YDEV_LOCATIONS"
+elif [ -n "${YDEV_LOCATION:-}" ]; then LOCATIONS="$YDEV_LOCATION"
+else LOCATIONS="fsn1 nbg1 hel1"; fi
 IDLE="${YDEV_IDLE_MINUTES:-30}"; MAXH="${YDEV_MAX_HOURS:-4}"
 # guard: these land unquoted in the box-side systemd-run/env — a bad value would
 # abort teardown-arming under the box's `set -e`, defeating the whole guarantee
@@ -47,10 +54,22 @@ UD
 # dump can end up in CI logs / test failure output)
 [ "${YDEV_DUMP_USERDATA:-0}" = 1 ] && { printf '%s\n' "${USERDATA//$HCLOUD_TOKEN/<REDACTED>}"; exit 0; }
 
-OUT=$(run hcloud server create --name "$NAME" --type "$TYPE" --image ubuntu-24.04 \
-        --ssh-key "$HCLOUD_SSH_KEY_NAME" --location "$LOC" --label "managed-by=ydev" \
-        --user-data-from-file - --output json <<<"$USERDATA")
-[ "${YDEV_DRYRUN:-0}" = 1 ] && { echo "DRYRUN: hcloud server create --name $NAME --type $TYPE --label managed-by=ydev --user-data-from-file - (teardown via cloud-init: idle ${IDLE}m/max ${MAXH}h; would parse id/ip, provision R2 creds)"; exit 0; }
+# Try each location until one has capacity. hcloud exits non-zero when a
+# location is full (resource_unavailable) — fall through to the next rather
+# than aborting the whole build. Its stderr (the real reason) passes through
+# to the CI log; the JSON we need is on stdout.
+OUT=""
+for loc in $LOCATIONS; do
+  if OUT=$(run hcloud server create --name "$NAME" --type "$TYPE" --image ubuntu-24.04 \
+          --ssh-key "$HCLOUD_SSH_KEY_NAME" --location "$loc" --label "managed-by=ydev" \
+          --user-data-from-file - --output json <<<"$USERDATA"); then
+    [ "${YDEV_DRYRUN:-0}" = 1 ] || echo "provisioned in $loc"; break
+  fi
+  echo "ydev: location $loc has no capacity for $TYPE — trying next" >&2
+  OUT=""
+done
+[ -n "$OUT" ] || die_hint "no Hetzner location had capacity for $TYPE (tried: $LOCATIONS)" "override the order with YDEV_LOCATIONS, or retry later"
+[ "${YDEV_DRYRUN:-0}" = 1 ] && { echo "DRYRUN: hcloud server create --name $NAME --type $TYPE --location <first-available of: $LOCATIONS> --label managed-by=ydev --user-data-from-file - (teardown via cloud-init: idle ${IDLE}m/max ${MAXH}h; would parse id/ip, provision R2 creds)"; exit 0; }
 id=$(jq -r '.server.id' <<<"$OUT"); ip=$(hcloud server ip "$id")
 # fresh per-session host-key pin (new box, possibly a recycled IP)
 rm -f "$YDEV_KNOWN_HOSTS"

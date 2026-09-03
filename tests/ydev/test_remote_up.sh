@@ -23,6 +23,16 @@ echo "$ud" | grep -q "server delete" || { echo "FAIL ud self-delete: $ud"; exit 
 # the dump hook must NOT leak the real token (redacted for CI logs / test output)
 echo "$ud" | grep -q "TESTTOKEN123" && { echo "FAIL token leaked in dump"; exit 1; }
 echo "$ud" | grep -q "<REDACTED>" || { echo "FAIL token not redacted: $ud"; exit 1; }
+# datacenter fallback: default tries fsn1 -> nbg1 -> hel1 (Falkenstein runs full)
+echo "$out" | grep -q "fsn1 nbg1 hel1" || { echo "FAIL default location list: $out"; exit 1; }
+# YDEV_LOCATIONS overrides the whole ordered list
+outloc=$(YDEV_LOCATIONS="nbg1 hel1" bash scripts/ydev/remote-up.sh 2>&1 || true)
+echo "$outloc" | grep -q "nbg1 hel1" || { echo "FAIL YDEV_LOCATIONS override: $outloc"; exit 1; }
+echo "$outloc" | grep -q "fsn1" && { echo "FAIL YDEV_LOCATIONS should not include fsn1: $outloc"; exit 1; }
+# YDEV_LOCATION pins a single location (back-compat)
+outloc1=$(YDEV_LOCATION="hel1" bash scripts/ydev/remote-up.sh 2>&1 || true)
+echo "$outloc1" | grep -q "hel1" || { echo "FAIL YDEV_LOCATION back-compat: $outloc1"; exit 1; }
+echo "$outloc1" | grep -q "nbg1" && { echo "FAIL YDEV_LOCATION should be sole location: $outloc1"; exit 1; }
 # no Storage Box wiring in the script (check by absence of mount path)
 ! grep -qF "mnt/" scripts/ydev/remote-up.sh || { echo "FAIL old mount path still present in remote-up.sh"; exit 1; }
 # R2 cred provisioning is present
