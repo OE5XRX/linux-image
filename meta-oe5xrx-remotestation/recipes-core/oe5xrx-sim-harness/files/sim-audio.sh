@@ -31,6 +31,9 @@ TONE_CHANNELS="${TONE_CHANNELS:-1}"
 # card id, pcm device 0, subdevice 0 = the playback side snd-aloop cross-wires to
 # the capture of pcm device 1 (the RX tap PipeWire reads as oe5xrx.slot1).
 TONE_SINK="${TONE_SINK:-hw:${ALOOP_ID},0,0}"
+# The PipeWire node WirePlumber creates for this card once it enumerates it.
+export PIPEWIRE_RUNTIME_DIR="${PIPEWIRE_RUNTIME_DIR:-/run/pipewire}"
+SLOT_NODE="${SLOT_NODE:-oe5xrx.slot1}"
 
 running=1
 TONE_PID=""
@@ -58,6 +61,25 @@ while [ ! -d "/proc/asound/${ALOOP_ID}" ]; do
     sleep 0.1
 done
 echo "sim-audio: snd-aloop card '${ALOOP_ID}' ready (index ${ALOOP_INDEX})" >&2
+
+# CRITICAL ORDERING: wait for WirePlumber to enumerate the (still-free) aloop card
+# and create the oe5xrx.slot1 node BEFORE we grab the card with the raw tone shim.
+# The SPA ALSA udev backend needs to open the card to enumerate it; if the shim
+# already holds a PCM the card reports "Device or resource busy" and WirePlumber
+# defers it forever -> no PipeWire node is ever created. Once WirePlumber has the
+# device, the shim opening dev0-playback coexists fine (different PCM substreams).
+if command -v pw-cli >/dev/null 2>&1; then
+    _j=0
+    while ! pw-cli ls Node 2>/dev/null | grep -q "\"${SLOT_NODE}\""; do
+        _j=$((_j + 1))
+        if [ "$_j" -ge 60 ]; then
+            echo "sim-audio: WARNING ${SLOT_NODE} node absent after 60s; starting tone anyway" >&2
+            break
+        fi
+        sleep 1
+    done
+    [ "$_j" -lt 60 ] && echo "sim-audio: ${SLOT_NODE} node present after ${_j}s — starting tone" >&2
+fi
 
 # Continuous 1 kHz sine into the loopback playback side. Restart the shim if it
 # ever exits while we are still running: PipeWire's ALSA monitor may briefly

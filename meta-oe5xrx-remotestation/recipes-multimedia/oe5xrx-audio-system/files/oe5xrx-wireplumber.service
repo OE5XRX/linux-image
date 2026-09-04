@@ -4,9 +4,13 @@ Documentation=https://oe5xrx.org/docs/remote-station/
 # WirePlumber is the session manager for the system-wide PipeWire daemon: it
 # runs the ALSA monitor that turns each module's sound card into a PipeWire node
 # and applies the oe5xrx.slotN naming rule (Spec 0 §4).
+# After + Requires (NOT BindsTo): pipewire does a one-time on-failure restart
+# early in boot; BindsTo reacted to that transient inactive and stopped
+# WirePlumber 44 ms after start, and it never came back — so no ALSA nodes ever
+# appeared. Requires won't propagate an auto-restart, and Restart=on-failure
+# below reconnects WirePlumber if it loses the pipewire connection.
 After=oe5xrx-pipewire.service
 Requires=oe5xrx-pipewire.service
-BindsTo=oe5xrx-pipewire.service
 StartLimitIntervalSec=60
 StartLimitBurst=5
 
