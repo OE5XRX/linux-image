@@ -52,8 +52,13 @@ def _login(con, markers):
     # Pin a unique prompt so command boundaries are unambiguous over a noisy
     # console (kernel log lines, service output).
     con.sendline(f"export PS1='{_PROMPT}'")
+    # Sync on a command's OUTPUT (a unique sentinel), not on the echoed command:
+    # terminal echo may be off, in which case waiting for the prompt string inside
+    # the echoed PS1 assignment would hang. "SYNC-0-READY" appears only in stdout
+    # ($? = 0 from the export); the echoed line keeps a literal "$?" and won't match.
+    con.sendline("echo SYNC-$?-READY")
+    con.expect("SYNC-0-READY", timeout=30)
     con.expect(_PROMPT, timeout=30)
-    con.expect(_PROMPT, timeout=30)  # echo of the command itself
     return banner_tag
 
 

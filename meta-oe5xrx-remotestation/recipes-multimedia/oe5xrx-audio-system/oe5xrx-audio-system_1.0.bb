@@ -17,9 +17,12 @@ SRC_URI = " \
 
 S = "${UNPACKDIR}"
 
-# NOT allarch: this recipe RDEPENDS arch-specific runtime packages (pipewire,
-# gstreamer, …), so it is a normal machine-arch package that only ships config.
-inherit systemd
+# allarch: this recipe ships only arch-independent content (config drop-ins +
+# systemd unit files). RDEPENDS on arch-specific runtime packages does NOT force a
+# machine-arch package — same proven pattern as ab-layout (RDEPENDS parted/
+# e2fsprogs) and grub-ab (RDEPENDS grub-editenv) in this layer. Staying allarch
+# avoids rebuilding identical content once per MACHINE.
+inherit systemd allarch
 
 # Runtime audio stack. The metas pull the ALSA SPA plugin (module -> PipeWire
 # node) and the WirePlumber modules; the GStreamer packages carry the bridge

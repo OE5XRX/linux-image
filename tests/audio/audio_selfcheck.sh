@@ -71,13 +71,13 @@ done
 echo "AUDIO-CHECK gst=ok opusenc,opusdec,pipewiresrc,pipewiresink present"
 
 # 3) exactly one slot node named by WirePlumber -------------------------------
-# Anchor so "oe5xrx.slot1" does not also count the TX sink "oe5xrx.slot1.tx"
-# (a real-HW node; would otherwise false-trip the ambiguity guard). Treat NODE as
-# a LITERAL node name — escape ALL ERE metacharacters, not just '.', so an
-# overridden NODE can't inject regex specials — then require it not be followed by
-# a further '.'.
+# Match the node name as a whole token: treat NODE as a LITERAL (escape ALL ERE
+# metacharacters, so an overridden NODE can't inject regex specials) and require a
+# WHITESPACE or end-of-line boundary after it. A whitespace/EOL boundary excludes
+# both the TX sink "oe5xrx.slot1.tx" (next char '.') AND a longer sibling like
+# "oe5xrx.slot10" (next char '0') — a bare "not a dot" would false-match slot10.
 node_esc="$(printf '%s' "$NODE" | sed 's/[][^$.*+?(){}|\\]/\\&/g')"
-node_re="${node_esc}([^.]|\$)"
+node_re="${node_esc}([[:space:]]|\$)"
 _i=0
 while :; do
     count="$(wpctl status 2>/dev/null | grep -cE "$node_re" || true)"
