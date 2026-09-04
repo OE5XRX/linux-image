@@ -70,6 +70,19 @@ for el in opusenc opusdec pipewiresrc pipewiresink; do
 done
 echo "AUDIO-CHECK gst=ok opusenc,opusdec,pipewiresrc,pipewiresink present"
 
+# Dump audio-graph state so a failure is diagnosable from the CI console.
+dump_audio_diag() {
+    echo "--- diag: systemctl ---"
+    systemctl --no-pager -l status oe5xrx-pipewire oe5xrx-wireplumber oe5xrx-sim-audio 2>&1 | sed 's/^/diag: /' | head -80
+    echo "--- diag: wpctl status ---"
+    timeout 8 wpctl status 2>&1 | sed 's/^/diag: /' | head -100
+    echo "--- diag: pw-cli ls Node ---"
+    timeout 8 pw-cli ls Node 2>&1 | sed 's/^/diag: /' | head -120
+    echo "--- diag: /proc/asound/cards ---"
+    sed 's/^/diag: /' /proc/asound/cards 2>&1
+    echo "--- diag end ---"
+}
+
 # 3) exactly one slot node named by WirePlumber -------------------------------
 # Match the node name as a whole token: treat NODE as a LITERAL (escape ALL ERE
 # metacharacters, so an overridden NODE can't inject regex specials) and require a
@@ -80,18 +93,19 @@ node_esc="$(printf '%s' "$NODE" | sed 's/[][^$.*+?(){}|\\]/\\&/g')"
 node_re="${node_esc}([[:space:]]|\$)"
 _i=0
 while :; do
-    count="$(wpctl status 2>/dev/null | grep -cE "$node_re" || true)"
+    # Bound wpctl: in system mode it can block indefinitely if the daemon isn't
+    # answering, which would hang the whole gate. A hang => fail fast with a dump.
+    st="$(timeout 10 wpctl status 2>/dev/null)"; rc=$?
+    if [ "$rc" = 124 ]; then dump_audio_diag; fail "wpctl_hang"; fi
+    count="$(printf '%s\n' "$st" | grep -cE "$node_re" || true)"
     [ "$count" -ge 1 ] && break
     _i=$((_i + 1))
-    [ "$_i" -ge 60 ] && { wpctl status 2>&1 | sed 's/^/wpctl: /'; fail "node_${NODE}_absent"; }
+    [ "$_i" -ge 40 ] && { dump_audio_diag; fail "node_${NODE}_absent"; }
     sleep 1
 done
 # A duplicate name (e.g. both aloop capture ends matched) means the recording
 # target is ambiguous — fail loudly rather than record the wrong (silent) end.
-if [ "$count" -gt 1 ]; then
-    wpctl status 2>&1 | sed 's/^/wpctl: /'
-    fail "node_${NODE}_ambiguous(count=$count)"
-fi
+if [ "$count" -gt 1 ]; then dump_audio_diag; fail "node_${NODE}_ambiguous(count=$count)"; fi
 echo "AUDIO-CHECK node=$NODE present count=$count"
 
 # Quiet the kernel console for the whole record+stream window so printk lines

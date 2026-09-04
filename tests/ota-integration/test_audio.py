@@ -26,6 +26,7 @@ import os
 import subprocess
 import sys
 
+import pexpect
 import pytest
 
 pytestmark = pytest.mark.qemu
@@ -83,11 +84,19 @@ def _reassemble_b64(blob):
 def _capture_wav(con, begin, end):
     # Match the payload's begin marker, or an early result=FAIL, so an in-guest
     # failure surfaces its reason immediately instead of hanging to the timeout.
-    idx = con.expect([begin, "AUDIO-SELFTEST result=FAIL"], timeout=600)
+    # On timeout, dump the guest console tail so the failing stage (the AUDIO-CHECK
+    # progress lines + any diag dump) is visible in the CI log.
+    try:
+        idx = con.expect([begin, "AUDIO-SELFTEST result=FAIL"], timeout=600)
+    except pexpect.TIMEOUT:
+        pytest.fail(f"timed out waiting for {begin}. Guest console tail:\n{con.before[-4000:]}")
     if idx == 1:
         con.expect(r"\r?\n", timeout=10)
         pytest.fail(f"in-guest self-check failed (result=FAIL{con.before})")
-    con.expect(end, timeout=600)
+    try:
+        con.expect(end, timeout=600)
+    except pexpect.TIMEOUT:
+        pytest.fail(f"timed out waiting for {end}. Guest console tail:\n{con.before[-4000:]}")
     try:
         wav = base64.b64decode(_reassemble_b64(con.before), validate=True)
     except binascii.Error as e:
