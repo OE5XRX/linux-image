@@ -35,6 +35,8 @@ RDEPENDS:${PN} = " \
     pipewire-spa-plugins-meta \
     wireplumber \
     wireplumber-modules-meta \
+    wireplumber-default-config \
+    wireplumber-scripts \
     gstreamer1.0 \
     gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-base-opus \

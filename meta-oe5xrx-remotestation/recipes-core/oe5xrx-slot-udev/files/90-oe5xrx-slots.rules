@@ -14,9 +14,13 @@ SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", SUBSYSTEMS=="usb", KERNELS=="1-1.4", S
 
 # --- Audio half of the slot contract (Spec 0 §4/§8) ------------------------
 # ALSA sound devices cannot carry stable /dev symlinks the way tty does (the
-# agent consumes PipeWire NODES, not /dev/snd paths). So instead of a symlink we
-# TAG the sound device with its slot number; WirePlumber reads OE5XRX_SLOT and
-# renames the node to the stable "oe5xrx.slotN" (see 51-oe5xrx-slot-naming.conf).
+# agent consumes PipeWire NODES, not /dev/snd paths). Two independent consumers
+# use two mechanisms off the SAME per-slot identity:
+#   * the agent (Session B) can enumerate slots by reading this OE5XRX_SLOT udev
+#     property on the sound device (pyudev), mirroring the tty slot signal;
+#   * WirePlumber names the PipeWire node "oe5xrx.slotN" via its own ALSA node
+#     predicate (see 51-oe5xrx-slot-naming.conf) — it does NOT read this udev
+#     property, so the tag and the node name are kept deliberately in sync.
 #
 # Real HW: the module's UAC2 sound card is a child of the fixed FE1.1s hub port,
 # told apart by PORT PATH only (never serial), exactly like the control tty.

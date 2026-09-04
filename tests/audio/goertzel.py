@@ -78,23 +78,32 @@ def main() -> int:
         print(f"FAIL too few samples ({len(samples)} @ {rate} Hz)", file=sys.stderr)
         return 1
 
+    # Absolute energy floor. A near-silent capture has ~0 power in every bin,
+    # which makes max_ref ~ 0 and the ratio blow up to +inf -> a spurious PASS.
+    # Require real signal energy (rms well above the noise floor of a 16-bit
+    # capture) before trusting any peak. 50/32767 ≈ 0.15 % FS is generous.
+    rms = (sum(x * x for x in samples) / len(samples)) ** 0.5
+    if rms < 50.0:
+        print(f"FAIL near-silent capture (rms={rms:.1f} < 50)", file=sys.stderr)
+        return 1
+
     refs = [target / 4, target / 2, target * 1.5, target * 2, target * 3]
     refs = [f for f in refs if 0 < f < rate / 2]
 
     p_target = goertzel_power(samples, rate, target)
     p_refs = {f: goertzel_power(samples, rate, f) for f in refs}
-    worst_ref = max(p_refs.values()) if p_refs else 0.0
+    max_ref = max(p_refs.values()) if p_refs else 0.0
 
-    ratio = (p_target / worst_ref) if worst_ref > 0 else float("inf")
-    print(f"rate={rate} n={len(samples)} p({target:.0f})={p_target:.3e} "
-          f"max_ref={worst_ref:.3e} ratio={ratio:.1f}")
+    ratio = (p_target / max_ref) if max_ref > 0 else float("inf")
+    print(f"rate={rate} n={len(samples)} rms={rms:.0f} p({target:.0f})={p_target:.3e} "
+          f"max_ref={max_ref:.3e} ratio={ratio:.1f}")
     for f, p in sorted(p_refs.items()):
         print(f"  ref {f:7.1f} Hz -> {p:.3e}")
 
     # A clean sine puts essentially all energy in the target bin; require the
     # target to beat every off-frequency probe by a wide margin.
     if ratio >= 10.0:
-        print(f"PASS 1 kHz tone detected (peak ratio {ratio:.1f}x)")
+        print(f"PASS 1 kHz tone detected (peak ratio {ratio:.1f}x, rms {rms:.0f})")
         return 0
     print(f"FAIL no dominant {target:.0f} Hz peak (ratio {ratio:.1f}x < 10)", file=sys.stderr)
     return 1

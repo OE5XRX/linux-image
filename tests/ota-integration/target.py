@@ -167,7 +167,12 @@ class QemuTarget(Target):
             self.power_off()
             raise RuntimeError("could not determine QEMU serial pty within 60s")
         fd = os.open(pts, os.O_RDWR | os.O_NOCTTY)
-        self._console = pexpect.fdpexpect.fdspawn(fd, timeout=900, encoding="utf-8")
+        # codec_errors="replace": the guest kernel and shell share this one
+        # serial pty, so a stray non-UTF-8 byte (kernel oops fragment, corrupted
+        # UART frame) must not raise UnicodeDecodeError and abort the whole test.
+        self._console = pexpect.fdpexpect.fdspawn(
+            fd, timeout=900, encoding="utf-8", codec_errors="replace"
+        )
         return self._console
 
     def console(self):

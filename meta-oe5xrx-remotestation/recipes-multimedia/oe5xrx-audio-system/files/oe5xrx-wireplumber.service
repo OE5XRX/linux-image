@@ -7,11 +7,14 @@ Documentation=https://oe5xrx.org/docs/remote-station/
 After=oe5xrx-pipewire.service
 Requires=oe5xrx-pipewire.service
 BindsTo=oe5xrx-pipewire.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=pipewire
 Group=pipewire
+UMask=0007
 Environment=PIPEWIRE_RUNTIME_DIR=/run/pipewire
 # WirePlumber persists per-device state (default routes/volumes) under
 # XDG_STATE_HOME; point it at a writable state dir owned by the pipewire user.

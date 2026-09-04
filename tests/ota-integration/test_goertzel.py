@@ -46,31 +46,29 @@ def _write_sine(path, freq, rate=16000, secs=0.6, amp=0.6):
         f.write(data)
 
 
-def test_detects_1khz(tmp_path):
+def test_detects_1khz(tmp_path, monkeypatch):
     g = _load_goertzel()
     wav = str(tmp_path / "t1k.wav")
     _write_sine(wav, 1000)
-    # Exercise via the module's main() contract.
-    import sys
-    argv = sys.argv
-    try:
-        sys.argv = ["goertzel.py", wav, "1000"]
-        assert g.main() == 0
-    finally:
-        sys.argv = argv
+    monkeypatch.setattr("sys.argv", ["goertzel.py", wav, "1000"])
+    assert g.main() == 0
 
 
-def test_rejects_2khz(tmp_path):
+def test_rejects_2khz(tmp_path, monkeypatch):
     g = _load_goertzel()
     wav = str(tmp_path / "t2k.wav")
     _write_sine(wav, 2000)
-    import sys
-    argv = sys.argv
-    try:
-        sys.argv = ["goertzel.py", wav, "1000"]
-        assert g.main() != 0
-    finally:
-        sys.argv = argv
+    monkeypatch.setattr("sys.argv", ["goertzel.py", wav, "1000"])
+    assert g.main() != 0
+
+
+def test_rejects_silence(tmp_path, monkeypatch):
+    # Near-silence must FAIL, not sail through on a max_ref==0 -> ratio==inf path.
+    g = _load_goertzel()
+    wav = str(tmp_path / "silence.wav")
+    _write_sine(wav, 0, amp=0.0)
+    monkeypatch.setattr("sys.argv", ["goertzel.py", wav, "1000"])
+    assert g.main() != 0
 
 
 def test_power_peaks_at_signal_freq(tmp_path):

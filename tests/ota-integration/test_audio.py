@@ -82,16 +82,26 @@ def test_a1_audio_foundation(qemu_target, built_wic, expected_tag):
     # streams the WAV between the B64 markers. Generous timeout for TCG.
     con.sendline("sh /tmp/sc.sh")
 
-    con.expect("AUDIO-WAV-B64-BEGIN", timeout=600)
+    # Either the WAV markers appear, or the script fails early (services/gst/node
+    # missing) and prints result=FAIL. Match both so an early failure surfaces
+    # its reason immediately instead of hanging until the 600 s timeout.
+    idx = con.expect(["AUDIO-WAV-B64-BEGIN", "AUDIO-SELFTEST result=FAIL"], timeout=600)
+    if idx == 1:
+        con.expect(r"\r?\n", timeout=10)
+        pytest.fail(f"in-guest self-check failed early (result=FAIL{con.before})")
     con.expect("AUDIO-WAV-B64-END", timeout=600)
     blob = con.before
     con.expect(["AUDIO-SELFTEST result=PASS", "AUDIO-SELFTEST result=FAIL"], timeout=60)
-    result_tail = con.after + con.before
-    assert "result=FAIL" not in result_tail, f"in-guest self-check failed: {result_tail!r}"
+    assert "FAIL" not in con.after, f"in-guest self-check failed: {con.after}{con.before[:200]!r}"
 
-    # Reassemble the base64 (strip console noise / CRs / stray lines).
-    b64 = "".join(c for c in blob if c in
-                  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+    # Reassemble base64 from the B64:-tagged line(s) only; any stray console line
+    # (no B64: prefix) is discarded wholesale rather than merged byte-wise.
+    b64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+    b64 = "".join(
+        "".join(c for c in line.strip()[4:] if c in b64_chars)
+        for line in blob.splitlines()
+        if line.strip().startswith("B64:")
+    )
     try:
         wav = base64.b64decode(b64, validate=True)
     except binascii.Error as e:
