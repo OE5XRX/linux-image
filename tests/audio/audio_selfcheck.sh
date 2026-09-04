@@ -44,9 +44,13 @@ done
 echo "AUDIO-CHECK gst=ok opusenc,opusdec,pipewiresrc,pipewiresink present"
 
 # 3) exactly one slot node named by WirePlumber -------------------------------
+# Anchor so "oe5xrx.slot1" does not also count the TX sink "oe5xrx.slot1.tx"
+# (a real-HW node; would otherwise false-trip the ambiguity guard). Match the
+# name only when NOT followed by a further '.'.
+node_re="$(printf '%s' "$NODE" | sed 's/[.]/\\./g')([^.]|\$)"
 _i=0
 while :; do
-    count="$(wpctl status 2>/dev/null | grep -cF "$NODE" || true)"
+    count="$(wpctl status 2>/dev/null | grep -cE "$node_re" || true)"
     [ "$count" -ge 1 ] && break
     _i=$((_i + 1))
     [ "$_i" -ge 60 ] && { wpctl status 2>&1 | sed 's/^/wpctl: /'; fail "node_${NODE}_absent"; }
