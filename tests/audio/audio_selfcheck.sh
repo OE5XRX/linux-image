@@ -19,7 +19,10 @@ export PIPEWIRE_RUNTIME_DIR="${PIPEWIRE_RUNTIME_DIR:-/run/pipewire}"
 # RX source node + the 8 kHz mono the sim now uses (Spec 0 §8/§12). Rate travels
 # in the WAV header, so the host FFT is rate-agnostic.
 NODE="${NODE:-oe5xrx.slot1}"
-REC_SECS="${REC_SECS:-1.5}"
+# Integer seconds only — passed to `timeout`, and BusyBox's timeout (minimal
+# images) rejects fractional intervals ("invalid time interval"), which would
+# make the RX capture fail immediately.
+REC_SECS="${REC_SECS:-2}"
 REC_RATE="${REC_RATE:-8000}"
 REC_CHANNELS="${REC_CHANNELS:-1}"
 WAV="${WAV:-/tmp/oe5xrx-rx.wav}"
