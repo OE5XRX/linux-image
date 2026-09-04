@@ -69,9 +69,12 @@ echo "AUDIO-CHECK gst=ok opusenc,opusdec,pipewiresrc,pipewiresink present"
 
 # 3) exactly one slot node named by WirePlumber -------------------------------
 # Anchor so "oe5xrx.slot1" does not also count the TX sink "oe5xrx.slot1.tx"
-# (a real-HW node; would otherwise false-trip the ambiguity guard). Match the
-# name only when NOT followed by a further '.'.
-node_re="$(printf '%s' "$NODE" | sed 's/[.]/\\./g')([^.]|\$)"
+# (a real-HW node; would otherwise false-trip the ambiguity guard). Treat NODE as
+# a LITERAL node name — escape ALL ERE metacharacters, not just '.', so an
+# overridden NODE can't inject regex specials — then require it not be followed by
+# a further '.'.
+node_esc="$(printf '%s' "$NODE" | sed 's/[][^$.*+?(){}|\\]/\\&/g')"
+node_re="${node_esc}([^.]|\$)"
 _i=0
 while :; do
     count="$(wpctl status 2>/dev/null | grep -cE "$node_re" || true)"
@@ -89,13 +92,19 @@ fi
 echo "AUDIO-CHECK node=$NODE present count=$count"
 
 # Quiet the kernel console for the whole record+stream window so printk lines
-# can't splice into the base64 blobs on the shared serial console. Restored at end.
+# can't splice into the base64 blobs on the shared serial console. A trap restores
+# the previous loglevel on EVERY exit path (normal, fail-via-exit, INT/TERM) — an
+# interrupted run must never leave the console permanently quiet (matters for
+# standalone/bench use) — and it keeps printk low until AFTER both the RX and TX
+# base64 blobs have streamed.
 prev_printk="$(awk '{print $1}' /proc/sys/kernel/printk 2>/dev/null || true)"
-echo 1 > /proc/sys/kernel/printk 2>/dev/null || true
 restore_printk() {
     [ -n "$prev_printk" ] || return 0
     echo "$prev_printk" > /proc/sys/kernel/printk 2>/dev/null || true
 }
+trap restore_printk EXIT
+trap 'restore_printk; exit 130' INT TERM
+echo 1 > /proc/sys/kernel/printk 2>/dev/null || true
 
 # 4) RX gate: record the 1 kHz tone off the slot RX node ----------------------
 # pw-record has no duration flag; bound it with timeout. Capture stderr so a
@@ -104,12 +113,12 @@ rm -f "$WAV"
 timeout "$REC_SECS" pw-record --target "$NODE" --channels "$REC_CHANNELS" --rate "$REC_RATE" --format s16 "$WAV" 2>/tmp/pw-record.err || true
 
 if [ ! -s "$WAV" ]; then
-    restore_printk; sed 's/^/pw-record: /' /tmp/pw-record.err 2>/dev/null
+    sed 's/^/pw-record: /' /tmp/pw-record.err 2>/dev/null
     fail "empty_rx_recording"
 fi
 bytes="$(wc -c < "$WAV")"
 if [ "$bytes" -lt "$MIN_BYTES" ]; then
-    restore_printk; sed 's/^/pw-record: /' /tmp/pw-record.err 2>/dev/null
+    sed 's/^/pw-record: /' /tmp/pw-record.err 2>/dev/null
     fail "short_rx_recording(bytes=$bytes min=$MIN_BYTES)"
 fi
 echo "AUDIO-CHECK rx recorded bytes=$bytes node=$NODE rate=$REC_RATE"
@@ -139,8 +148,8 @@ while [ "$_i" -lt 100 ]; do
 done
 arecord -t wav -D "$TX_TAP" -f S16_LE -r "$REC_RATE" -c "$REC_CHANNELS" -d "$TX_SECS" "$TXWAV" 2>/tmp/arecord.err || true
 kill "$tx_pid" 2>/dev/null || true
-
-restore_printk
+# printk is restored by the EXIT trap AFTER the TX blob streams below — do not
+# restore here, or kernel logs could splice into the TX base64.
 
 if [ ! -s "$TXWAV" ]; then
     sed 's/^/arecord: /' /tmp/arecord.err 2>/dev/null
