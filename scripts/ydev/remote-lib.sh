@@ -27,7 +27,13 @@ require_env_remote() {
 # not expose host fingerprints for out-of-band verification) — documented in
 # docs/ydev-remote.md.
 YDEV_KNOWN_HOSTS="${YDEV_ROOT}/.ydev-known-hosts"
-YDEV_SSH_HK=(-o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=${YDEV_KNOWN_HOSTS}" -o LogLevel=ERROR)
+# ServerAlive* keeps the long-lived build/qemu SSH session warm: `kas build`
+# runs as ONE ssh command and a big silent bitbake task (rootfs/wic, a large
+# compile with no stdout) can go minutes without traffic, which a NAT/firewall
+# between the runner and Hetzner drops -> "client_loop: send disconnect: Broken
+# pipe" (exit 255), failing an otherwise-fine build. 60s keepalive x 10 missed
+# (=10 min grace) rides over silent tasks and brief network blips.
+YDEV_SSH_HK=(-o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=${YDEV_KNOWN_HOSTS}" -o LogLevel=ERROR -o ServerAliveInterval=60 -o ServerAliveCountMax=10)
 # ssh identity: optional explicit key (HCLOUD_SSH_KEY, ~ expanded). ssh only
 # auto-tries default key names / agent keys; HCLOUD_SSH_KEY points at the private
 # half of HCLOUD_SSH_KEY_NAME when it isn't your ssh default.
