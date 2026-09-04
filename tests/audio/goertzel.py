@@ -49,6 +49,12 @@ def _read_wav(path: str):
         raise ValueError(f"expected PCM WAV (fmt 1/0xFFFE), got fmt {audio_fmt}")
     if bits != 16:
         raise ValueError(f"expected 16-bit PCM, got {bits}-bit")
+    # A malformed/truncated header must fail clearly here, not crash later with a
+    # zero slice step (channels=0) or a divide-by-zero (rate<=0).
+    if channels < 1:
+        raise ValueError(f"invalid channel count {channels}")
+    if rate <= 0:
+        raise ValueError(f"invalid sample rate {rate}")
     total = len(pcm) // 2
     allsamples = struct.unpack_from("<%dh" % total, pcm, 0)
     ch0 = list(allsamples[0::channels]) if channels > 1 else list(allsamples)
@@ -78,7 +84,13 @@ def main() -> int:
     path = sys.argv[1]
     target = float(sys.argv[2]) if len(sys.argv) > 2 else 1000.0
 
-    samples, rate = _read_wav(path)
+    # As a gate tool, always fail with a single FAIL line + non-zero status —
+    # never a bare traceback — on an unreadable/malformed/non-PCM WAV.
+    try:
+        samples, rate = _read_wav(path)
+    except (ValueError, struct.error, OSError) as e:
+        print(f"FAIL cannot read WAV: {e}", file=sys.stderr)
+        return 2
     # Reject an out-of-range target: <=0 or >= Nyquist would alias (or, at the
     # extremes, produce a spurious peak). The caller picks the tone, so this is a
     # guard against a mis-invocation, not expected input.

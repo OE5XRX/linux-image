@@ -89,6 +89,29 @@ def test_rejects_silence(tmp_path, monkeypatch):
     assert g.main() != 0
 
 
+def test_bad_wav_fails_cleanly(tmp_path, monkeypatch):
+    # A garbage/non-RIFF file must return non-zero via a FAIL line, not a traceback.
+    g = _load_goertzel()
+    bad = tmp_path / "bad.wav"
+    bad.write_bytes(b"not a wav file at all")
+    monkeypatch.setattr("sys.argv", ["goertzel.py", str(bad), "1000"])
+    assert g.main() != 0
+
+
+def test_zero_channels_header_fails_cleanly(tmp_path, monkeypatch):
+    # Malformed header (channels=0) must fail clearly, not crash on a 0 slice step.
+    g = _load_goertzel()
+    p = tmp_path / "ch0.wav"
+    data = b"\x00\x00" * 100
+    p.write_bytes(
+        b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVE"
+        + b"fmt " + struct.pack("<IHHIIHH", 16, 1, 0, 8000, 16000, 2, 16)  # channels=0
+        + b"data" + struct.pack("<I", len(data)) + data
+    )
+    monkeypatch.setattr("sys.argv", ["goertzel.py", str(p), "1000"])
+    assert g.main() != 0
+
+
 def test_power_peaks_at_signal_freq(tmp_path):
     g = _load_goertzel()
     wav = str(tmp_path / "s.wav")
