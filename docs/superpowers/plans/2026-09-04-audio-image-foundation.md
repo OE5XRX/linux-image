@@ -95,4 +95,3 @@ conf marks the daemon system-wide, sets the socket `pipewire-0` group-`pipewire`
   - `wpctl status` lists node `oe5xrx.slot1`
   - record ~1 s off `oe5xrx.slot1` capture → FFT shows a 1 kHz peak
 - `tests/sim-harness/` + CI extended with the audio checks.
-</content>

@@ -40,6 +40,7 @@ _PROMPT = "OE5XRX-AUDIO-SH> "
 
 def _login(con, markers):
     con.expect(markers["banner_re"], timeout=900)
+    banner_tag = con.match.group(1)  # image version stamped in the boot banner
     con.expect(markers["login_re"], timeout=300)
     con.sendline("root")
     # Empty root password on the qemu/dev image: a Password: prompt may or may
@@ -53,6 +54,7 @@ def _login(con, markers):
     con.sendline(f"export PS1='{_PROMPT}'")
     con.expect(_PROMPT, timeout=30)
     con.expect(_PROMPT, timeout=30)  # echo of the command itself
+    return banner_tag
 
 
 def _run(con, cmd, timeout=120):
@@ -114,7 +116,12 @@ def test_a1_audio_foundation(qemu_target, built_wic, expected_tag):
     qemu_target.seed_config(seed.render_config_yaml("http://10.0.2.2:1/"), key_pem)
 
     con = qemu_target.power_on()
-    _login(con, qemu_target.boot_markers())
+    banner_tag = _login(con, qemu_target.boot_markers())
+    # The boot banner must carry the build-under-test version (the audio image is
+    # the same one; a mismatch means we booted the wrong slot/artifact).
+    assert banner_tag == expected_tag, (
+        f"boot banner version {banner_tag!r} != expected {expected_tag!r}"
+    )
 
     # Push the self-check into the guest as base64 (one line, no quoting hazards).
     with open(_SELFCHECK, "rb") as f:

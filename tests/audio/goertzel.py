@@ -42,6 +42,11 @@ def _read_wav(path: str):
     if fmt is None or pcm is None:
         raise ValueError("missing fmt/data chunk")
     audio_fmt, channels, rate, bits = fmt
+    # 1 = WAVE_FORMAT_PCM, 0xFFFE = WAVE_FORMAT_EXTENSIBLE (still integer PCM as
+    # written by arecord/pw-record). Anything else (float, ADPCM, …) would be
+    # misread as int16 samples and give a bogus verdict, so reject it.
+    if audio_fmt not in (1, 0xFFFE):
+        raise ValueError(f"expected PCM WAV (fmt 1/0xFFFE), got fmt {audio_fmt}")
     if bits != 16:
         raise ValueError(f"expected 16-bit PCM, got {bits}-bit")
     total = len(pcm) // 2
@@ -74,6 +79,12 @@ def main() -> int:
     target = float(sys.argv[2]) if len(sys.argv) > 2 else 1000.0
 
     samples, rate = _read_wav(path)
+    # Reject an out-of-range target: <=0 or >= Nyquist would alias (or, at the
+    # extremes, produce a spurious peak). The caller picks the tone, so this is a
+    # guard against a mis-invocation, not expected input.
+    if not 0 < target < rate / 2:
+        print(f"FAIL target {target:.0f} Hz out of range (0, {rate / 2:.0f})", file=sys.stderr)
+        return 2
     if len(samples) < rate // 20:  # < 50 ms is too short to trust
         print(f"FAIL too few samples ({len(samples)} @ {rate} Hz)", file=sys.stderr)
         return 1
@@ -103,7 +114,7 @@ def main() -> int:
     # A clean sine puts essentially all energy in the target bin; require the
     # target to beat every off-frequency probe by a wide margin.
     if ratio >= 10.0:
-        print(f"PASS 1 kHz tone detected (peak ratio {ratio:.1f}x, rms {rms:.0f})")
+        print(f"PASS {target:.0f} Hz tone detected (peak ratio {ratio:.1f}x, rms {rms:.0f})")
         return 0
     print(f"FAIL no dominant {target:.0f} Hz peak (ratio {ratio:.1f}x < 10)", file=sys.stderr)
     return 1
