@@ -54,10 +54,23 @@ consumes **PipeWire nodes**, not `/dev/snd/*` paths). So, mirroring the tty rule
   is also only bench-verified.
 
 **Interface / naming convention (firm, for Session B):**
-- PipeWire node per slot = **`oe5xrx.slotN`**.
-  - capture side  = RX **source**  → agent stream `slotN.rx`
-  - playback side = TX **sink**    → agent stream `slotN.tx`
-- The agent resolves `slot N → node "oe5xrx.slotN"`; **identical in sim and real**.
+- PipeWire nodes per slot = **`oe5xrx.slotN`** (RX source / capture) and
+  **`oe5xrx.slotN.tx`** (TX sink / playback).
+- The agent resolves `slot N → node` via the **`OE5XRX_SLOT` udev tag → ALSA card
+  index → `api.alsa.card`** (the same mechanism as `slotN/control`) — **not** a
+  WirePlumber per-port rename. Sim and real resolve identically.
+
+### Addendum (2026-09-04, Spec 0 §8/§12 update)
+- **Bidirectional sim substrate.** The same snd-aloop card exposes both cables:
+  cable A `dev0-playback → dev1-capture` = RX (`oe5xrx.slot1`), cable B
+  `dev1-playback → dev0-capture` = TX (`oe5xrx.slot1.tx`). WirePlumber owns only
+  the two dev1 nodes; both dev0 nodes are disabled (raw ALSA shim/tap own them).
+  TX okay-gate: play 1500 Hz into `oe5xrx.slot1.tx`, capture the dev0 tap, FFT.
+- **8 kHz mono S16_LE** on the aloop (mirrors the real UAC2 module, §12) — the
+  PipeWire graph stays 48 kHz, exercising the real 8 k↔48 k resample path.
+- **Real-HW WirePlumber rename removed** (§12/Finding 2): the real `node.name`
+  carries the module serial, not the USB port, so the `usb.*1\.1` regex can never
+  match (bench-proven). Real slot→node is agent-side via `OE5XRX_SLOT`.
 
 ### D3 — PipeWire system-mode: **dedicated system units, `pipewire` user, `/run/pipewire`**
 Rather than rely on the ambiguous upstream user/system unit semantics, ship explicit

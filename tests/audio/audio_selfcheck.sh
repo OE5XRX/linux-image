@@ -1,30 +1,50 @@
 #!/bin/sh
 # OE5XRX audio okay-gate self-check (Spec 0 §7-A / §8), runs INSIDE the guest.
 #
-# Verifies the Session-A image foundation and captures the sim tone for the
-# host-side FFT verdict:
+# Verifies the Session-A image foundation and captures the sim tones for the
+# host-side FFT verdict (bidirectional, Spec 0 §8):
 #   1. system PipeWire + WirePlumber services are active,
 #   2. the GStreamer bridge elements (opusenc/opusdec/pipewiresrc/pipewiresink)
 #      are present,
-#   3. WirePlumber named EXACTLY ONE slot node oe5xrx.slot1,
-#   4. record off oe5xrx.slot1 and emit it as base64 for the host to FFT.
-#
-# The tone is self-contained (pure GStreamer sine, §10 decision D1). The final
-# 1 kHz verdict is computed on the host by goertzel.py — the guest ships no
-# Python for it. Also runnable standalone on the CM4 bench.
+#   3. WirePlumber named EXACTLY ONE RX node oe5xrx.slot1,
+#   4. RX: record the 1 kHz tone off oe5xrx.slot1 (cable A tap),
+#   5. TX: play a distinct 1500 Hz tone into oe5xrx.slot1.tx and capture it off
+#      the reverse-cable dev0 tap — proves mic->TX works in sim for Session B.
+# Both WAVs are shipped as base64; the host computes the RX(1 kHz)+TX(1500 Hz)
+# Goertzel verdicts (goertzel.py) — the guest ships no Python. Runnable
+# standalone on the CM4 bench too.
 set -u
 
 export PIPEWIRE_RUNTIME_DIR="${PIPEWIRE_RUNTIME_DIR:-/run/pipewire}"
+# RX source node + the 8 kHz mono the sim now uses (Spec 0 §8/§12). Rate travels
+# in the WAV header, so the host FFT is rate-agnostic.
 NODE="${NODE:-oe5xrx.slot1}"
 REC_SECS="${REC_SECS:-1.5}"
-REC_RATE="${REC_RATE:-16000}"
+REC_RATE="${REC_RATE:-8000}"
+REC_CHANNELS="${REC_CHANNELS:-1}"
 WAV="${WAV:-/tmp/oe5xrx-rx.wav}"
+# TX sink node + the raw dev0-capture tap (cable B) the TX tone lands on. A
+# DISTINCT frequency (1500 Hz) so the TX Goertzel can't be fooled by RX bleed.
+TX_NODE="${TX_NODE:-oe5xrx.slot1.tx}"
+TX_TAP="${TX_TAP:-hw:oe5xrxslot1,0,0}"
+TX_FREQ="${TX_FREQ:-1500}"
+TX_SECS="${TX_SECS:-1}"
+TX_PREROLL="${TX_PREROLL:-1.5}"
+TXWAV="${TXWAV:-/tmp/oe5xrx-tx.wav}"
 # Require at least ~0.4 s of captured s16 mono (rate*2*0.4 bytes); a truncated
 # capture (slow pw-record link-up under TCG) must fail loud, not feed a
-# confusing host-side FFT miss.
-MIN_BYTES="${MIN_BYTES:-12800}"
+# confusing host-side FFT miss. 0.4 s @ 8 kHz mono s16 = 6400 bytes.
+MIN_BYTES="${MIN_BYTES:-6400}"
 
 fail() { echo "AUDIO-SELFTEST result=FAIL reason=$1"; exit 1; }
+
+# Emit a WAV to the host as one B64:-tagged line between unique markers; the host
+# keeps only B64: lines so a stray console line is dropped wholesale, not merged.
+emit_wav() {  # $1=wav  $2=begin-marker  $3=end-marker
+    echo "$2"
+    printf 'B64:%s\n' "$(base64 -w0 "$1" 2>/dev/null || base64 "$1" | tr -d '\n')"
+    echo "$3"
+}
 
 # 1) services -----------------------------------------------------------------
 _i=0
@@ -64,38 +84,64 @@ if [ "$count" -gt 1 ]; then
 fi
 echo "AUDIO-CHECK node=$NODE present count=$count"
 
-# 4) record the tone off the slot node ---------------------------------------
-# Quiet the kernel console so printk lines can't splice into the base64 blob we
-# stream over the shared serial console. Restore afterwards.
+# Quiet the kernel console for the whole record+stream window so printk lines
+# can't splice into the base64 blobs on the shared serial console. Restored at end.
 prev_printk="$(awk '{print $1}' /proc/sys/kernel/printk 2>/dev/null || true)"
 echo 1 > /proc/sys/kernel/printk 2>/dev/null || true
+restore_printk() {
+    [ -n "$prev_printk" ] || return 0
+    echo "$prev_printk" > /proc/sys/kernel/printk 2>/dev/null || true
+}
 
+# 4) RX gate: record the 1 kHz tone off the slot RX node ----------------------
 # pw-record has no duration flag; bound it with timeout. Capture stderr so a
 # flag/format rejection is diagnosable instead of a silent empty recording.
 rm -f "$WAV"
-timeout "$REC_SECS" pw-record --target "$NODE" --channels 1 --rate "$REC_RATE" --format s16 "$WAV" 2>/tmp/pw-record.err || true
-
-if [ -n "$prev_printk" ]; then
-    echo "$prev_printk" > /proc/sys/kernel/printk 2>/dev/null || true
-fi
+timeout "$REC_SECS" pw-record --target "$NODE" --channels "$REC_CHANNELS" --rate "$REC_RATE" --format s16 "$WAV" 2>/tmp/pw-record.err || true
 
 if [ ! -s "$WAV" ]; then
-    sed 's/^/pw-record: /' /tmp/pw-record.err 2>/dev/null
-    fail "empty_recording"
+    restore_printk; sed 's/^/pw-record: /' /tmp/pw-record.err 2>/dev/null
+    fail "empty_rx_recording"
 fi
 bytes="$(wc -c < "$WAV")"
 if [ "$bytes" -lt "$MIN_BYTES" ]; then
-    sed 's/^/pw-record: /' /tmp/pw-record.err 2>/dev/null
-    fail "short_recording(bytes=$bytes min=$MIN_BYTES)"
+    restore_printk; sed 's/^/pw-record: /' /tmp/pw-record.err 2>/dev/null
+    fail "short_rx_recording(bytes=$bytes min=$MIN_BYTES)"
 fi
-echo "AUDIO-CHECK recorded bytes=$bytes node=$NODE rate=$REC_RATE"
+echo "AUDIO-CHECK rx recorded bytes=$bytes node=$NODE rate=$REC_RATE"
+emit_wav "$WAV" "AUDIO-WAV-B64-BEGIN" "AUDIO-WAV-B64-END"
 
-# 5) ship the WAV to the host for the FFT verdict ----------------------------
-# One tagged line; the host keeps only B64:-prefixed content between the markers
-# so any stray console line is discarded wholesale rather than merged byte-wise.
-echo "AUDIO-WAV-B64-BEGIN"
-printf 'B64:%s\n' "$(base64 -w0 "$WAV" 2>/dev/null || base64 "$WAV" | tr -d '\n')"
-echo "AUDIO-WAV-B64-END"
+# 5) TX gate: play a DISTINCT 1500 Hz tone into the TX sink and capture it off
+# the reverse-cable tap (dev0 capture) ----------------------------------------
+# Start the tone into oe5xrx.slot1.tx (PipeWire resumes dev1 playback), give the
+# aloop cable time to prime, then raw-capture dev0 capture. gst pipewiresink
+# targets the sink node by name; the raw arecord owns dev0 capture (WirePlumber
+# disabled that PipeWire node, so no contention).
+rm -f "$TXWAV"
+gst-launch-1.0 -q \
+    audiotestsrc is-live=true wave=sine freq="$TX_FREQ" ! \
+    audioconvert ! audioresample ! \
+    "audio/x-raw,format=S16LE,rate=${REC_RATE},channels=${REC_CHANNELS}" ! \
+    pipewiresink "target-object=${TX_NODE}" > /tmp/tx-tone.log 2>&1 &
+tx_pid=$!
+sleep "$TX_PREROLL"
+arecord -t wav -D "$TX_TAP" -f S16_LE -r "$REC_RATE" -c "$REC_CHANNELS" -d "$TX_SECS" "$TXWAV" 2>/tmp/arecord.err || true
+kill "$tx_pid" 2>/dev/null || true
 
-# In-guest checks (1-3) passed; the host computes the final 1 kHz FFT verdict.
-echo "AUDIO-SELFTEST result=PASS checks=services,gst,node,record"
+restore_printk
+
+if [ ! -s "$TXWAV" ]; then
+    sed 's/^/arecord: /' /tmp/arecord.err 2>/dev/null
+    sed 's/^/tx-tone: /' /tmp/tx-tone.log 2>/dev/null
+    fail "empty_tx_recording"
+fi
+txbytes="$(wc -c < "$TXWAV")"
+if [ "$txbytes" -lt "$MIN_BYTES" ]; then
+    sed 's/^/arecord: /' /tmp/arecord.err 2>/dev/null
+    fail "short_tx_recording(bytes=$txbytes min=$MIN_BYTES)"
+fi
+echo "AUDIO-CHECK tx recorded bytes=$txbytes sink=$TX_NODE tap=$TX_TAP freq=$TX_FREQ"
+emit_wav "$TXWAV" "AUDIO-TXWAV-B64-BEGIN" "AUDIO-TXWAV-B64-END"
+
+# In-guest checks passed; the host computes the final RX(1 kHz)+TX(1500 Hz) FFT.
+echo "AUDIO-SELFTEST result=PASS checks=services,gst,node,rx,tx"

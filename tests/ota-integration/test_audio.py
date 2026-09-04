@@ -6,14 +6,16 @@ Session-A audio substrate:
   * oe5xrx-pipewire + oe5xrx-wireplumber system services are active,
   * the GStreamer bridge elements (opusenc/opusdec/pipewiresrc/pipewiresink)
     are present,
-  * WirePlumber named the sim slot node oe5xrx.slot1,
-  * ~0.6 s recorded off oe5xrx.slot1 (the snd-aloop 1 kHz tone shim) shows a
-    clean 1 kHz FFT peak — computed on the host by goertzel.py.
+  * WirePlumber named the sim RX node oe5xrx.slot1,
+  * RX gate: audio recorded off oe5xrx.slot1 (the snd-aloop 1 kHz tone shim)
+    shows a clean 1 kHz FFT peak,
+  * TX gate: a distinct 1500 Hz tone played into oe5xrx.slot1.tx and captured
+    off the reverse-cable tap shows a clean 1500 Hz FFT peak.
 
-The self-check runs in the guest (tests/audio/audio_selfcheck.sh); it records
-the tone and ships the WAV back as base64 over the console so the guest needs no
-Python. This is the same known-tone assertion the CM4 bench will run against a
-real SA818 / injected RF tone.
+Both FFT verdicts are computed on the host by goertzel.py. The self-check runs
+in the guest (tests/audio/audio_selfcheck.sh); it records the tones and ships
+the WAVs back as base64 over the console so the guest needs no Python. Same
+known-tone assertion the CM4 bench will run against a real SA818 / RF tone.
 """
 
 from __future__ import annotations
@@ -59,6 +61,47 @@ def _run(con, cmd, timeout=120):
     return con.before
 
 
+_B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+
+
+def _reassemble_b64(blob):
+    # Keep only B64:-tagged line(s); any stray console line is dropped wholesale.
+    return "".join(
+        "".join(c for c in line.strip()[4:] if c in _B64_CHARS)
+        for line in blob.splitlines()
+        if line.strip().startswith("B64:")
+    )
+
+
+def _capture_wav(con, begin, end):
+    # Match the payload's begin marker, or an early result=FAIL, so an in-guest
+    # failure surfaces its reason immediately instead of hanging to the timeout.
+    idx = con.expect([begin, "AUDIO-SELFTEST result=FAIL"], timeout=600)
+    if idx == 1:
+        con.expect(r"\r?\n", timeout=10)
+        pytest.fail(f"in-guest self-check failed (result=FAIL{con.before})")
+    con.expect(end, timeout=600)
+    try:
+        wav = base64.b64decode(_reassemble_b64(con.before), validate=True)
+    except binascii.Error as e:
+        pytest.fail(f"could not decode {begin} base64 from console: {e}")
+    assert len(wav) > 128, f"{begin}: recovered WAV too small ({len(wav)} bytes)"
+    return wav
+
+
+def _assert_tone(wav_bytes, freq, work_dir, name):
+    wav_path = os.path.join(work_dir, name)
+    with open(wav_path, "wb") as f:
+        f.write(wav_bytes)
+    proc = subprocess.run(
+        [sys.executable, _GOERTZEL, wav_path, str(freq)],
+        capture_output=True, text=True,
+    )
+    sys.stdout.write(proc.stdout)
+    sys.stderr.write(proc.stderr)
+    assert proc.returncode == 0, f"{name}: no dominant {freq} Hz peak"
+
+
 def test_a1_audio_foundation(qemu_target, built_wic, expected_tag):
     import seed
 
@@ -78,45 +121,17 @@ def test_a1_audio_foundation(qemu_target, built_wic, expected_tag):
         sc_b64 = base64.b64encode(f.read()).decode()
     _run(con, f"printf '%s' '{sc_b64}' | base64 -d > /tmp/sc.sh", timeout=60)
 
-    # Run it. It loops until the services/node are up, records the tone, and
-    # streams the WAV between the B64 markers. Generous timeout for TCG.
+    # Run it. It brings up the services/node, records the RX tone, plays+captures
+    # the TX tone, and streams both WAVs between B64 markers. Generous TCG timeout.
     con.sendline("sh /tmp/sc.sh")
 
-    # Either the WAV markers appear, or the script fails early (services/gst/node
-    # missing) and prints result=FAIL. Match both so an early failure surfaces
-    # its reason immediately instead of hanging until the 600 s timeout.
-    idx = con.expect(["AUDIO-WAV-B64-BEGIN", "AUDIO-SELFTEST result=FAIL"], timeout=600)
-    if idx == 1:
-        con.expect(r"\r?\n", timeout=10)
-        pytest.fail(f"in-guest self-check failed early (result=FAIL{con.before})")
-    con.expect("AUDIO-WAV-B64-END", timeout=600)
-    blob = con.before
+    rx_wav = _capture_wav(con, "AUDIO-WAV-B64-BEGIN", "AUDIO-WAV-B64-END")
+    tx_wav = _capture_wav(con, "AUDIO-TXWAV-B64-BEGIN", "AUDIO-TXWAV-B64-END")
+
     con.expect(["AUDIO-SELFTEST result=PASS", "AUDIO-SELFTEST result=FAIL"], timeout=60)
     assert "FAIL" not in con.after, f"in-guest self-check failed: {con.after}{con.before[:200]!r}"
 
-    # Reassemble base64 from the B64:-tagged line(s) only; any stray console line
-    # (no B64: prefix) is discarded wholesale rather than merged byte-wise.
-    b64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
-    b64 = "".join(
-        "".join(c for c in line.strip()[4:] if c in b64_chars)
-        for line in blob.splitlines()
-        if line.strip().startswith("B64:")
-    )
-    try:
-        wav = base64.b64decode(b64, validate=True)
-    except binascii.Error as e:
-        pytest.fail(f"could not decode WAV base64 from console: {e}")
-    assert len(wav) > 128, f"recovered WAV too small ({len(wav)} bytes)"
-
-    wav_path = os.path.join(qemu_target.work_dir, "rx.wav")
-    with open(wav_path, "wb") as f:
-        f.write(wav)
-
-    # Host-side FFT verdict: the recorded slot1 tap must be a clean 1 kHz sine.
-    proc = subprocess.run(
-        [sys.executable, _GOERTZEL, wav_path, "1000"],
-        capture_output=True, text=True,
-    )
-    sys.stdout.write(proc.stdout)
-    sys.stderr.write(proc.stderr)
-    assert proc.returncode == 0, "no dominant 1 kHz peak in the slot1 recording"
+    # Host-side FFT verdicts: RX tap must be a clean 1 kHz sine; the TX tone routed
+    # through oe5xrx.slot1.tx and captured off the reverse cable must be 1500 Hz.
+    _assert_tone(rx_wav, 1000, qemu_target.work_dir, "rx.wav")
+    _assert_tone(tx_wav, 1500, qemu_target.work_dir, "tx.wav")

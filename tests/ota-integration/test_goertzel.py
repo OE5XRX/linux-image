@@ -62,6 +62,24 @@ def test_rejects_2khz(tmp_path, monkeypatch):
     assert g.main() != 0
 
 
+def test_detects_1500_at_8k(tmp_path, monkeypatch):
+    # TX gate scenario: distinct 1500 Hz tone at the sim's 8 kHz mono rate.
+    g = _load_goertzel()
+    wav = str(tmp_path / "tx.wav")
+    _write_sine(wav, 1500, rate=8000)
+    monkeypatch.setattr("sys.argv", ["goertzel.py", wav, "1500"])
+    assert g.main() == 0
+
+
+def test_rejects_1khz_when_expecting_1500_at_8k(tmp_path, monkeypatch):
+    # RX bleed guard: a 1 kHz tone must NOT satisfy the 1500 Hz TX probe.
+    g = _load_goertzel()
+    wav = str(tmp_path / "rx_at_8k.wav")
+    _write_sine(wav, 1000, rate=8000)
+    monkeypatch.setattr("sys.argv", ["goertzel.py", wav, "1500"])
+    assert g.main() != 0
+
+
 def test_rejects_silence(tmp_path, monkeypatch):
     # Near-silence must FAIL, not sail through on a max_ref==0 -> ratio==inf path.
     g = _load_goertzel()

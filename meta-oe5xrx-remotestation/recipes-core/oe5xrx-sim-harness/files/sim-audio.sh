@@ -22,9 +22,14 @@ set -eu
 ALOOP_ID="${ALOOP_ID:-oe5xrxslot1}"
 ALOOP_INDEX="${ALOOP_INDEX:-7}"
 TONE_FREQ="${TONE_FREQ:-1000}"
-TONE_RATE="${TONE_RATE:-48000}"
+# 8 kHz mono S16_LE mirrors the real UAC2 FM module (Spec 0 §8/§12) and makes the
+# aloop cable run at 8 kHz, so the PipeWire graph (48 kHz) exercises the real
+# 8 k->48 k resample path. Both aloop cable ends must agree on rate/format, so the
+# oe5xrx.slot1 RX node is pinned to the same 8 k mono S16LE (51-oe5xrx-slot-naming).
+TONE_RATE="${TONE_RATE:-8000}"
+TONE_CHANNELS="${TONE_CHANNELS:-1}"
 # card id, pcm device 0, subdevice 0 = the playback side snd-aloop cross-wires to
-# the capture of pcm device 1 (the RX tap PipeWire reads).
+# the capture of pcm device 1 (the RX tap PipeWire reads as oe5xrx.slot1).
 TONE_SINK="${TONE_SINK:-hw:${ALOOP_ID},0,0}"
 
 running=1
@@ -62,7 +67,7 @@ while [ "$running" = 1 ]; do
     gst-launch-1.0 -q \
         audiotestsrc is-live=true wave=sine freq="${TONE_FREQ}" ! \
         audioconvert ! audioresample ! \
-        "audio/x-raw,rate=${TONE_RATE},channels=2" ! \
+        "audio/x-raw,format=S16LE,rate=${TONE_RATE},channels=${TONE_CHANNELS}" ! \
         alsasink device="${TONE_SINK}" sync=true &
     TONE_PID=$!
     echo "sim-audio: ${TONE_FREQ} Hz tone -> ${TONE_SINK} (pid ${TONE_PID})" >&2
