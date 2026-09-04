@@ -25,11 +25,15 @@ REC_CHANNELS="${REC_CHANNELS:-1}"
 WAV="${WAV:-/tmp/oe5xrx-rx.wav}"
 # TX sink node + the raw dev0-capture tap (cable B) the TX tone lands on. A
 # DISTINCT frequency (1500 Hz) so the TX Goertzel can't be fooled by RX bleed.
+ALOOP_ID="${ALOOP_ID:-oe5xrxslot1}"
 TX_NODE="${TX_NODE:-oe5xrx.slot1.tx}"
-TX_TAP="${TX_TAP:-hw:oe5xrxslot1,0,0}"
+TX_TAP="${TX_TAP:-hw:${ALOOP_ID},0,0}"
 TX_FREQ="${TX_FREQ:-1500}"
 TX_SECS="${TX_SECS:-1}"
-TX_PREROLL="${TX_PREROLL:-1.5}"
+# The aloop playback substream that oe5xrx.slot1.tx (dev1 playback) drives; we
+# wait for it to reach RUNNING before opening the capture tap, rather than a
+# blind sleep that races pipewiresink link-up under TCG.
+TX_PCM_STATUS="${TX_PCM_STATUS:-/proc/asound/${ALOOP_ID}/pcm1p/sub0/status}"
 TXWAV="${TXWAV:-/tmp/oe5xrx-tx.wav}"
 # Require at least ~0.4 s of captured s16 mono (rate*2*0.4 bytes); a truncated
 # capture (slow pw-record link-up under TCG) must fail loud, not feed a
@@ -122,9 +126,17 @@ gst-launch-1.0 -q \
     audiotestsrc is-live=true wave=sine freq="$TX_FREQ" ! \
     audioconvert ! audioresample ! \
     "audio/x-raw,format=S16LE,rate=${REC_RATE},channels=${REC_CHANNELS}" ! \
-    pipewiresink "target-object=${TX_NODE}" > /tmp/tx-tone.log 2>&1 &
+    pipewiresink "target-object=${TX_NODE}" sync=false > /tmp/tx-tone.log 2>&1 &
 tx_pid=$!
-sleep "$TX_PREROLL"
+# Wait until PipeWire has actually RESUMED the aloop playback end (reverse cable
+# live) before opening the capture tap — otherwise the two ends can negotiate
+# mismatched params or the tap records silence. Bounded (~10 s); if it never
+# runs we still record (the host FFT then fails loudly, not silently).
+_i=0
+while [ "$_i" -lt 100 ]; do
+    grep -q "state: RUNNING" "$TX_PCM_STATUS" 2>/dev/null && break
+    _i=$((_i + 1)); sleep 0.1
+done
 arecord -t wav -D "$TX_TAP" -f S16_LE -r "$REC_RATE" -c "$REC_CHANNELS" -d "$TX_SECS" "$TXWAV" 2>/tmp/arecord.err || true
 kill "$tx_pid" 2>/dev/null || true
 
