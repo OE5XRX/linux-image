@@ -1,0 +1,30 @@
+[Unit]
+Description=OE5XRX system-wide PipeWire multimedia daemon
+Documentation=https://oe5xrx.org/docs/remote-station/
+# Headless appliance: PipeWire runs SYSTEM-WIDE (Spec 0 §2.7), not per-user.
+# There is no logind session, so this is a plain system service owned by the
+# dedicated 'pipewire' user (created by the pipewire package).
+After=dbus.service
+Wants=dbus.service
+
+[Service]
+Type=simple
+User=pipewire
+Group=pipewire
+# /run/pipewire holds the pipewire-0 socket. 0750 + group pipewire lets a client
+# service (the station_agent, Session B) in group 'pipewire' traverse in and
+# connect; the socket itself is group-pipewire 0660. This dir + group pair is
+# the Session-B interface contract.
+RuntimeDirectory=pipewire
+RuntimeDirectoryMode=0750
+Environment=PIPEWIRE_RUNTIME_DIR=/run/pipewire
+ExecStart=/usr/bin/pipewire
+Restart=on-failure
+RestartSec=2
+# System-wide PipeWire cannot use per-user RTKit for realtime scheduling; grant
+# the rlimits directly so the RT module can raise priority (glitch-free audio).
+LimitRTPRIO=88
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target

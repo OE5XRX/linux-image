@@ -35,6 +35,10 @@ repos:
       # meta-filesystems provides sshfs-fuse (dev-image live-mount, Fast-Dev-Loop).
       # LAYERDEPENDS = core openembedded-layer networking-layer — all already enabled.
       meta-filesystems:
+      # meta-multimedia provides PipeWire, WirePlumber and the GStreamer PipeWire
+      # elements for the audio subsystem (Spec 0 §3/§7-A). LAYERDEPENDS = core
+      # openembedded-layer meta-python networking-layer — all already enabled above.
+      meta-multimedia:
 
   meta-oe5xrx-remotestation:
     layers:

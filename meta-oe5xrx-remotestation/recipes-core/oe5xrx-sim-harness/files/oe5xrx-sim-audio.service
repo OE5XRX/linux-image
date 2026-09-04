@@ -1,0 +1,18 @@
+[Unit]
+Description=OE5XRX sim audio substrate (snd-aloop 1 kHz tone -> slot1 RX tap)
+Documentation=https://oe5xrx.org/docs/remote-station/
+# Needs the ALSA stack up so WirePlumber can pick up the loopback card and name
+# its node oe5xrx.slot1. Ordered after WirePlumber but only Wants it — the tone
+# still flows into snd-aloop even if the session manager is slow to start.
+After=oe5xrx-wireplumber.service
+Wants=oe5xrx-wireplumber.service
+
+[Service]
+Type=simple
+# Runs as root: needs modprobe(snd-aloop) and direct ALSA hw access.
+ExecStart=/usr/sbin/sim-audio.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
