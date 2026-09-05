@@ -7,4 +7,10 @@ inherit packagegroup
 RDEPENDS:${PN} = " \
     oe5xrx-native-sim-fm \
     oe5xrx-sim-harness \
+    coreutils \
 "
+
+# coreutils: the audio okay-gate self-check (pushed into the guest at test time)
+# needs `timeout` and `base64`, which the BusyBox base image does not provide.
+# This lands ONLY in the qemux86-64 sim image (this packagegroup is qemux86-64
+# only); the real rpi64 appliance image stays BusyBox-lean.

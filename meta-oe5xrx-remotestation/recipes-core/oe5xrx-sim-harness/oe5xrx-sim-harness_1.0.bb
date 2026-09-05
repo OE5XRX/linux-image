@@ -1,9 +1,12 @@
-SUMMARY = "OE5XRX sim harness — native_sim FM behind slot1/control pty (qemux86-64)"
-DESCRIPTION = "Sim populator of the D2 slot contract. Runs the pinned native_sim FM binary, \
-symlinks its console pty at /dev/oe5xrx/slot1/control, and attaches exactly one SA818 AT-emulator \
-to the radio-link pty (uart_1) so set-type commands are answered instead of driver_error'ing on an \
-unanswered UART. Both children are owned by the harness (systemd) — no stray/duplicate emulator. \
-The emulator is pinned from the co-versioned FW-RemoteStation release asset (not vendored). \
+SUMMARY = "OE5XRX sim harness — native_sim FM control + snd-aloop audio (qemux86-64)"
+DESCRIPTION = "Sim populator of the slot contract (Spec 0 §8). Control half: runs the pinned \
+native_sim FM binary, symlinks its console pty at /dev/oe5xrx/slot1/control, and attaches exactly \
+one SA818 AT-emulator to the radio-link pty (uart_1) so set-type commands are answered instead of \
+driver_error'ing on an unanswered UART. Audio half (sim-audio.sh): loads snd-aloop as slot1's audio \
+device and feeds a self-contained 1 kHz tone into the loopback so the RX tap yields a known signal \
+(FFT peak @ 1 kHz), resolved by WirePlumber to the same oe5xrx.slot1 node as real UAC2 hardware. \
+Children are owned by the harness (systemd). The SA818 emulator is pinned from the co-versioned \
+FW-RemoteStation release asset (not vendored); the tone is self-contained (no FW coupling). \
 No socat: native_sim owns the ptys."
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
@@ -18,6 +21,8 @@ require conf/oe5xrx-fw-release.inc
 SRC_URI = " \
     file://sim-harness.sh \
     file://oe5xrx-sim-harness.service \
+    file://sim-audio.sh \
+    file://oe5xrx-sim-audio.service \
     ${FW_RELEASE_URL_BASE}/${FW_RELEASE_TAG}/fm-sa818-2m.sa818-sim.py;name=sa818sim;downloadfilename=sa818-sim.py \
 "
 SRC_URI[sa818sim.sha256sum] = "cb35b4ef54e9f71ddcae8f912a9184172dac7a621c4d0ebb5c5e7a8f5229c085"
@@ -40,22 +45,31 @@ RDEPENDS:${PN} += "oe5xrx-native-sim-fm \
     python3-threading \
 "
 
-SYSTEMD_SERVICE:${PN} = "oe5xrx-sim-harness.service"
+# Audio sim substrate (sim-audio.sh): needs modprobe (kmod), the snd-aloop
+# kernel module (kernel-modules, base image) and the GStreamer tone pipeline +
+# ALSA tools from the system audio stack (oe5xrx-audio-system, base image).
+RDEPENDS:${PN} += "kmod oe5xrx-audio-system"
+
+SYSTEMD_SERVICE:${PN} = "oe5xrx-sim-harness.service oe5xrx-sim-audio.service"
 SYSTEMD_AUTO_ENABLE = "enable"
 
 do_install() {
     install -d ${D}${sbindir}
     install -m 0755 ${UNPACKDIR}/sim-harness.sh ${D}${sbindir}/sim-harness.sh
+    install -m 0755 ${UNPACKDIR}/sim-audio.sh   ${D}${sbindir}/sim-audio.sh
 
     install -d ${D}${libexecdir}/oe5xrx
     install -m 0755 ${UNPACKDIR}/sa818-sim.py ${D}${libexecdir}/oe5xrx/sa818-sim.py
 
     install -d ${D}${systemd_system_unitdir}
     install -m 0644 ${UNPACKDIR}/oe5xrx-sim-harness.service ${D}${systemd_system_unitdir}/oe5xrx-sim-harness.service
+    install -m 0644 ${UNPACKDIR}/oe5xrx-sim-audio.service   ${D}${systemd_system_unitdir}/oe5xrx-sim-audio.service
 }
 
 FILES:${PN} = " \
     ${sbindir}/sim-harness.sh \
+    ${sbindir}/sim-audio.sh \
     ${libexecdir}/oe5xrx/sa818-sim.py \
     ${systemd_system_unitdir}/oe5xrx-sim-harness.service \
+    ${systemd_system_unitdir}/oe5xrx-sim-audio.service \
 "

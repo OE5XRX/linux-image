@@ -36,6 +36,12 @@ IMAGE_INSTALL:append = " picocom"
 # D2 slot contract: udev rules that map BusBoard hub ports to /dev/oe5xrx/slotN/control.
 IMAGE_INSTALL:append = " oe5xrx-slot-udev oe5xrx-fm-firmware"
 
+# Audio subsystem foundation (Spec 0 §3/§7-A, Session A): system-wide
+# PipeWire/WirePlumber + GStreamer/Opus bridge elements + the oe5xrx.slotN
+# WirePlumber naming rule. All machines — real HW UAC2 and the sim snd-aloop
+# both surface as PipeWire nodes here.
+IMAGE_INSTALL:append = " oe5xrx-audio-system"
+
 # Boot robustness: hung-task -> panic -> reboot -> A/B bootcount rollback.
 # Pairs with cmdline panic=5 softlockup_panic=1 (set in grub.cfg / boot.cmd).
 IMAGE_INSTALL:append = " oe5xrx-boot-robustness"

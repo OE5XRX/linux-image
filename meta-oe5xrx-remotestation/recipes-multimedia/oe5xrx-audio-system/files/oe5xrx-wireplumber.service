@@ -1,0 +1,36 @@
+[Unit]
+Description=OE5XRX system-wide WirePlumber session/policy manager
+Documentation=https://oe5xrx.org/docs/remote-station/
+# WirePlumber is the session manager for the system-wide PipeWire daemon: it
+# runs the ALSA monitor that turns each module's sound card into a PipeWire node
+# and applies the oe5xrx.slotN naming rule (Spec 0 §4).
+# After + Requires (NOT BindsTo): pipewire does a one-time on-failure restart
+# early in boot; BindsTo reacted to that transient inactive and stopped
+# WirePlumber 44 ms after start, and it never came back — so no ALSA nodes ever
+# appeared. Requires won't propagate an auto-restart, and Restart=on-failure
+# below reconnects WirePlumber if it loses the pipewire connection.
+After=oe5xrx-pipewire.service
+Requires=oe5xrx-pipewire.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=pipewire
+Group=pipewire
+UMask=0007
+Environment=PIPEWIRE_RUNTIME_DIR=/run/pipewire
+# WirePlumber persists per-device state (default routes/volumes) under
+# XDG_STATE_HOME; point it at a writable state dir owned by the pipewire user.
+Environment=XDG_STATE_HOME=/var/lib/wireplumber
+StateDirectory=wireplumber
+ExecStart=/usr/bin/wireplumber
+# Restart=always (not on-failure): if WirePlumber ever loses its PipeWire
+# connection (pipewire's early-boot restart) or is otherwise stopped, bring it
+# straight back so the ALSA monitor is always running. StartLimit* above caps a
+# genuine crash-loop.
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

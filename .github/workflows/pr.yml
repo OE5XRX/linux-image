@@ -36,7 +36,10 @@ on:
       - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-slot-udev/**'
       - 'meta-oe5xrx-remotestation/recipes-core/packagegroups/**'
       - 'meta-oe5xrx-remotestation/recipes-core/station-agent/**'
+      # audio subsystem foundation (Session A): system audio stack + gst opus
+      - 'meta-oe5xrx-remotestation/recipes-multimedia/**'
       - 'tests/ota-integration/**'
+      - 'tests/audio/**'
       # the build/test plumbing itself
       - '.github/workflows/pr.yml'
       - '.github/workflows/_build.yml'

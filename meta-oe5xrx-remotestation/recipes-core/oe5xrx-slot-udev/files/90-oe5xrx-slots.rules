@@ -12,4 +12,26 @@ SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", SUBSYSTEMS=="usb", KERNELS=="1-1.2", S
 SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", SUBSYSTEMS=="usb", KERNELS=="1-1.3", SYMLINK+="oe5xrx/slot3/control"
 SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", SUBSYSTEMS=="usb", KERNELS=="1-1.4", SYMLINK+="oe5xrx/slot4/control"
 
+# --- Audio half of the slot contract (Spec 0 §4/§8) ------------------------
+# ALSA sound devices cannot carry stable /dev symlinks the way tty does (the
+# agent consumes PipeWire NODES, not /dev/snd paths). Two independent consumers
+# use two mechanisms off the SAME per-slot identity:
+#   * the agent (Session B) can enumerate slots by reading this OE5XRX_SLOT udev
+#     property on the sound device (pyudev), mirroring the tty slot signal;
+#   * WirePlumber names the PipeWire node "oe5xrx.slotN" via its own ALSA node
+#     predicate (see 51-oe5xrx-slot-naming.conf) — it does NOT read this udev
+#     property, so the tag and the node name are kept deliberately in sync.
+#
+# Real HW: the module's UAC2 sound card is a child of the fixed FE1.1s hub port,
+# told apart by PORT PATH only (never serial), exactly like the control tty.
+SUBSYSTEM=="sound", KERNELS=="1-1.1", ENV{OE5XRX_SLOT}="1", ENV{OE5XRX_SLOT_ROLE}="audio"
+SUBSYSTEM=="sound", KERNELS=="1-1.2", ENV{OE5XRX_SLOT}="2", ENV{OE5XRX_SLOT_ROLE}="audio"
+SUBSYSTEM=="sound", KERNELS=="1-1.3", ENV{OE5XRX_SLOT}="3", ENV{OE5XRX_SLOT_ROLE}="audio"
+SUBSYSTEM=="sound", KERNELS=="1-1.4", ENV{OE5XRX_SLOT}="4", ENV{OE5XRX_SLOT_ROLE}="audio"
+# Sim: the snd-aloop card is loaded by the sim-harness with a stable id
+# (modprobe snd-aloop id=oe5xrxslot1). Matching that id sets the SAME slot tag,
+# so PipeWire/WirePlumber resolve "oe5xrx.slot1" identically in sim and on real
+# HW (Spec 0 §8 "identische Node-Auflösung in QEMU").
+SUBSYSTEM=="sound", ATTRS{id}=="oe5xrxslot1", ENV{OE5XRX_SLOT}="1", ENV{OE5XRX_SLOT_ROLE}="audio"
+
 LABEL="oe5xrx_slots_end"
