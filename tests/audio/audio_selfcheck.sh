@@ -84,27 +84,24 @@ dump_audio_diag() {
 }
 
 # 3) exactly one slot node named by WirePlumber -------------------------------
-# Match the node name as a whole token: treat NODE as a LITERAL (escape ALL ERE
-# metacharacters, so an overridden NODE can't inject regex specials) and require a
-# WHITESPACE or end-of-line boundary after it. A whitespace/EOL boundary excludes
-# both the TX sink "oe5xrx.slot1.tx" (next char '.') AND a longer sibling like
-# "oe5xrx.slot10" (next char '0') — a bare "not a dot" would false-match slot10.
-node_esc="$(printf '%s' "$NODE" | sed 's/[][^$.*+?(){}|\\]/\\&/g')"
-node_re="${node_esc}([[:space:]]|\$)"
+# Detect the node by its node.name via `pw-cli ls Node` — NOT `wpctl status`,
+# which lists audio nodes by DESCRIPTION ("OE5XRX slot1 audio RX (capture ...)"),
+# never by node.name, so grepping wpctl for "oe5xrx.slot1" always misses even
+# though the node exists. The exact `node.name = "<NODE>"` line (fixed-string
+# match, incl. the closing quote) also excludes the TX sink "oe5xrx.slot1.tx" and
+# any longer sibling like "oe5xrx.slot10".
+node_line="node.name = \"${NODE}\""
 _i=0
 while :; do
-    # Bound wpctl: in system mode it can block indefinitely if the daemon isn't
-    # answering, which would hang the whole gate. A hang => fail fast with a dump.
-    st="$(timeout 10 wpctl status 2>/dev/null)"; rc=$?
-    if [ "$rc" = 124 ]; then dump_audio_diag; fail "wpctl_hang"; fi
-    count="$(printf '%s\n' "$st" | grep -cE "$node_re" || true)"
+    nodes="$(timeout 10 pw-cli ls Node 2>/dev/null || true)"
+    count="$(printf '%s\n' "$nodes" | grep -cF "$node_line" || true)"
     [ "$count" -ge 1 ] && break
     _i=$((_i + 1))
     [ "$_i" -ge 40 ] && { dump_audio_diag; fail "node_${NODE}_absent"; }
     sleep 1
 done
-# A duplicate name (e.g. both aloop capture ends matched) means the recording
-# target is ambiguous — fail loudly rather than record the wrong (silent) end.
+# A duplicate node.name means the recording target is ambiguous — fail loudly
+# rather than record the wrong (silent) end.
 if [ "$count" -gt 1 ]; then dump_audio_diag; fail "node_${NODE}_ambiguous(count=$count)"; fi
 echo "AUDIO-CHECK node=$NODE present count=$count"
 
