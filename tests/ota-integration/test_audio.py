@@ -91,8 +91,13 @@ def _capture_wav(con, begin, end):
     except pexpect.TIMEOUT:
         pytest.fail(f"timed out waiting for {begin}. Guest console tail:\n{con.before[-4000:]}")
     if idx == 1:
+        # The AUDIO-CHECK progress + dump_audio_diag were printed BEFORE the
+        # result=FAIL marker, so they live in THIS con.before (captured now,
+        # before the next expect consumes past them).
+        diag = con.before[-4000:]
         con.expect(r"\r?\n", timeout=10)
-        pytest.fail(f"in-guest self-check failed (result=FAIL{con.before})")
+        pytest.fail(f"in-guest self-check failed (result=FAIL{con.before}). "
+                    f"Console tail:\n{diag}")
     try:
         con.expect(end, timeout=600)
     except pexpect.TIMEOUT:

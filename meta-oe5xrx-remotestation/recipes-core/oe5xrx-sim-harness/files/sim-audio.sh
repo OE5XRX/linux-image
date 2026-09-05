@@ -68,18 +68,21 @@ echo "sim-audio: snd-aloop card '${ALOOP_ID}' ready (index ${ALOOP_INDEX})" >&2
 # already holds a PCM the card reports "Device or resource busy" and WirePlumber
 # defers it forever -> no PipeWire node is ever created. Once WirePlumber has the
 # device, the shim opening dev0-playback coexists fine (different PCM substreams).
-if command -v pw-cli >/dev/null 2>&1; then
-    _j=0
-    while ! pw-cli ls Node 2>/dev/null | grep -q "\"${SLOT_NODE}\""; do
-        _j=$((_j + 1))
-        if [ "$_j" -ge 60 ]; then
-            echo "sim-audio: WARNING ${SLOT_NODE} node absent after 60s; starting tone anyway" >&2
-            break
-        fi
-        sleep 1
-    done
-    [ "$_j" -lt 60 ] && echo "sim-audio: ${SLOT_NODE} node present after ${_j}s — starting tone" >&2
-fi
+# Do NOT start the tone on timeout — a tone holding the card is exactly what
+# blocks enumeration. If the node hasn't appeared, EXIT non-zero and let systemd
+# (Restart=on-failure) retry: the card stays free so WirePlumber can still
+# enumerate it. WirePlumber is robust at boot (Restart=always), so the node
+# appears within seconds once it is up; the generous bound only covers a slow boot.
+_j=0
+while ! pw-cli ls Node 2>/dev/null | grep -q "\"${SLOT_NODE}\""; do
+    _j=$((_j + 1))
+    if [ "$_j" -ge 120 ]; then
+        echo "sim-audio: ${SLOT_NODE} node absent after ${_j}s — exiting for systemd retry (card left free for WirePlumber)" >&2
+        exit 1
+    fi
+    sleep 1
+done
+echo "sim-audio: ${SLOT_NODE} node present after ${_j}s — starting tone" >&2
 
 # Continuous 1 kHz sine into the loopback playback side. Restart the shim if it
 # ever exits while we are still running: PipeWire's ALSA monitor may briefly

@@ -25,8 +25,12 @@ Environment=PIPEWIRE_RUNTIME_DIR=/run/pipewire
 Environment=XDG_STATE_HOME=/var/lib/wireplumber
 StateDirectory=wireplumber
 ExecStart=/usr/bin/wireplumber
-Restart=on-failure
-RestartSec=2
+# Restart=always (not on-failure): if WirePlumber ever loses its PipeWire
+# connection (pipewire's early-boot restart) or is otherwise stopped, bring it
+# straight back so the ALSA monitor is always running. StartLimit* above caps a
+# genuine crash-loop.
+Restart=always
+RestartSec=1
 
 [Install]
 WantedBy=multi-user.target
