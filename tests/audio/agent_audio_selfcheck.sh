@@ -114,6 +114,32 @@ for o in data:
 ' 2>/dev/null || echo "EV: pw-dump/python evidence step failed"
 echo "RESOLUTION-EVIDENCE-END"
 
+# 3c) Live-bridge element presence (RC#1 regression guard). The `selftest audio`
+# path below only exercises the fdsink self-check pipeline, NOT the real live
+# WS<->module Opus bridge (station_agent/audio/opus_bridge.py, build_rx_argv/
+# build_tx_argv), which is an RTP-over-UDP loopback:
+#   RX: pipewiresrc ! opusenc ! rtpopuspay ! udpsink
+#   TX: udpsrc ! rtpjitterbuffer ! rtpopusdepay ! opusdec ! pipewiresink
+# If the rtp/udp/rtpmanager GStreamer plugins are missing from the image the
+# selftest still passes but every real subscribe silently dies (no media frame).
+# Assert the FULL live-bridge element set here so that gap fails the gate loudly.
+# audioconvert/audioresample come from plugins-base (already pulled) but the
+# bridge spawns them in both directions, so include them to keep this the true
+# full set and guard a future plugins-base slimming.
+BRIDGE_ELEMENTS="pipewiresrc audioconvert audioresample opusenc rtpopuspay udpsink udpsrc rtpjitterbuffer rtpopusdepay opusdec pipewiresink"
+missing=""
+for el in $BRIDGE_ELEMENTS; do
+    gst-inspect-1.0 "$el" >/dev/null 2>&1 || missing="$missing $el"
+done
+if [ -n "$missing" ]; then
+    echo "LIVE-BRIDGE-ELEMENTS result=FAIL missing:$missing"
+    dump_diag
+    echo "AGENT-AUDIO-E2E-OUTPUT-END"
+    echo "AGENT-AUDIO-E2E result=FAIL reason=missing_gst_element(${missing# })"
+    exit 1
+fi
+echo "LIVE-BRIDGE-ELEMENTS result=PASS all-present: $BRIDGE_ELEMENTS"
+
 # 4) Run the agent's own audio selftest. Merge stderr (where the agent logs its
 # Goertzel verdict + FFT dominance ratio) into stdout so the CI console captures it.
 # (OUTPUT-BEGIN was already emitted above so the resolution evidence is captured too.)

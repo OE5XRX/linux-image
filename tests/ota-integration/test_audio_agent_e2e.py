@@ -145,6 +145,18 @@ def test_e_agent_audio_e2e(qemu_target, built_wic, expected_tag):
     assert "RX OK" in selftest_output, f"no RX OK verdict. Output:\n{selftest_output}"
     assert "TX OK" in selftest_output, f"no TX OK verdict. Output:\n{selftest_output}"
 
+    # RC#1 regression guard: the wrapper asserts the FULL live-bridge gst element
+    # set (rtpopuspay/rtpopusdepay/udpsink/udpsrc/rtpjitterbuffer + opus/pipewire)
+    # is present in the image via gst-inspect-1.0 — the `selftest audio` fdsink
+    # path does NOT exercise the real RTP-over-UDP bridge, so missing rtp/udp/
+    # rtpmanager plugins would pass the selftest yet kill every live subscribe.
+    # Re-assert the PASS marker host-side so the in-guest check can't be silently
+    # dropped without failing this gate (mirrors the FFT-ratio re-check below).
+    assert "LIVE-BRIDGE-ELEMENTS result=PASS" in selftest_output, (
+        "live-bridge gst element presence check did not PASS "
+        f"(RC#1 guard). Output:\n{selftest_output}"
+    )
+
     # Assert the logged FFT dominance ratios clear the selftest's margin (>4x). The
     # agent logs e.g. "P(1000)/P(runner-up)=37.2x" — parse and re-check as a
     # host-side guard so a future logging change can't silently weaken the gate.

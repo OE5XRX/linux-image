@@ -65,10 +65,19 @@ done
 echo "AUDIO-CHECK services=active pipewire=$a wireplumber=$b"
 
 # 2) gstreamer bridge elements ------------------------------------------------
-for el in opusenc opusdec pipewiresrc pipewiresink; do
+# The FULL live-bridge element set the agent's Opus bridge needs
+# (station_agent/audio/opus_bridge.py). Beyond the Opus/PipeWire codecs this
+# includes the RTP-over-UDP loopback elements (rtpopuspay/rtpopusdepay from
+# plugins-good-rtp, udpsink/udpsrc from plugins-good-udp, rtpjitterbuffer from
+# plugins-good-rtpmanager). Missing any of these = a silently dead live bridge
+# (RC#1) even though the tone-shim substrate below still works — so gate on all.
+# audioconvert/audioresample are plugins-base (already pulled) but spawned by the
+# bridge in both directions, so include them for the true full set.
+for el in opusenc opusdec pipewiresrc pipewiresink audioconvert audioresample \
+          rtpopuspay rtpopusdepay udpsink udpsrc rtpjitterbuffer; do
     gst-inspect-1.0 "$el" >/dev/null 2>&1 || fail "no_$el"
 done
-echo "AUDIO-CHECK gst=ok opusenc,opusdec,pipewiresrc,pipewiresink present"
+echo "AUDIO-CHECK gst=ok opus,pipewire,rtp,udp,rtpmanager,convert bridge elements present"
 
 # Dump audio-graph state so a failure is diagnosable from the CI console.
 dump_audio_diag() {
