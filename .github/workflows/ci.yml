@@ -88,6 +88,7 @@ jobs:
             meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/files/sim-audio.sh \
             tests/sim-harness/test_sim_harness.sh \
             tests/audio/audio_selfcheck.sh \
+            tests/audio/agent_audio_selfcheck.sh \
             scripts/bump-fw-release.sh
 
   ydev-scripts:
