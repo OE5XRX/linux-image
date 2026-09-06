@@ -26,11 +26,25 @@ inherit systemd allarch
 
 # Runtime audio stack. The metas pull the ALSA SPA plugin (module -> PipeWire
 # node) and the WirePlumber modules; the GStreamer packages carry the bridge
-# elements Session B and the sim tone shim use:
-#   opusenc/opusdec       -> gstreamer1.0-plugins-base-opus (see the base bbappend)
+# elements Session B and the sim tone shim use. The agent's LIVE Opus bridge
+# (station_agent/audio/opus_bridge.py, build_rx_argv/build_tx_argv) is an
+# RTP-over-UDP loopback, so it needs the rtp payloaders, the udp transport AND
+# the jitter buffer in addition to the Opus/PipeWire elements:
+#   opusenc/opusdec          -> gstreamer1.0-plugins-base-opus (see the base bbappend)
 #   pipewiresrc/pipewiresink -> gstreamer1.0-pipewire
+#   rtpopuspay/rtpopusdepay  -> gstreamer1.0-plugins-good-rtp
+#   udpsink/udpsrc           -> gstreamer1.0-plugins-good-udp
+#   rtpjitterbuffer          -> gstreamer1.0-plugins-good-rtpmanager
 #   audiotestsrc/alsasink/audioconvert/audioresample -> gstreamer1.0-plugins-base
 # gst-inspect-1.0 / gst-launch-1.0 live in the gstreamer1.0 package.
+#
+# NOTE: depend on the SPECIFIC split plugin packages, NOT the bare
+# 'gstreamer1.0-plugins-good' — that top package is EMPTY (FILES=""), it only
+# *RRECOMMENDS* '-meta', which is best-effort and can be dropped in an image
+# build. Same reason we pin 'gstreamer1.0-plugins-base-opus' rather than bare
+# '-base'. Pinning the three sub-plugins keeps the headless appliance image
+# lean (no v4l2/jpeg/png/... from the full -good set) while guaranteeing the
+# bridge elements are actually installed.
 RDEPENDS:${PN} = " \
     pipewire \
     pipewire-tools \
@@ -43,6 +57,9 @@ RDEPENDS:${PN} = " \
     gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-base-opus \
     gstreamer1.0-pipewire \
+    gstreamer1.0-plugins-good-rtp \
+    gstreamer1.0-plugins-good-udp \
+    gstreamer1.0-plugins-good-rtpmanager \
     libopus \
     alsa-utils \
     dbus \
