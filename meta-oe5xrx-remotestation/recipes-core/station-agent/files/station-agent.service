@@ -2,6 +2,11 @@
 Description=OE5XRX Station Agent
 After=network-online.target
 Wants=network-online.target
+# Audio (Session A/B): come up after the system PipeWire graph so the agent's
+# audio engine finds the slotN nodes. Soft deps — absent on non-audio image
+# variants, which is fine (ordering/Wants are no-ops when the units don't exist).
+After=oe5xrx-pipewire.service oe5xrx-wireplumber.service
+Wants=oe5xrx-pipewire.service oe5xrx-wireplumber.service
 
 [Service]
 Type=simple
@@ -11,6 +16,12 @@ Restart=on-failure
 RestartSec=10
 User=root
 Environment=STATION_AGENT_CONFIG=/etc/stationagent/config.yml
+# Reach the system-wide PipeWire (Session A interface contract): the socket is
+# /run/pipewire/pipewire-0. PIPEWIRE_RUNTIME_DIR lets libpipewire / pw-cli /
+# gst-launch locate it. The agent runs as root, so it already has socket access
+# (no 'pipewire' group needed); a non-root agent would additionally need
+# SupplementaryGroups=pipewire.
+Environment=PIPEWIRE_RUNTIME_DIR=/run/pipewire
 
 [Install]
 WantedBy=multi-user.target
