@@ -138,7 +138,10 @@ def test_e_agent_audio_e2e(qemu_target, built_wic, expected_tag):
     # Assert the logged FFT dominance ratios clear the selftest's margin (>4x). The
     # agent logs e.g. "P(1000)/P(runner-up)=37.ytimes" — parse and re-check as a
     # host-side guard so a future logging change can't silently weaken the gate.
-    ratios = [float(m) for m in re.findall(r"P\([0-9]+\)/P\(runner-up\)=([0-9.]+)x", selftest_output)]
+    ratios = [
+        float(m)
+        for m in re.findall(r"P\([0-9]+\)/P\(runner-up\)=([0-9.]+)x", selftest_output)
+    ]
     assert len(ratios) == 2, (
         f"expected 2 FFT dominance ratios (RX+TX), got {ratios}. Output:\n{selftest_output}"
     )

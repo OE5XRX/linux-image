@@ -20,10 +20,13 @@ export PIPEWIRE_RUNTIME_DIR="${PIPEWIRE_RUNTIME_DIR:-/run/pipewire}"
 SLOT="${SLOT:-1}"
 DURATION="${DURATION:-2}"
 TXFREQ="${TXFREQ:-1500}"
+# The sim aloop cable is pinned to 8 kHz (sim-audio.sh / 51-oe5xrx-slot-naming.conf);
+# pass it explicitly so a future default drift can't silently mismatch the tap rate.
+RATE="${RATE:-8000}"
 
 # Quiet the kernel console so printk lines can't splice into the agent's log output
-# on the shared serial console; restore on every exit path.
-prev_printk="$(awk '{print $1}' /proc/sys/kernel/printk 2>/dev/null || true)"
+# on the shared serial console; restore the full 4-tuple on every exit path.
+prev_printk="$(cat /proc/sys/kernel/printk 2>/dev/null || true)"
 restore_printk() {
     [ -n "$prev_printk" ] || return 0
     echo "$prev_printk" > /proc/sys/kernel/printk 2>/dev/null || true
@@ -57,7 +60,7 @@ while :; do
     if [ "$_i" -ge 90 ]; then
         dump_diag
         echo "AGENT-AUDIO-E2E result=FAIL reason=substrate_not_active(sim=$s pw=$p wp=$w)"
-        exit 0
+        exit 1
     fi
     sleep 1
 done
@@ -76,7 +79,7 @@ gst-inspect-1.0 fakesrc >/dev/null 2>&1 || true
 # 4) Run the agent's own audio selftest. Merge stderr (where the agent logs its
 # Goertzel verdict + FFT dominance ratio) into stdout so the CI console captures it.
 echo "AGENT-AUDIO-E2E-OUTPUT-BEGIN"
-python3 -m station_agent selftest audio --slot "$SLOT" --duration "$DURATION" --tx-freq "$TXFREQ" 2>&1
+python3 -m station_agent selftest audio --slot "$SLOT" --duration "$DURATION" --tx-freq "$TXFREQ" --rate "$RATE" 2>&1
 rc=$?
 echo "AGENT-AUDIO-E2E-OUTPUT-END"
 
