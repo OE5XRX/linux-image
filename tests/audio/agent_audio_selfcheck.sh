@@ -76,9 +76,46 @@ systemctl stop station-agent 2>/dev/null || true
 # captures don't race a cold first-run registry build under QEMU/TCG.
 gst-inspect-1.0 fakesrc >/dev/null 2>&1 || true
 
+# Open the captured output block EARLY so the resolution evidence below is inside the
+# range the host test records (and prints on failure), not before it.
+echo "AGENT-AUDIO-E2E-OUTPUT-BEGIN"
+
+# 3b) Resolution evidence (Session E debug): the agent maps slot->node via the
+# OE5XRX_SLOT udev tag -> ALSA card index -> a pw node whose api.alsa.card matches
+# (Spec 0 §12 Finding 2). Dump exactly those inputs so a resolve miss is diagnosable
+# without an agent rebuild. Always printed (cheap) between markers.
+echo "RESOLUTION-EVIDENCE-BEGIN"
+echo "EV: -- sound cards: index / id / OE5XRX_SLOT (udevadm) --"
+for c in /sys/class/sound/card*; do
+    [ -e "$c" ] || continue
+    idx="${c##*card}"
+    cid="$(cat "$c/id" 2>/dev/null || echo '?')"
+    slot="$(udevadm info --query=property --path "$c" 2>/dev/null | grep -E '^OE5XRX_SLOT' | tr '\n' ' ')"
+    echo "EV: card${idx} id=${cid} ${slot}"
+done
+echo "EV: -- pw-dump audio node card props --"
+pw-dump 2>/dev/null | python3 -c '
+import sys, json
+try:
+    data = json.load(sys.stdin)
+except Exception as e:
+    print("EV: pw-dump parse error", e); sys.exit(0)
+keys = ("node.name", "media.class", "api.alsa.card", "api.alsa.pcm.card",
+        "alsa.card", "object.path", "api.alsa.path", "device.name")
+for o in data:
+    if o.get("type") != "PipeWire:Interface:Node":
+        continue
+    p = o.get("info", {}).get("props", {})
+    mc = p.get("media.class", "")
+    if not (isinstance(mc, str) and mc.startswith("Audio/")):
+        continue
+    print("EV: node", o.get("id"), {k: p.get(k) for k in keys})
+' 2>/dev/null || echo "EV: pw-dump/python evidence step failed"
+echo "RESOLUTION-EVIDENCE-END"
+
 # 4) Run the agent's own audio selftest. Merge stderr (where the agent logs its
 # Goertzel verdict + FFT dominance ratio) into stdout so the CI console captures it.
-echo "AGENT-AUDIO-E2E-OUTPUT-BEGIN"
+# (OUTPUT-BEGIN was already emitted above so the resolution evidence is captured too.)
 python3 -m station_agent selftest audio --slot "$SLOT" --duration "$DURATION" --tx-freq "$TXFREQ" --rate "$RATE" 2>&1
 rc=$?
 echo "AGENT-AUDIO-E2E-OUTPUT-END"
