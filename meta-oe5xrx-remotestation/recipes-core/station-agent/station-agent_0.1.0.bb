@@ -18,7 +18,7 @@ SRC_URI = " \
 # SRCREV are needed to build+prove the fix green in CI BEFORE #124 merges.
 # >>> BEFORE MERGING THIS PR: revert branch= to main and re-pin SRCREV to the squashed
 # >>> main commit of #124 via scripts/pin-station-agent.sh <sha>.
-SRCREV = "b51b061daf9fa55cef54d0cbd191638055bcbe3b"
+SRCREV = "f4ad4f173aee28ab2f20a479d2c2a8c1ca04ea6b"
 PV = "0.1.0+git${SRCPV}"
 
 S = "${UNPACKDIR}/station_agent"
