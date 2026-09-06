@@ -4,21 +4,14 @@ LICENSE = "AGPL-3.0-only"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/AGPL-3.0-only;md5=73f1eb20517c55bf9493b7dd6e480788"
 
 SRC_URI = " \
-    git://github.com/OE5XRX/station-manager.git;protocol=https;branch=feat/audio-e2e-selftest-fix;subpath=station_agent \
+    git://github.com/OE5XRX/station-manager.git;protocol=https;branch=main;subpath=station_agent \
     file://station-agent.service \
     file://config.yml \
 "
 # Lockfile-style pin: SRCREV is always a specific commit, never ${AUTOREV}.
 # Bump via scripts/pin-station-agent.sh, commit like any dependency update.
 # The release workflow's preflight job refuses to build with AUTOREV.
-#
-# TEMPORARY Session-E test-pin: this points at station-manager PR #124
-# (feat/audio-e2e-selftest-fix), which repairs the `selftest audio` TX path that the
-# Tier-1 QEMU E2E test (test_audio_agent_e2e.py) exercises. The branch override + this
-# SRCREV are needed to build+prove the fix green in CI BEFORE #124 merges.
-# >>> BEFORE MERGING THIS PR: revert branch= to main and re-pin SRCREV to the squashed
-# >>> main commit of #124 via scripts/pin-station-agent.sh <sha>.
-SRCREV = "f3920e3d89b0cc7461ca493a732bd35db769e621"
+SRCREV = "2c80f96992075edf1c2224cbfcb303b5e927676f"
 PV = "0.1.0+git${SRCPV}"
 
 S = "${UNPACKDIR}/station_agent"
