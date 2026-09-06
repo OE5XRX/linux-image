@@ -27,6 +27,7 @@ RATE="${RATE:-8000}"
 # Quiet the kernel console so printk lines can't splice into the agent's log output
 # on the shared serial console; restore the full 4-tuple on every exit path.
 prev_printk="$(cat /proc/sys/kernel/printk 2>/dev/null || true)"
+# shellcheck disable=SC2317  # body runs via the EXIT/INT/TERM traps below, not inline
 restore_printk() {
     [ -n "$prev_printk" ] || return 0
     echo "$prev_printk" > /proc/sys/kernel/printk 2>/dev/null || true
@@ -94,7 +95,7 @@ for c in /sys/class/sound/card*; do
     echo "EV: card${idx} id=${cid} ${slot}"
 done
 echo "EV: -- pw-dump audio node card props --"
-pw-dump 2>/dev/null | python3 -c '
+timeout 8 pw-dump 2>/dev/null | python3 -c '
 import sys, json
 try:
     data = json.load(sys.stdin)
@@ -126,3 +127,7 @@ else
     dump_diag
     echo "AGENT-AUDIO-E2E result=FAIL reason=selftest_rc=$rc slot=$SLOT"
 fi
+
+# Propagate the selftest's exit code so a standalone/bench run (`sh agent_audio_selfcheck.sh;
+# echo $?`) reflects the real result. The QEMU test reads the markers, not the exit code.
+exit "$rc"

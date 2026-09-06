@@ -97,11 +97,21 @@ def test_e_agent_audio_e2e(qemu_target, built_wic, expected_tag):
     con.sendline("sh /tmp/agent_sc.sh")
 
     try:
-        con.expect("AGENT-AUDIO-E2E-OUTPUT-BEGIN", timeout=300)
+        # Match the OUTPUT block start, or an early wrapper FAIL (e.g. substrate never
+        # came up — printed before the OUTPUT markers), so an in-guest failure surfaces
+        # its reason immediately instead of stalling to the full timeout.
+        idx0 = con.expect(
+            ["AGENT-AUDIO-E2E-OUTPUT-BEGIN", "AGENT-AUDIO-E2E result=FAIL"], timeout=300
+        )
     except pexpect.TIMEOUT:
         pytest.fail(
             "timed out before the selftest ran (substrate not ready?). "
             f"Console tail:\n{con.before[-4000:]}"
+        )
+    if idx0 == 1:
+        pytest.fail(
+            "in-guest wrapper reported FAIL before the selftest output "
+            f"(substrate not ready?). Console tail:\n{con.before[-4000:]}"
         )
     try:
         con.expect("AGENT-AUDIO-E2E-OUTPUT-END", timeout=300)
@@ -136,7 +146,7 @@ def test_e_agent_audio_e2e(qemu_target, built_wic, expected_tag):
     assert "TX OK" in selftest_output, f"no TX OK verdict. Output:\n{selftest_output}"
 
     # Assert the logged FFT dominance ratios clear the selftest's margin (>4x). The
-    # agent logs e.g. "P(1000)/P(runner-up)=37.ytimes" — parse and re-check as a
+    # agent logs e.g. "P(1000)/P(runner-up)=37.2x" — parse and re-check as a
     # host-side guard so a future logging change can't silently weaken the gate.
     ratios = [
         float(m)
