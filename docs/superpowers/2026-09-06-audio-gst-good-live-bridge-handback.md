@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-06
 **Branch:** `fix/audio-gst-good-rtp-udp-main` (off `origin/main`)
-**PR:** _(opened from this branch — see below)_
+**PR:** [#87](https://github.com/OE5XRX/linux-image/pull/87)
 **Spec:** `station-manager/docs/superpowers/specs/2026-09-03-audio-subsystem-design.md` (§8)
 
 Autonomous fix session S2. Fixes one image bug (RC#1) + one CI-coverage gap (FIX#4)
