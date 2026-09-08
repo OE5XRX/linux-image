@@ -18,6 +18,11 @@
 # Source flags select WHICH image; --dev selects the dev variant. They combine,
 # e.g. `--dist --dev` boots the downloaded dev-image.
 #
+#   --disk-size N    boot on a larger COPY of the wic (e.g. --disk-size 8G) so
+#                    data-grow.service has free space after `data` to expand
+#                    into, mirroring real eMMC/SD. Without it the wic is booted
+#                    directly and `data` stays at its built size (512 MB).
+#
 # Environment overrides:
 #   SSH_PORT=2222    host port that maps to guest's sshd (default 2222)
 #   MEM=1024         guest memory, MB (default 1024)
@@ -59,6 +64,7 @@ SSH_PORT="${SSH_PORT:-2222}"
 MEM="${MEM:-1024}"
 CPUS="${CPUS:-2}"
 DEV_AGENT="${DEV_AGENT:-0}"
+DISK_SIZE=""   # if set (e.g. 8G), boot on a resized copy so data-grow can expand
 SOURCE=""   # explicit image source (local|dist|artifact|release); empty = auto-detect
 
 set_source() {  # enforce a single explicit source
@@ -178,6 +184,11 @@ while [ $# -gt 0 ]; do
             echo "==> Dev-Agent-Modus: bootet das Dev-Image. In einem 2. Terminal andocken mit:" >&2
             echo "    just dev qemu   (bzw. just dev attach localhost:${SSH_PORT} 10.0.2.2 ${REPO_ROOT%/*}/station-manager)" >&2
             shift
+            ;;
+        --disk-size)
+            [ -n "${2:-}" ] || { echo "ERROR: --disk-size needs a size (e.g. 8G)" >&2; exit 2; }
+            DISK_SIZE="$2"
+            shift 2
             ;;
         -h|--help) usage 0 ;;
         *) echo "Unknown arg: $1" >&2; usage 2 ;;
@@ -309,6 +320,19 @@ else
     echo "WARNING: /dev/kvm not accessible — running without KVM (TCG, slow)." >&2
     KVM_FLAGS=""
     CPU_FLAGS="-cpu max -machine q35"
+fi
+
+# --disk-size: boot on a larger COPY of the wic so data-grow.service has free
+# space after `data` to expand into (mirrors real eMMC/SD). Booting the wic
+# directly (default) gives no room after `data`, so it stays at its built size.
+# Copying also avoids mutating the build artifact (QEMU writes to the disk).
+if [ -n "${DISK_SIZE}" ]; then
+    mkdir -p "${CACHE_DIR}"
+    GROWN_WIC="${CACHE_DIR}/grown-$(basename "${WIC}")"
+    echo "==> --disk-size ${DISK_SIZE}: copying wic and resizing to ${DISK_SIZE}" >&2
+    cp -f "${WIC}" "${GROWN_WIC}"
+    qemu-img resize -f raw "${GROWN_WIC}" "${DISK_SIZE}"
+    WIC="${GROWN_WIC}"
 fi
 
 echo "==> WIC:    ${WIC}"

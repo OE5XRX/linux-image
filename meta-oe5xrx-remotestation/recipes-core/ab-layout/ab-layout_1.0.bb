@@ -13,6 +13,8 @@ SRC_URI = " \
     file://etc-stationagent.mount \
     file://data-init.service \
     file://data-init.sh \
+    file://data-grow.service \
+    file://data-grow.sh \
 "
 
 S = "${UNPACKDIR}"
@@ -26,6 +28,7 @@ SYSTEMD_SERVICE:${PN} = " \
     root.mount \
     etc-stationagent.mount \
     data-init.service \
+    data-grow.service \
 "
 # boot-firmware.mount is NOT listed here — we install it to /etc/ and wire the
 # wants symlink manually, because SYSTEMD_SERVICE drives systemctl enable
@@ -39,7 +42,8 @@ SYSTEMD_AUTO_ENABLE = "enable"
 # label (root_a), and x86 GRUB finds the slot via `search --label`, so an
 # un-relabelled B is unbootable and rolls back. (u-boot boots by PARTLABEL
 # and doesn't need it, but the tool ships on both machines.)
-RDEPENDS:${PN} += "parted e2fsprogs-resize2fs e2fsprogs-tune2fs util-linux-findmnt util-linux-lsblk"
+# gptfdisk (sgdisk) relocates the GPT backup header before the first-boot grow.
+RDEPENDS:${PN} += "parted e2fsprogs-resize2fs e2fsprogs-tune2fs util-linux-findmnt util-linux-lsblk gptfdisk"
 
 do_install() {
     install -d ${D}${systemd_system_unitdir}
@@ -49,12 +53,14 @@ do_install() {
     install -m 0644 ${UNPACKDIR}/root.mount          ${D}${systemd_system_unitdir}/
     install -m 0644 ${UNPACKDIR}/etc-stationagent.mount ${D}${systemd_system_unitdir}/
     install -m 0644 ${UNPACKDIR}/data-init.service   ${D}${systemd_system_unitdir}/
+    install -m 0644 ${UNPACKDIR}/data-grow.service   ${D}${systemd_system_unitdir}/
 
     install -d ${D}${sysconfdir}/systemd/system
     install -d ${D}${sysconfdir}/systemd/system/local-fs.target.wants
 
     install -d ${D}${sbindir}
     install -m 0755 ${UNPACKDIR}/data-init.sh        ${D}${sbindir}/data-init.sh
+    install -m 0755 ${UNPACKDIR}/data-grow.sh        ${D}${sbindir}/data-grow.sh
 
     # The bind-mount targets must exist in the rootfs.
     install -d ${D}/mnt/data

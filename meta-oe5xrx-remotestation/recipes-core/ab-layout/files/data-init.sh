@@ -4,10 +4,12 @@
 # Runs after /mnt/data is mounted, before var/home/root bind mounts.
 # Idempotent: safe to run on every boot.
 #
-# Partition-grow logic intentionally lives in a separate data-grow.service
-# (run once, behind a sentinel) because on QEMU the GPT backup header can
-# be misplaced and parted hangs trying to "fix" it. Separating grow from
-# this service keeps boot robust even if grow fails.
+# Partition-grow logic lives in a separate data-grow.service (runs offline
+# BEFORE this mount; free-space-gated and idempotent, no sentinel, so a later
+# medium resize — Proxmox qm resize, bigger eMMC/SD — is picked up on the next
+# boot). It uses `sgdisk -e` first because after a resize the GPT backup header
+# sits mid-disk and parted would otherwise stumble. Keeping grow separate keeps
+# boot robust even if grow fails.
 
 set -eu
 

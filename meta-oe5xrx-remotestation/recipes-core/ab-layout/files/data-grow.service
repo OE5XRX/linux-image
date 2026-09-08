@@ -1,0 +1,15 @@
+[Unit]
+Description=Grow persistent data partition to fill the device (offline, pre-mount)
+DefaultDependencies=no
+After=systemd-udevd.service
+Before=mnt-data.mount data-init.service local-fs.target
+ConditionPathExists=/dev/disk/by-partlabel/data
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=360
+ExecStart=/usr/sbin/data-grow.sh
+
+[Install]
+WantedBy=local-fs.target
