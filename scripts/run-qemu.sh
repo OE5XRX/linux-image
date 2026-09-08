@@ -327,6 +327,12 @@ fi
 # directly (default) gives no room after `data`, so it stays at its built size.
 # Copying also avoids mutating the build artifact (QEMU writes to the disk).
 if [ -n "${DISK_SIZE}" ]; then
+    if ! command -v qemu-img >/dev/null 2>&1; then
+        echo "ERROR: --disk-size needs qemu-img, which ships separately from" \
+             "qemu-system-x86 (Debian/Ubuntu: sudo apt install qemu-utils;" \
+             "Fedora: qemu-img; Arch: qemu-img)." >&2
+        exit 2
+    fi
     mkdir -p "${CACHE_DIR}"
     GROWN_WIC="${CACHE_DIR}/grown-$(basename "${WIC}")"
     echo "==> --disk-size ${DISK_SIZE}: copying wic and resizing to ${DISK_SIZE}" >&2

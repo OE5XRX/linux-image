@@ -39,12 +39,16 @@ Confirmed the fix direction read-only on the live station: pointing
 
 The design intent was redundant (the wks reserves `uboot_env` +
 `uboot_envr`, and `recipes-bsp/u-boot/files/oe5xrx-env.cfg` sets
-`CONFIG_SYS_REDUNDAND_ENVIRONMENT=y`), but the built u-boot only picks
+`CONFIG_ENV_REDUNDANT=y`), but the built u-boot only picks
 up the MMC part of the fragment (`ENV_IS_IN_MMC` + `ENV_OFFSET` — those
 work; the station reads/writes at the raw offset) and **drops the
-redundant part** (`SYS_REDUNDAND_ENVIRONMENT` + `ENV_OFFSET_REDUND`).
-Classic `merge_config` behaviour: a symbol whose Kconfig dependency /
-choice is unmet at merge time is silently discarded.
+redundant part** (`ENV_REDUNDANT` + `ENV_OFFSET_REDUND`).
+Classic `merge_config` behaviour: an **unknown** symbol is silently
+discarded. The trap: the fragment historically set the pre-rename name
+`CONFIG_SYS_REDUNDAND_ENVIRONMENT`, which u-boot 2026.01 renamed to
+`CONFIG_ENV_REDUNDANT` — so the old key merged to nothing and redundancy
+stayed at its default `n`. The build guard below now enforces the
+current name so this cannot silently regress again.
 
 The config is byte-identical between `2026.07.25` and `2026.09.06`, so
 this is a **latent, fleet-wide** bug on the u-boot target. It never
@@ -74,18 +78,18 @@ install on SD — acceptable.
 ### 1. Redundant u-boot env (rpi / u-boot only)
 
 - **Diagnose** at build time: inspect `${B}/.config` from a real
-  u-boot build to confirm *why* `CONFIG_SYS_REDUNDAND_ENVIRONMENT` is
+  u-boot build to confirm *why* `CONFIG_ENV_REDUNDANT` is
   dropped (dependency / env-location choice / symbol ordering).
 - **Fix** `recipes-bsp/u-boot/files/oe5xrx-env.cfg` so the redundant
   symbols land: `CONFIG_ENV_IS_IN_MMC=y`, `CONFIG_ENV_OFFSET`,
-  `CONFIG_SYS_REDUNDAND_ENVIRONMENT=y`, `CONFIG_ENV_OFFSET_REDUND`.
+  `CONFIG_ENV_REDUNDANT=y`, `CONFIG_ENV_OFFSET_REDUND`.
   Adjust whatever dependency/choice the diagnosis reveals (e.g.
   explicitly disabling `CONFIG_ENV_IS_IN_FAT` if the env-location
   choice is the blocker).
 - **Build guard** (defense-in-depth, matches project culture —
   template-comment guard, AUTOREV preflight): a `do_configure:append`
   in the u-boot bbappend greps `${B}/.config` and **fails the build**
-  if `CONFIG_SYS_REDUNDAND_ENVIRONMENT=y` is absent. This makes the
+  if `CONFIG_ENV_REDUNDANT=y` is absent. This makes the
   invariant self-enforcing against future silent regression.
 - `fw_env.config` stays two-line / redundant — it was correct all
   along; no change.
@@ -156,7 +160,7 @@ sentinel)"*). Add it to `recipes-core/ab-layout`:
 
 ## Testing
 
-- **Build guard** proves `CONFIG_SYS_REDUNDAND_ENVIRONMENT=y` in the
+- **Build guard** proves `CONFIG_ENV_REDUNDANT=y` in the
   built `.config` on every u-boot build.
 - **Boot-OTA integration test** (existing, `qemux86-64`): keep GRUB
   path green; extend to assert the post-OTA commit clears the trial

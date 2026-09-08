@@ -17,7 +17,14 @@ do_configure:append:raspberrypi4-64() {
     if ! grep -q '^CONFIG_ENV_REDUNDANT=y' "${B}/.config"; then
         bbfatal "CONFIG_ENV_REDUNDANT not enabled in built .config — redundant env fragment did not land (see oe5xrx-env.cfg)."
     fi
-    if ! grep -q '^CONFIG_ENV_OFFSET_REDUND=' "${B}/.config"; then
-        bbfatal "CONFIG_ENV_OFFSET_REDUND missing in built .config — redundant env offset not set."
+    # Assert the EXACT offsets, not just presence: a wrong value would still be
+    # "set" but ship a broken env location (fw_setenv/U-Boot would address the
+    # wrong sectors and could clobber a neighbouring partition). These must
+    # match the uboot_env/uboot_envr partition starts in the wks.
+    if ! grep -q '^CONFIG_ENV_OFFSET=0x4005000$' "${B}/.config"; then
+        bbfatal "CONFIG_ENV_OFFSET != 0x4005000 in built .config — must match the uboot_env partition start (see the .wks)."
+    fi
+    if ! grep -q '^CONFIG_ENV_OFFSET_REDUND=0x4105000$' "${B}/.config"; then
+        bbfatal "CONFIG_ENV_OFFSET_REDUND != 0x4105000 in built .config — must match the uboot_envr partition start (see the .wks)."
     fi
 }

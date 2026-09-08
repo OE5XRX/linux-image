@@ -42,8 +42,11 @@ SYSTEMD_AUTO_ENABLE = "enable"
 # label (root_a), and x86 GRUB finds the slot via `search --label`, so an
 # un-relabelled B is unbootable and rolls back. (u-boot boots by PARTLABEL
 # and doesn't need it, but the tool ships on both machines.)
-# gptfdisk (sgdisk) relocates the GPT backup header before the first-boot grow.
-RDEPENDS:${PN} += "parted e2fsprogs-resize2fs e2fsprogs-tune2fs util-linux-findmnt util-linux-lsblk gptfdisk"
+# data-grow needs: parted (+partprobe) & gptfdisk (sgdisk) for the partition
+# grow; e2fsprogs-resize2fs + e2fsprogs-e2fsck for the offline fs grow; coreutils
+# for `timeout` (a missing tool would make the grow a silent no-op on a lean
+# image). tune2fs/findmnt/lsblk are used by the agent's slot relabel + discovery.
+RDEPENDS:${PN} += "parted e2fsprogs-resize2fs e2fsprogs-e2fsck e2fsprogs-tune2fs util-linux-findmnt util-linux-lsblk gptfdisk coreutils"
 
 do_install() {
     install -d ${D}${systemd_system_unitdir}

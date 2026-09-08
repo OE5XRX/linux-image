@@ -4,7 +4,7 @@
 
 **Goal:** Make u-boot actually use its redundant environment (so OTA trial-boot arming/commit works on the CM4), enlarge the A/B rootfs slots to 2.5 GB symmetrically (rpi + x64), and implement the missing `data-grow` so one image fits both 8 GB eMMC and large SD.
 
-**Architecture:** Fix the u-boot Kconfig fragment so `CONFIG_SYS_REDUNDAND_ENVIRONMENT=y` lands in the built `.config`, backed by a build-time guard that fails the build if it ever regresses. Bump `root_a`/`root_b` to `--fixed-size 2560` in both wks files and shrink build-time `data` to `512` so it flashes onto the smallest 8 GB eMMC; a new sentinel-guarded `data-grow.service` then grows `data` to fill the device on first boot. Rollout is a one-time reflash (bigger slots can't be OTA'd in); redundant env self-initializes on first boot.
+**Architecture:** Fix the u-boot Kconfig fragment so `CONFIG_ENV_REDUNDANT=y` lands in the built `.config`, backed by a build-time guard that fails the build if it ever regresses. Bump `root_a`/`root_b` to `--fixed-size 2560` in both wks files and shrink build-time `data` to `512` so it flashes onto the smallest 8 GB eMMC; a new sentinel-guarded `data-grow.service` then grows `data` to fill the device on first boot. Rollout is a one-time reflash (bigger slots can't be OTA'd in); redundant env self-initializes on first boot.
 
 **Tech Stack:** Yocto (kas-based, `oe5xrx.yml` + lockfiles), U-Boot 2026.01 (`meta-oe5xrx-remotestation/recipes-bsp/u-boot`), systemd, `parted`/`sgdisk`/`resize2fs`, pytest OTA-integration harness (`tests/ota-integration`, qemux86-64).
 
@@ -42,7 +42,7 @@ Add the guard first so the current (broken) build fails loudly and proves the bu
 - Modify: `meta-oe5xrx-remotestation/recipes-bsp/u-boot/u-boot_%.bbappend`
 
 **Interfaces:**
-- Produces: a `do_configure:append:raspberrypi4-64` task that aborts the build unless `${B}/.config` contains `CONFIG_SYS_REDUNDAND_ENVIRONMENT=y`.
+- Produces: a `do_configure:append:raspberrypi4-64` task that aborts the build unless `${B}/.config` contains `CONFIG_ENV_REDUNDANT=y`.
 
 - [ ] **Step 1: Add the guard to the bbappend**
 
@@ -56,8 +56,8 @@ Append to `meta-oe5xrx-remotestation/recipes-bsp/u-boot/u-boot_%.bbappend`:
 # station that can't arm/commit an OTA. See docs/superpowers/specs/
 # 2026-09-08-robust-ab-env-larger-slots-design.md.
 do_configure:append:raspberrypi4-64() {
-    if ! grep -q '^CONFIG_SYS_REDUNDAND_ENVIRONMENT=y' "${B}/.config"; then
-        bbfatal "CONFIG_SYS_REDUNDAND_ENVIRONMENT not enabled in built .config — redundant env fragment did not land (see oe5xrx-env.cfg)."
+    if ! grep -q '^CONFIG_ENV_REDUNDANT=y' "${B}/.config"; then
+        bbfatal "CONFIG_ENV_REDUNDANT not enabled in built .config — redundant env fragment did not land (see oe5xrx-env.cfg)."
     fi
     if ! grep -q '^CONFIG_ENV_OFFSET_REDUND=' "${B}/.config"; then
         bbfatal "CONFIG_ENV_OFFSET_REDUND missing in built .config — redundant env offset not set."
@@ -68,12 +68,12 @@ do_configure:append:raspberrypi4-64() {
 - [ ] **Step 2: Build u-boot and verify the guard FAILS on the current tree**
 
 Run: `bash scripts/ydev/remote-build.sh raspberrypi4-64` (or `just local build raspberrypi4-64`)
-Expected: build FAILS in u-boot `do_configure` with `bbfatal: CONFIG_SYS_REDUNDAND_ENVIRONMENT not enabled…`. This confirms the guard works and reproduces the root cause.
+Expected: build FAILS in u-boot `do_configure` with `bbfatal: CONFIG_ENV_REDUNDANT not enabled…`. This confirms the guard works and reproduces the root cause.
 
 - [ ] **Step 3: Capture the built `.config` for diagnosis**
 
 Run: `find build/tmp/work -path '*u-boot*/.config' -print -quit | xargs grep -E 'ENV_IS_IN|ENV_OFFSET|REDUND|ENV_IS_IN_FAT'`
-Expected: shows `CONFIG_ENV_IS_IN_MMC=y` + `CONFIG_ENV_OFFSET=0x4005000` present, but `CONFIG_SYS_REDUNDAND_ENVIRONMENT` / `CONFIG_ENV_OFFSET_REDUND` absent (and note whether `CONFIG_ENV_IS_IN_FAT` is still set — the likely blocker). Record the finding in the commit message.
+Expected: shows `CONFIG_ENV_IS_IN_MMC=y` + `CONFIG_ENV_OFFSET=0x4005000` present, but `CONFIG_ENV_REDUNDANT` / `CONFIG_ENV_OFFSET_REDUND` absent (and note whether `CONFIG_ENV_IS_IN_FAT` is still set — the likely blocker). Record the finding in the commit message.
 
 - [ ] **Step 4: Commit**
 
@@ -81,7 +81,7 @@ Expected: shows `CONFIG_ENV_IS_IN_MMC=y` + `CONFIG_ENV_OFFSET=0x4005000` present
 git add meta-oe5xrx-remotestation/recipes-bsp/u-boot/u-boot_%.bbappend
 git commit -m "build(u-boot): guard that redundant env is compiled in
 
-Fails the build unless CONFIG_SYS_REDUNDAND_ENVIRONMENT=y and
+Fails the build unless CONFIG_ENV_REDUNDANT=y and
 CONFIG_ENV_OFFSET_REDUND are in the built .config. Currently RED —
 reproduces the CM4 OTA-arming root cause; Task 2 makes it green.
 
@@ -97,7 +97,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: the guard from Task 1 and the `.config` diagnosis from Task 1 Step 3.
-- Produces: a u-boot build where `CONFIG_SYS_REDUNDAND_ENVIRONMENT=y` and `CONFIG_ENV_OFFSET_REDUND=0x4105000` are set.
+- Produces: a u-boot build where `CONFIG_ENV_REDUNDANT=y` and `CONFIG_ENV_OFFSET_REDUND=0x4105000` are set.
 
 - [ ] **Step 1: Apply the fix indicated by the diagnosis**
 
@@ -109,7 +109,7 @@ CONFIG_ENV_IS_IN_MMC=y
 CONFIG_SYS_MMC_ENV_DEV=0
 CONFIG_ENV_SIZE=0x10000
 CONFIG_ENV_OFFSET=0x4005000
-CONFIG_SYS_REDUNDAND_ENVIRONMENT=y
+CONFIG_ENV_REDUNDANT=y
 CONFIG_ENV_OFFSET_REDUND=0x4105000
 ```
 
@@ -123,7 +123,7 @@ Expected: u-boot `do_configure` passes the guard; full image build succeeds.
 - [ ] **Step 3: Confirm in the built `.config`**
 
 Run: `find build/tmp/work -path '*u-boot*/.config' -print -quit | xargs grep -E 'REDUND'`
-Expected: `CONFIG_SYS_REDUNDAND_ENVIRONMENT=y` and `CONFIG_ENV_OFFSET_REDUND=0x4105000`.
+Expected: `CONFIG_ENV_REDUNDANT=y` and `CONFIG_ENV_OFFSET_REDUND=0x4105000`.
 
 - [ ] **Step 4: Commit**
 
