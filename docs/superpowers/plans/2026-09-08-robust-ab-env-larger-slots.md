@@ -16,7 +16,7 @@
 - U-Boot env offsets are absolute and MUST stay in lockstep with the wks: `CONFIG_ENV_OFFSET=0x4005000`, `CONFIG_ENV_OFFSET_REDUND=0x4105000`. Do NOT change `firmware`/`uboot_env`/`uboot_envr`/`efi` partitions — only `root_a`/`root_b`/`data`.
 - `fw_env.config` stays two-line / redundant (`meta-oe5xrx-remotestation/recipes-bsp/u-boot-ab/files/fw_env.config`) — it was correct; do not touch it.
 - Symmetric: every size change to the rpi wks is mirrored in the x64 wks and vice versa.
-- Build via `just local build <machine> [--dev]` (local, sstate from R2 mirror) or `bash scripts/ydev/remote-build.sh <machine> [--both]` (Hetzner). Boot/OTA tests run on `qemux86-64` only (`scripts/run-qemu.sh`, `tests/ota-integration`). The rpi/u-boot redundant path is verified by the build guard + HIL on real CM4.
+- Build on a **persistent** ydev box (`just remote up` once; do NOT tear down between tasks — warm sstate). Idle watchdog raised to 120 min and `ydev-maxlife.timer` disabled so the box stays warm across the session; run `just remote down` at the very end. Build with `bash scripts/ydev/remote-build.sh <machine> [--dev|--both]`, fetch with `bash scripts/ydev/remote-download.sh <machine>`. Boot/OTA tests run on `qemux86-64` only (`scripts/run-qemu.sh`, `tests/ota-integration`). The rpi/u-boot redundant path is verified by the build guard + HIL on real CM4.
 - HIL honesty rule: the u-boot redundant env + OTA cycle is only "done" when green on a real CM4, not just sim.
 - Commits: Conventional Commits; end every commit message with the `Co-Authored-By` trailer per repo convention. All work on branch `feat/robust-ab-env-larger-slots`; one PR at the end.
 
