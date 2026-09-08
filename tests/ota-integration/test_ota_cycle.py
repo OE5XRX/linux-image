@@ -72,3 +72,17 @@ def test_t2_cross_build_ota_boots_new_slot_and_commits(
     assert wait_until(
         lambda: dummy.last_reported_version() == expected_tag, timeout=300
     ), f"agent never committed at {expected_tag} (commits={dummy.commits})"
+
+    # Durability: the commit must have cleared the trial flags (bootcount=0,
+    # upgrade_available=0). If it didn't, the bootloader would roll back to slot
+    # A on the next power-cycle. Prove it stuck by rebooting (on-disk grubenv
+    # preserved) and asserting we come up on slot B / the new tag again.
+    qemu_target.reset()
+    con = qemu_target.console()
+    con.expect(markers["banner_re"], timeout=900)
+    reboot_ver = con.match.group(1)
+    con.expect(markers["login_re"], timeout=180)
+    assert reboot_ver == expected_tag, (
+        f"post-commit reboot came up {reboot_ver!r}, expected {expected_tag!r} — "
+        f"trial flags were not cleared (rolled back to slot A)"
+    )
