@@ -34,6 +34,30 @@ def test_t2_cross_build_ota_boots_new_slot_and_commits(
 
     # Slot A = last release. Cross-build vs slot B (the new build under test).
     qemu_target.flash(last_release_wic)
+
+    # Partition-layout guard. A cross-build OTA only works when both sides share
+    # the A/B slot geometry; when a build changes the slot size, the new rootfs
+    # cannot be written into the last release's smaller slot (install_to_slot
+    # ENOSPC) and a one-time fleet reflash is required. Such a change must NOT
+    # pass silently — a developer has to actively acknowledge it via
+    # OTA_IT_ACK_LAYOUT_CHANGE=1 (release.yml: acknowledge_layout_change=true).
+    # Default: fail loud and fast (don't waste 5 min on a doomed OTA timeout).
+    with image_ops.loop_attach(new_wic) as _d:
+        _new_slot = image_ops.part_size_bytes(f"{_d}p{image_ops.ROOT_A_PARTNUM}")
+    with image_ops.loop_attach(qemu_target.disk) as _d:
+        _rel_slot = image_ops.part_size_bytes(f"{_d}p{image_ops.ROOT_A_PARTNUM}")
+    if _new_slot != _rel_slot:
+        _msg = (
+            f"PARTITION-LAYOUT CHANGE: last-release root_a={_rel_slot}B vs "
+            f"build root_a={_new_slot}B. A cross-build OTA is impossible across "
+            f"this boundary and a one-time fleet reflash is required."
+        )
+        if os.environ.get("OTA_IT_ACK_LAYOUT_CHANGE") == "1":
+            pytest.skip(f"{_msg} Acknowledged (OTA_IT_ACK_LAYOUT_CHANGE=1) — "
+                        f"cross-build OTA intentionally not tested across the change.")
+        pytest.fail(f"{_msg} If intentional, re-run the release with "
+                    f"acknowledge_layout_change=true (sets OTA_IT_ACK_LAYOUT_CHANGE=1).")
+
     qemu_target.reset_ab_state()
     url = qemu_target.dut_server_url(dummy.port)
     key_pem = qemu_target.work_dir + "/device_key.pem"

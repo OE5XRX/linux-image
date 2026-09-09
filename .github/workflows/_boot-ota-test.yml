@@ -29,6 +29,10 @@ on:
         description: Previous release tag = slot A for T2 (empty → T1 only).
         type: string
         default: ""
+      ack_layout_change:
+        description: Acknowledge an intentional A/B slot-size change (T2 skips instead of failing).
+        type: boolean
+        default: false
 
 # Least privilege: boots QEMU + downloads a same-run artifact. As a reusable
 # workflow this block caps its jobs, so it must keep `actions: read` — the
@@ -121,6 +125,7 @@ jobs:
           OTA_IT_WIC: ${{ steps.wic.outputs.wic }}
           OTA_IT_LAST_RELEASE_WIC: ${{ steps.slota.outputs.wic }}
           OTA_IT_EXPECTED_TAG: ${{ inputs.expected_tag }}
+          OTA_IT_ACK_LAYOUT_CHANGE: ${{ inputs.ack_layout_change && '1' || '' }}
         run: |
           # -s (no capture): surface passing tests' stdout in the CI log — notably the
           # audio E2E gate's on-target FFT dominance ratios (RX 1 kHz / TX 1500 Hz), which

@@ -13,7 +13,12 @@ name: "Release · Step 1 · Tag & Dispatch"
 # the tag identity that station-manager verifies.
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      acknowledge_layout_change:
+        description: "Acknowledge an intentional A/B slot-size change (forwarded to release.yml so its cross-build OTA gate skips instead of failing). Only for a release that deliberately changes the partition layout."
+        type: boolean
+        default: false
 
 # Least privilege: default read-only; only the tag job gets the write scopes.
 permissions:
@@ -75,6 +80,7 @@ jobs:
         env:
           TAG: ${{ steps.cv.outputs.version }}
           GH_TOKEN: ${{ github.token }}
+          ACK_LAYOUT_CHANGE: ${{ inputs.acknowledge_layout_change }}
         run: |
           set -euo pipefail
           # The tag was just pushed; GitHub can be briefly eventually-consistent
@@ -93,8 +99,9 @@ jobs:
             sleep 3
           done
           for i in 1 2 3; do
-            if gh workflow run release.yml --ref "$TAG" -f dry_run=false; then
-              echo "Dispatched release.yml @ $TAG"
+            if gh workflow run release.yml --ref "$TAG" \
+                 -f dry_run=false -f "acknowledge_layout_change=${ACK_LAYOUT_CHANGE}"; then
+              echo "Dispatched release.yml @ $TAG (acknowledge_layout_change=${ACK_LAYOUT_CHANGE})"
               exit 0
             fi
             echo "dispatch attempt $i/3 failed, waiting 5s..."
