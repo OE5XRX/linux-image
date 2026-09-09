@@ -27,6 +27,10 @@ on:
         description: "Build + gate only; do not validate-tag/sign/publish/cleanup"
         type: boolean
         default: false
+      acknowledge_layout_change:
+        description: "Acknowledge an intentional A/B slot-size change: the cross-build OTA gate can't pass against the old-layout release, so T2 skips instead of failing. Only for a release that deliberately changes the partition layout (needs a one-time fleet reflash)."
+        type: boolean
+        default: false
 
 # Least privilege: default read-only (covers the build/gate reusable calls, the
 # gh release list in resolve-slot-a, and same-run artifact downloads). The write
@@ -145,6 +149,7 @@ jobs:
       new_artifact: yocto-image-qemux86-64
       expected_tag: ${{ needs.validate-tag.outputs.release_tag }}
       last_release_tag: ${{ needs.resolve-slot-a.outputs.last_release }}
+      ack_layout_change: ${{ inputs.acknowledge_layout_change }}
     secrets: inherit
 
   release:
