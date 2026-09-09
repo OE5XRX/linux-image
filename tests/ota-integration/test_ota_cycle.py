@@ -34,23 +34,6 @@ def test_t2_cross_build_ota_boots_new_slot_and_commits(
 
     # Slot A = last release. Cross-build vs slot B (the new build under test).
     qemu_target.flash(last_release_wic)
-
-    # A cross-build OTA only works when both sides share the A/B slot geometry.
-    # When this build changes the slot size (e.g. the 1G->2.5G bump), the new
-    # rootfs cannot be written into the last release's smaller slot — which is
-    # exactly why a one-time reflash is required across a layout change. Skip
-    # (not fail); T2 resumes once a same-layout release is published.
-    with image_ops.loop_attach(new_wic) as _d:
-        _new_slot = image_ops.part_size_bytes(f"{_d}p{image_ops.ROOT_A_PARTNUM}")
-    with image_ops.loop_attach(qemu_target.disk) as _d:
-        _rel_slot = image_ops.part_size_bytes(f"{_d}p{image_ops.ROOT_A_PARTNUM}")
-    if _new_slot != _rel_slot:
-        pytest.skip(
-            f"cross-build OTA impossible across a partition-layout change "
-            f"(last-release root_a={_rel_slot}B vs build root_a={_new_slot}B) — "
-            f"one-time reflash required; T2 resumes once a same-layout release exists"
-        )
-
     qemu_target.reset_ab_state()
     url = qemu_target.dut_server_url(dummy.port)
     key_pem = qemu_target.work_dir + "/device_key.pem"
