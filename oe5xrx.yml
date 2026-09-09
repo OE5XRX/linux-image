@@ -49,6 +49,13 @@ local_conf_header:
     CONF_VERSION = "2"
     PACKAGE_CLASSES = "package_ipk"
     INIT_MANAGER = "systemd"
+    # Ethernet-only station (future: USB LTE). Drop the default bluetooth + wifi
+    # DISTRO_FEATUREs — neither is requested by us, they're inherited defaults
+    # that pull bluez5 (a failing hciuart.service -> systemd "degraded") and
+    # wpa-supplicant + wireless firmware. Removing them: no degraded state,
+    # smaller image, one less attack surface. Wired eth0 via systemd-networkd
+    # is unaffected (Ethernet is not gated by these features).
+    DISTRO_FEATURES:remove = "bluetooth wifi"
     # Pin the kernel series so version/ext4-format drift is deliberate, not
     # silent. Kernel-in-rootfs A/B makes drift safe; this makes it intentional.
     # Both providers are pinned: x86 uses linux-yocto, RPi uses linux-raspberrypi.
