@@ -7,9 +7,9 @@
 #
 # Layout (GPT, 4 partitions):
 #   1 efi       (FAT, 128 MB, ESP)  — GRUB-EFI + grub.cfg + grubenv
-#   2 root_a    (ext4, 1024 MB)     — Rootfs A + kernel (read-only at runtime)
-#   3 root_b    (ext4, 1024 MB)     — Rootfs B (OTA target, starts empty)
-#   4 data      (ext4, 2048 MB)     — Persistent /var, overlay /etc, /home
+#   2 root_a    (ext4, 2560 MB)     — Rootfs A + kernel (read-only at runtime)
+#   3 root_b    (ext4, 2560 MB)     — Rootfs B (OTA target, starts empty)
+#   4 data      (ext4, 512 MB at build; grows to fill device on first boot)
 
 bootloader --ptable=gpt --configfile=oe5xrx-grub.cfg
 
@@ -19,6 +19,8 @@ bootloader --ptable=gpt --configfile=oe5xrx-grub.cfg
 # → emergency mode → rollback. The image recipe adds a stable PARTLABEL=efi
 # entry instead (see add_efi_fstab).
 part /boot --source bootimg-efi --sourceparams="loader=grub-efi" --ondisk vda --fstype=vfat --label efi --active --align 4 --fixed-size 128 --no-fstab-update
-part / --source rootfs --ondisk vda --fstype=ext4 --label root_a --fixed-size 1024 --align 4
-part --ondisk vda --fstype=ext4 --label root_b --fixed-size 1024 --align 4
-part --ondisk vda --fstype=ext4 --label data --fixed-size 2048 --align 4
+part / --source rootfs --ondisk vda --fstype=ext4 --label root_a --fixed-size 2560 --align 4
+part --ondisk vda --fstype=ext4 --label root_b --fixed-size 2560 --align 4
+# data: small at build (symmetric with rpi); data-grow.service fills the device
+# on first boot.
+part --ondisk vda --fstype=ext4 --label data --fixed-size 512 --align 4

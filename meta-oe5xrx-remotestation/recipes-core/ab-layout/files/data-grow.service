@@ -1,0 +1,21 @@
+[Unit]
+Description=Grow persistent data partition to fill the device (offline, pre-mount)
+DefaultDependencies=no
+# Order after the data partition's device unit (not a Condition — a Condition
+# that fails at eval time skips the unit with no retry; the script also waits
+# for udev and exits 0 cleanly if the device is genuinely absent).
+After=systemd-udevd.service dev-disk-by\x2dpartlabel-data.device
+Wants=dev-disk-by\x2dpartlabel-data.device
+Before=mnt-data.mount data-init.service local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# 0 = no unit-level cap; the script bounds every step with its own `timeout`
+# (sgdisk 30 + parted 30 + e2fsck 300 + resize2fs 300 worst case) and always
+# exits, so a fixed TimeoutStartSec here could only kill a legitimate long grow.
+TimeoutStartSec=0
+ExecStart=/usr/sbin/data-grow.sh
+
+[Install]
+WantedBy=local-fs.target

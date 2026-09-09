@@ -124,3 +124,11 @@ def extract_rootfs_bz2(wic_path: str, out_bz2: str) -> tuple[str, int]:
 def _filesize(path: str) -> int:
     import os
     return os.path.getsize(path)
+
+
+def part_size_bytes(part_dev: str) -> int:
+    """Size in bytes of a partition block device (e.g. /dev/loop3p2), read from
+    sysfs (512-byte sector units)."""
+    name = os.path.basename(part_dev)
+    with open(f"/sys/class/block/{name}/size") as fh:
+        return int(fh.read().strip()) * 512
