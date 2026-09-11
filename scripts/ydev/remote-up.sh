@@ -35,6 +35,9 @@ BOX_DIR="$(dirname "$0")/box"
 WD_B64=$(base64 -w0 "$BOX_DIR/ydev-watchdog.sh")
 SVC_B64=$(base64 -w0 "$BOX_DIR/ydev-idle.service")
 TMR_B64=$(base64 -w0 "$BOX_DIR/ydev-idle.timer")
+ALLOY_CFG_B64=$(base64 -w0 "$BOX_DIR/alloy.alloy")
+ALLOY_SVC_B64=$(base64 -w0 "$BOX_DIR/ydev-alloy.service")
+MON_SH_B64=$(base64 -w0 "$BOX_DIR/ydev-monitoring.sh")
 USERDATA=$(cat <<UD
 #!/bin/bash
 set -euo pipefail
@@ -109,6 +112,38 @@ printf 'R2_SSTATE_KEY=%q\nR2_SSTATE_SECRET=%q\nR2_ACCOUNT_ID=cef6b7278fa23b49704
   | ssh "${YDEV_SSH[@]}" "root@$ip" \
       'install -d -m700 /etc/ydev && umask 077 && cat > /etc/ydev/r2env && chmod 600 /etc/ydev/r2env'
 echo "R2 creds written to /etc/ydev/r2env"
+# Alloy metrics agent — fetch CF Access creds from the same bws project (soft, never fatal).
+# CF_ACCESS_* are monitoring-only; a missing or invalid value must never abort a build.
+CF_ACCESS_CLIENT_ID=$(jq -r '.[]|select(.key=="CF_ACCESS_CLIENT_ID")|.value' <<<"$SECRETS")
+CF_ACCESS_CLIENT_SECRET=$(jq -r '.[]|select(.key=="CF_ACCESS_CLIENT_SECRET")|.value' <<<"$SECRETS")
+if [ -z "$CF_ACCESS_CLIENT_ID" ] || [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
+  echo "ydev: CF_ACCESS_* not in BW — skipping metrics agent (non-fatal)" >&2
+else
+  # Deploy box files (base64-encoded locally, decoded on the box via SSH).
+  # Ensure target dirs exist first (install -d is idempotent).
+  ssh "${YDEV_SSH[@]}" "root@$ip" 'install -d -m700 /etc/ydev /opt/ydev'
+  # Deploy box files: unquoted heredoc so $ALLOY_*_B64/$MON_SH_B64 expand on the
+  # client (laptop), embedding the base64 blobs into the script sent to the box.
+  # shellcheck disable=SC2087  # intentional client-side expansion of the B64 vars
+  ssh "${YDEV_SSH[@]}" "root@$ip" bash -s <<BOXFILES
+echo '$ALLOY_CFG_B64'  | base64 -d > /etc/ydev/alloy.alloy
+echo '$ALLOY_SVC_B64' | base64 -d > /etc/systemd/system/ydev-alloy.service
+echo '$MON_SH_B64'    | base64 -d > /opt/ydev/ydev-monitoring.sh
+chmod 755 /opt/ydev/ydev-monitoring.sh
+BOXFILES
+  # Write monitoring.env (mode 600) with secrets via stdin (never in argv).
+  # Using printf %q to shell-quote the opaque token values — consistent with the
+  # r2env pattern above. CF Access tokens are [A-Za-z0-9._-] so %q is safe for
+  # systemd EnvironmentFile; the quoting is defensive, matching the existing style.
+  printf 'CF_ACCESS_CLIENT_ID=%q\nCF_ACCESS_CLIENT_SECRET=%q\nYDEV_SESSION_LABEL=%s\n' \
+    "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET" "$NAME" \
+    | ssh "${YDEV_SSH[@]}" "root@$ip" \
+        'install -d -m700 /etc/ydev && umask 077 && cat > /etc/ydev/monitoring.env && chmod 600 /etc/ydev/monitoring.env'
+  echo "Alloy config written to /etc/ydev/monitoring.env"
+  # Run the installer non-fatally — a monitoring hiccup must never abort provisioning.
+  ssh "${YDEV_SSH[@]}" "root@$ip" 'bash /opt/ydev/ydev-monitoring.sh' \
+    || echo "ydev: metrics agent setup failed (non-fatal)" >&2
+fi
 # provisioning succeeded → record the session now (a mid-fail leaves no session;
 # that box still self-deletes via the cloud-init teardown, or `just remote clean`)
 printf '%s %s %s\n' "$id" "$ip" "$(date -u +%FT%TZ)" > "$YDEV_SESSION"
