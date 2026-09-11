@@ -1,0 +1,13 @@
+[Unit]
+Description=Grafana Alloy (ydev metrics push)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/ydev/monitoring.env
+ExecStart=/usr/local/bin/alloy run /etc/ydev/alloy.alloy --disable-reporting
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

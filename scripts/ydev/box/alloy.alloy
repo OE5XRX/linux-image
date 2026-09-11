@@ -1,0 +1,31 @@
+prometheus.exporter.unix "node" { }
+
+discovery.relabel "node" {
+	targets = prometheus.exporter.unix.node.targets
+
+	rule {
+		target_label = "job"
+		replacement  = "ydev"
+	}
+
+	rule {
+		target_label = "instance"
+		replacement  = sys.env("YDEV_SESSION_LABEL")
+	}
+}
+
+prometheus.scrape "node" {
+	targets         = discovery.relabel.node.output
+	forward_to      = [prometheus.remote_write.central.receiver]
+	scrape_interval = "30s"
+}
+
+prometheus.remote_write "central" {
+	endpoint {
+		url     = "https://push-metrics.oe5xrx.org/api/v1/write"
+		headers = {
+			"CF-Access-Client-Id"     = sys.env("CF_ACCESS_CLIENT_ID"),
+			"CF-Access-Client-Secret" = sys.env("CF_ACCESS_CLIENT_SECRET"),
+		}
+	}
+}
