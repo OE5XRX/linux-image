@@ -113,7 +113,11 @@ jobs:
       - name: Provision on-demand build box
         run: bash scripts/ydev/remote-up.sh
 
+      - name: Record build start time
+        run: echo "BUILD_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Build with kas
+        id: build
         run: |
           set -euo pipefail
           if [ "${DEV_IMAGE}" = "true" ]; then
@@ -154,6 +158,49 @@ jobs:
           name: yocto-image-${{ env.KAS_MACHINE }}-dev
           path: artifacts-dev/
           retention-days: 7
+
+      - name: Push build summary to Pushgateway
+        if: always()
+        env:
+          SESSION: ${{ env.YDEV_SESSION_NAME }}
+          SUCCESS: ${{ steps.build.outcome == 'success' && '1' || '0' }}
+          REF: ${{ github.ref }}
+          MACHINE: ${{ env.KAS_MACHINE }}
+        run: |
+          set -euo pipefail
+          # bws-fetch CF Access creds (same project + idiom as remote-up.sh).
+          PROJECT_ID=$(bws project list -o json | jq -r '.[]|select(.name=="oe5xrx-yocto-cache")|.id')
+          if [ -z "$PROJECT_ID" ]; then
+            echo "::warning::pushgateway push failed: BW project oe5xrx-yocto-cache not found"
+            exit 0
+          fi
+          SECRETS=$(bws secret list -p "$PROJECT_ID" -o json)
+          CF_ACCESS_CLIENT_ID=$(jq -r '.[]|select(.key=="CF_ACCESS_CLIENT_ID")|.value' <<<"$SECRETS")
+          CF_ACCESS_CLIENT_SECRET=$(jq -r '.[]|select(.key=="CF_ACCESS_CLIENT_SECRET")|.value' <<<"$SECRETS")
+          # Mask immediately — bws values are NOT GitHub secrets, GH will not auto-mask.
+          echo "::add-mask::$CF_ACCESS_CLIENT_ID"
+          echo "::add-mask::$CF_ACCESS_CLIENT_SECRET"
+          if [ -z "$CF_ACCESS_CLIENT_ID" ] || [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
+            echo "::warning::pushgateway push failed: CF_ACCESS_* not found in BW project"
+            exit 0
+          fi
+          # Compute duration from BUILD_START recorded before the build step.
+          DURATION=$(( $(date +%s) - BUILD_START ))
+          # IMAGE_BYTES: sum sizes of downloaded images under dist/<machine>/ (best-effort).
+          IMAGE_BYTES=0
+          if [ -d "dist/${MACHINE}" ]; then
+            _img=$(find "dist/${MACHINE}" -maxdepth 1 -type f \
+              \( -name "*.wic" -o -name "*.wic.gz" -o -name "*.wic.bz2" -o -name "*.wic.xz" \
+                 -o -name "*.ext4" \) \
+              -printf '%s\n' 2>/dev/null | awk '{s+=$1}END{print s+0}')
+            IMAGE_BYTES="${_img:-0}"
+          fi
+          # SSTATE_HIT_RATIO: Yocto log lives on the box, not the runner — push 0.
+          export CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET
+          export SESSION SUCCESS DURATION REF MACHINE
+          export IMAGE_BYTES SSTATE_HIT_RATIO=0
+          bash scripts/ydev/box/build-summary.sh \
+            || echo "::warning::pushgateway push failed (non-fatal)"
 
       - name: Teardown build box
         if: always()
