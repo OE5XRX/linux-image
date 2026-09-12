@@ -168,6 +168,11 @@ jobs:
           MACHINE: ${{ env.KAS_MACHINE }}
         run: |
           set -euo pipefail
+          # bws defaults its server URL only when BWS_SERVER_URL is UNSET, not empty.
+          # The job-level `BWS_SERVER_URL: ${{ secrets.BWS_SERVER_URL }}` passes through
+          # as an empty string when that secret is unset, which breaks bws (project
+          # lookup fails). Default it before any bws call — same guard as remote-up.sh.
+          export BWS_SERVER_URL="${BWS_SERVER_URL:-https://vault.bitwarden.eu}"
           # bws-fetch CF Access creds (same project + idiom as remote-up.sh).
           # Guard the fetch so a transient bws/network/auth failure yields an empty
           # value + warning rather than aborting this always() step with a build error.
