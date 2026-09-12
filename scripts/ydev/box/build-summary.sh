@@ -44,6 +44,10 @@ ydev_build_sstate_hit_ratio{ref="$REF",machine="$MACHINE"} $SSTATE
 ydev_build_image_bytes{ref="$REF",machine="$MACHINE"} $IMG
 EOF
 )
+# The Prometheus text format requires a trailing newline on the final line, but
+# $(...) strips trailing newlines — without this the Pushgateway rejects the
+# body with HTTP 400 ("text format parsing error").
+body+=$'\n'
 
 # Pass CF-Access headers via curl --config on stdin so they never appear in
 # /proc/<pid>/cmdline on the runner.  The URL and body stay on argv (not secret).
