@@ -185,7 +185,7 @@ jobs:
             exit 0
           fi
           # Compute duration from BUILD_START recorded before the build step.
-          DURATION=$(( $(date +%s) - BUILD_START ))
+          DURATION=$(( $(date +%s) - ${BUILD_START:-0} ))
           # IMAGE_BYTES: sum sizes of downloaded images under dist/<machine>/ (best-effort).
           IMAGE_BYTES=0
           if [ -d "dist/${MACHINE}" ]; then

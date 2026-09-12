@@ -135,7 +135,7 @@ BOXFILES
   # Using printf %q to shell-quote the opaque token values — consistent with the
   # r2env pattern above. CF Access tokens are [A-Za-z0-9._-] so %q is safe for
   # systemd EnvironmentFile; the quoting is defensive, matching the existing style.
-  printf 'CF_ACCESS_CLIENT_ID=%q\nCF_ACCESS_CLIENT_SECRET=%q\nYDEV_SESSION_LABEL=%s\n' \
+  printf 'CF_ACCESS_CLIENT_ID=%s\nCF_ACCESS_CLIENT_SECRET=%s\nYDEV_SESSION_LABEL=%s\n' \
     "$CF_ACCESS_CLIENT_ID" "$CF_ACCESS_CLIENT_SECRET" "$NAME" \
     | ssh "${YDEV_SSH[@]}" "root@$ip" \
         'install -d -m700 /etc/ydev && umask 077 && cat > /etc/ydev/monitoring.env && chmod 600 /etc/ydev/monitoring.env'

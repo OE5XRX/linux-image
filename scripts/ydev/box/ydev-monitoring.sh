@@ -7,6 +7,7 @@ install -d -m700 /etc/ydev
 for _ in 1 2 3 4 5; do
   curl -fsSL "https://github.com/grafana/alloy/releases/download/${ALLOY_VERSION}/alloy-linux-amd64.zip" -o /tmp/alloy.zip && break || sleep 5
 done
+[ -s /tmp/alloy.zip ] || { echo "ydev: alloy download failed after 5 attempts" >&2; exit 1; }
 ( cd /tmp && unzip -o alloy.zip && install -m755 alloy-linux-amd64 /usr/local/bin/alloy )
 systemctl daemon-reload
 systemctl enable --now ydev-alloy.service
