@@ -6,7 +6,7 @@ install -d -m700 /etc/ydev
 # config + unit are written by the caller (base64) to /etc/ydev/alloy.alloy and
 # /etc/systemd/system/ydev-alloy.service; /etc/ydev/monitoring.env holds the env.
 for _ in 1 2 3 4 5; do
-  curl -fsSL "https://github.com/grafana/alloy/releases/download/${ALLOY_VERSION}/alloy-linux-amd64.zip" -o /tmp/alloy.zip && break || sleep 5
+  curl -fsSL --connect-timeout 15 --max-time 300 "https://github.com/grafana/alloy/releases/download/${ALLOY_VERSION}/alloy-linux-amd64.zip" -o /tmp/alloy.zip && break || sleep 5
 done
 [ -s /tmp/alloy.zip ] || { echo "ydev: alloy download failed after 5 attempts" >&2; exit 1; }
 echo "${ALLOY_SHA256}  /tmp/alloy.zip" | sha256sum -c -

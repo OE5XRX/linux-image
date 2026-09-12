@@ -48,7 +48,7 @@ EOF
 # Pass CF-Access headers via curl --config on stdin so they never appear in
 # /proc/<pid>/cmdline on the runner.  The URL and body stay on argv (not secret).
 URL="https://push-gw.oe5xrx.org/metrics/job/ydev_build/instance/$SESSION"
-curl -fsS --retry 3 --config - --data-binary "$body" "$URL" <<CURLCFG
+curl -fsS --retry 3 --connect-timeout 10 --max-time 30 --config - --data-binary "$body" "$URL" <<CURLCFG
 header = "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}"
 header = "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
 CURLCFG
