@@ -169,23 +169,26 @@ jobs:
         run: |
           set -euo pipefail
           # bws-fetch CF Access creds (same project + idiom as remote-up.sh).
-          PROJECT_ID=$(bws project list -o json | jq -r '.[]|select(.name=="oe5xrx-yocto-cache")|.id')
+          # Guard the fetch so a transient bws/network/auth failure yields an empty
+          # value + warning rather than aborting this always() step with a build error.
+          PROJECT_ID=$(bws project list -o json 2>/dev/null | jq -r '.[]|select(.name=="oe5xrx-yocto-cache")|.id') || PROJECT_ID=""
           if [ -z "$PROJECT_ID" ]; then
             echo "::warning::pushgateway push failed: BW project oe5xrx-yocto-cache not found"
             exit 0
           fi
-          SECRETS=$(bws secret list -p "$PROJECT_ID" -o json)
-          CF_ACCESS_CLIENT_ID=$(jq -r '.[]|select(.key=="CF_ACCESS_CLIENT_ID")|.value' <<<"$SECRETS")
-          CF_ACCESS_CLIENT_SECRET=$(jq -r '.[]|select(.key=="CF_ACCESS_CLIENT_SECRET")|.value' <<<"$SECRETS")
+          SECRETS=$(bws secret list -p "$PROJECT_ID" -o json 2>/dev/null) || SECRETS=""
+          CF_ACCESS_CLIENT_ID=$(jq -r '.[]|select(.key=="CF_ACCESS_CLIENT_ID")|.value' <<<"$SECRETS") || CF_ACCESS_CLIENT_ID=""
+          CF_ACCESS_CLIENT_SECRET=$(jq -r '.[]|select(.key=="CF_ACCESS_CLIENT_SECRET")|.value' <<<"$SECRETS") || CF_ACCESS_CLIENT_SECRET=""
           # Mask immediately — bws values are NOT GitHub secrets, GH will not auto-mask.
-          echo "::add-mask::$CF_ACCESS_CLIENT_ID"
-          echo "::add-mask::$CF_ACCESS_CLIENT_SECRET"
+          [ -n "$CF_ACCESS_CLIENT_ID" ] && echo "::add-mask::$CF_ACCESS_CLIENT_ID"
+          [ -n "$CF_ACCESS_CLIENT_SECRET" ] && echo "::add-mask::$CF_ACCESS_CLIENT_SECRET"
           if [ -z "$CF_ACCESS_CLIENT_ID" ] || [ -z "$CF_ACCESS_CLIENT_SECRET" ]; then
             echo "::warning::pushgateway push failed: CF_ACCESS_* not found in BW project"
             exit 0
           fi
           # Compute duration from BUILD_START recorded before the build step.
-          DURATION=$(( $(date +%s) - ${BUILD_START:-0} ))
+          # Use 0 (not epoch) when BUILD_START was never set (e.g. pre-build failure).
+          if [ -n "${BUILD_START:-}" ]; then DURATION=$(( $(date +%s) - BUILD_START )); else DURATION=0; fi
           # IMAGE_BYTES: sum sizes of downloaded images under dist/<machine>/ (best-effort).
           IMAGE_BYTES=0
           if [ -d "dist/${MACHINE}" ]; then

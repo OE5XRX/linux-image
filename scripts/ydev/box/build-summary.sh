@@ -28,6 +28,11 @@ set -euo pipefail
 SSTATE="${SSTATE_HIT_RATIO:-0}"
 IMG="${IMAGE_BYTES:-0}"
 
+# Escape backslash then double-quote in label values so Prometheus exposition
+# is never malformed (a git ref/branch can contain either character).
+REF=${REF//\\/\\\\}; REF=${REF//\"/\\\"}
+MACHINE=${MACHINE//\\/\\\\}; MACHINE=${MACHINE//\"/\\\"}
+
 body=$(cat <<EOF
 # TYPE ydev_build_duration_seconds gauge
 ydev_build_duration_seconds{ref="$REF",machine="$MACHINE"} $DURATION
@@ -40,8 +45,10 @@ ydev_build_image_bytes{ref="$REF",machine="$MACHINE"} $IMG
 EOF
 )
 
-curl -fsS --retry 3 \
-  -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-  -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-  --data-binary "$body" \
-  "https://push-gw.oe5xrx.org/metrics/job/ydev_build/instance/$SESSION"
+# Pass CF-Access headers via curl --config on stdin so they never appear in
+# /proc/<pid>/cmdline on the runner.  The URL and body stay on argv (not secret).
+URL="https://push-gw.oe5xrx.org/metrics/job/ydev_build/instance/$SESSION"
+curl -fsS --retry 3 --config - --data-binary "$body" "$URL" <<CURLCFG
+header = "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}"
+header = "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
+CURLCFG
