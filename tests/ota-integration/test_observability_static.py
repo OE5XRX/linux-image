@@ -98,3 +98,14 @@ def test_boot_robustness_recipe_ships_both_dropins():
     # Installed to the right dirs.
     assert "journald.conf.d" in bb
     assert "${sysconfdir}/systemd/pstore.conf" in bb
+
+
+# ---- Task 4: mmc-utils in base image -----------------------------------
+
+_IMAGE = ("meta-oe5xrx-remotestation", "recipes-core", "images",
+          "oe5xrx-remotestation-image.bb")
+
+
+def test_mmc_utils_in_base_image():
+    bb = _read(*_IMAGE)
+    assert "mmc-utils" in bb, "mmc-utils not installed in the image"

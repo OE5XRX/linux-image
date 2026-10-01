@@ -11,6 +11,7 @@ IMAGE_INSTALL = " \
     python3 \
     htop \
     i2c-tools \
+    mmc-utils \
     station-agent \
     ab-layout \
 "
