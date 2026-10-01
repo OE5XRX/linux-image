@@ -74,13 +74,13 @@ CONFIG_PSTORE=y
 CONFIG_PSTORE_RAM=y
 CONFIG_PSTORE_CONSOLE=y
 CONFIG_PSTORE_PMSG=y
-CONFIG_PSTORE_DEFLATE_COMPRESS=y
+CONFIG_PSTORE_COMPRESS=y
 ```
 
 `CONFIG_PSTORE_RAM` pulls in `CONFIG_REED_SOLOMON` for the `ecc=1` option. On
-x86 the EFI backend (`CONFIG_EFI_VARS_PSTORE`) is auto-selected with EFI +
-PSTORE and left at its default; it is a harmless bonus backend under qemu and
-needs no reserved RAM.
+x86 `CONFIG_EFI_VARS_PSTORE` may be built, but pstore registers only ONE backend
+and the built-in ramoops registers first, so EFI pstore does not activate — there
+is no separate EFI capture path.
 
 **Reserved-memory mechanism — identical on both targets** via the kernel-6.12+
 `reserve_mem` + `ramoops.mem_name` cmdline pair (we run 6.18, so it is
@@ -129,8 +129,8 @@ itself is mounted automatically by systemd's early mount-setup once
 - **qemu:** `/sys/fs/pstore` mounts and ramoops registers (verifiable in the
   boot gate). Cross-reboot RAM capture is best-effort — a QEMU machine reset may
   clear RAM — which the contract explicitly accepts ("auf qemu reicht bricht
-  nicht"). The EFI pstore backend additionally persists oops to the OVMF vars
-  store, giving qemu a working capture path for free.
+  nicht"). There is no EFI capture path (ramoops is the sole registered backend),
+  so qemu cross-reboot capture relies on RAM retention alone and is best-effort.
 
 **Fallback if HW shows `reserve_mem` unstable on CM4:** switch rpi to a
 config.txt-applied device-tree overlay (`dtoverlay=`) carrying a fixed-`reg`

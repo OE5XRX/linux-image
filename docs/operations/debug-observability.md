@@ -61,7 +61,7 @@ After a panic or oops, expect `dmesg-ramoops-0` (and possibly `console-ramoops-0
 |---|---|---|
 | `CONFIG_PSTORE_RAM` | yes | yes |
 | `/sys/fs/pstore` mounts | yes | yes |
-| Cross-reboot RAM capture | yes (DRAM retained on warm reset) | best-effort (VM reset may clear RAM; EFI backend provides a working path via OVMF vars) |
+| Cross-reboot RAM capture | yes (DRAM retained on warm reset) | best-effort (VM reset may clear RAM; no EFI fallback — built-in ramoops is the sole pstore backend) |
 
 **needs-HW:** The kernel docs note that `reserve_mem` placement "cannot be
 relied upon" on every machine. Verify on a real CM4 that the region lands at a

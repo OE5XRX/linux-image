@@ -21,11 +21,20 @@ raw=$(vcgencmd get_throttled 2>/dev/null) || {
 # raw looks like: throttled=0x50005
 hex=${raw#*=}
 
-# Guard against unexpected vcgencmd output (e.g. error text after "="):
-# a non-numeric value would abort the script via arithmetic expansion.
+# Validate the full value: 0x<hexdigits> or plain <decimaldigits>. Anything
+# else (error text, partial output) would abort the arithmetic below and fail
+# the oneshot — so bail cleanly (exit 0) instead.
 case "$hex" in
-    0x*|[0-9]*) ;;
-    *) echo "throttle-log: unexpected vcgencmd output '${raw}' — skipping"; exit 0 ;;
+    0x*)
+        digits=${hex#0x}
+        case "$digits" in
+            ""|*[!0-9A-Fa-f]*)
+                echo "throttle-log: unexpected vcgencmd output '${raw}' — skipping"
+                exit 0 ;;
+        esac ;;
+    ""|*[!0-9]*)
+        echo "throttle-log: unexpected vcgencmd output '${raw}' — skipping"
+        exit 0 ;;
 esac
 
 echo "throttle-log: ${raw}"

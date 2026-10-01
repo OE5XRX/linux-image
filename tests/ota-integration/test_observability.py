@@ -37,6 +37,20 @@ def test_observability_sources_present(qemu_target, dummy_factory, built_wic,
     out = _run(con, "mountpoint -q /sys/fs/pstore; echo PSTORE_RC=$?")
     assert "PSTORE_RC=0" in out, "/sys/fs/pstore is not mounted"
 
+    # Prove ramoops actually registered with the reserved region (reserve_mem +
+    # ramoops.mem_name), not merely that CONFIG_PSTORE is on. The pstore core
+    # logs a stable success line; read it from the kernel journal (-k) so a
+    # rotated dmesg ring can't hide it. A broken reserve_mem/mem_name pair would
+    # fail to register and this line would be absent.
+    out = _run(con, "journalctl -k -b 0 2>/dev/null | grep -q 'Registered ramoops'; echo RAMOOPS_RC=$?")
+    assert "RAMOOPS_RC=0" in out, "ramoops did not register (reserve_mem/mem_name ineffective)"
+
     # Persistent journal active → --list-boots works and reports the storage.
     out = _run(con, "journalctl --list-boots >/dev/null 2>&1; echo BOOTS_RC=$?")
     assert "BOOTS_RC=0" in out, "journalctl --list-boots failed"
+
+    # Prove the journal is actually PERSISTENT (Storage=persistent + the seeded
+    # /var/log/journal), not just that --list-boots runs (which works for a
+    # volatile /run journal too): an on-disk journal file must exist.
+    out = _run(con, "ls /var/log/journal/*/*.journal >/dev/null 2>&1; echo PJOURNAL_RC=$?")
+    assert "PJOURNAL_RC=0" in out, "no persistent on-disk journal under /var/log/journal"
