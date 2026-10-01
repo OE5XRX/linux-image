@@ -34,6 +34,7 @@ on:
       - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/**'
       - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/**'
       - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-slot-udev/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-throttle-log/**'
       - 'meta-oe5xrx-remotestation/recipes-core/packagegroups/**'
       - 'meta-oe5xrx-remotestation/recipes-core/station-agent/**'
       # audio subsystem foundation (Session A): system audio stack + gst opus

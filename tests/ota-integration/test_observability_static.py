@@ -109,3 +109,44 @@ _IMAGE = ("meta-oe5xrx-remotestation", "recipes-core", "images",
 def test_mmc_utils_in_base_image():
     bb = _read(*_IMAGE)
     assert "mmc-utils" in bb, "mmc-utils not installed in the image"
+
+
+# ---- Task 5: vcgencmd + throttle-log (rpi-only) ------------------------
+
+_TL = ("meta-oe5xrx-remotestation", "recipes-core", "oe5xrx-throttle-log")
+
+
+def test_image_installs_vcgencmd_and_throttle_log_rpi_only():
+    bb = _read(*_IMAGE)
+    # Both must be appended under the raspberrypi4-64 override, never the base
+    # IMAGE_INSTALL (qemu must stay a no-op).
+    assert "IMAGE_INSTALL:append:raspberrypi4-64" in bb
+    rpi_lines = [ln for ln in bb.splitlines()
+                 if "IMAGE_INSTALL:append:raspberrypi4-64" in ln]
+    joined = "\n".join(rpi_lines)
+    assert "userland" in joined, "userland (vcgencmd) not installed on rpi"
+    assert "oe5xrx-throttle-log" in joined, "throttle-log not installed on rpi"
+    # Guard: neither leaks into the base IMAGE_INSTALL block.
+    base = bb.split("IMAGE_INSTALL:append")[0]
+    assert "userland" not in base
+    assert "oe5xrx-throttle-log" not in base
+
+
+def test_throttle_log_script_exits_zero_without_vcgencmd():
+    sh = _read(*_TL, "files", "throttle-log.sh")
+    # The script must not hard-fail when vcgencmd is absent (timer must never
+    # enter `failed`): it checks command -v and exits 0.
+    assert "command -v vcgencmd" in sh
+    assert "exit 0" in sh
+
+
+def test_throttle_log_timer_and_service_present():
+    svc = _read(*_TL, "files", "oe5xrx-throttle-log.service")
+    assert "Type=oneshot" in svc
+    tmr = _read(*_TL, "files", "oe5xrx-throttle-log.timer")
+    assert "[Timer]" in tmr and "OnUnitActiveSec" in tmr
+
+
+def test_pr_workflow_triggers_on_throttle_log():
+    pr = _read(".github", "workflows", "pr.yml")
+    assert "oe5xrx-throttle-log/**" in pr

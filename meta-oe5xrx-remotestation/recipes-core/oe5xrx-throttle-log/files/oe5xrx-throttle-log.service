@@ -1,0 +1,7 @@
+[Unit]
+Description=Log RPi throttle/undervoltage state to the journal
+# No hard dep on anything — the script self-guards when vcgencmd is absent.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/throttle-log.sh
