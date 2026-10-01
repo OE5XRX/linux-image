@@ -20,6 +20,14 @@ raw=$(vcgencmd get_throttled 2>/dev/null) || {
 
 # raw looks like: throttled=0x50005
 hex=${raw#*=}
+
+# Guard against unexpected vcgencmd output (e.g. error text after "="):
+# a non-numeric value would abort the script via arithmetic expansion.
+case "$hex" in
+    0x*|[0-9]*) ;;
+    *) echo "throttle-log: unexpected vcgencmd output '${raw}' — skipping"; exit 0 ;;
+esac
+
 echo "throttle-log: ${raw}"
 
 # Decode the documented bits (0x1 undervolt now, 0x2 freq-capped now,

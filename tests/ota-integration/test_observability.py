@@ -6,6 +6,7 @@ the ramoops cmdline / kernel config / journald changes against boot regressions.
 import pytest
 
 import seed
+from test_audio import _PROMPT, _login, _run
 
 pytestmark = pytest.mark.qemu
 
@@ -26,20 +27,16 @@ def test_observability_sources_present(qemu_target, dummy_factory, built_wic,
     markers = qemu_target.boot_markers()
 
     # Boot must still reach login — the ramoops cmdline must not break boot.
-    con.expect(markers["banner_re"], timeout=900)
-    con.expect(markers["login_re"], timeout=180)
-
-    # Log in on the serial console (dev image allows empty-password root).
-    con.sendline("root")
-    con.expect(r"[#$] ", timeout=60)
+    # _login handles banner, login prompt, optional Password: prompt, and pins
+    # a unique PS1 so command boundaries are unambiguous over a noisy console.
+    _login(con, markers)
 
     # pstore filesystem is mounted (systemd mount-setup) once CONFIG_PSTORE=y —
     # proves the kernel fragment + reserve_mem wiring took effect on x86.
-    con.sendline("mountpoint -q /sys/fs/pstore && echo PSTORE_OK || echo PSTORE_NO")
-    con.expect(r"PSTORE_(OK|NO)", timeout=30)
-    assert con.match.group(0) == "PSTORE_OK", "/sys/fs/pstore is not mounted"
+    # Use $? echo so the sentinel cannot appear in the echoed command line.
+    out = _run(con, "mountpoint -q /sys/fs/pstore; echo PSTORE_RC=$?")
+    assert "PSTORE_RC=0" in out, "/sys/fs/pstore is not mounted"
 
     # Persistent journal active → --list-boots works and reports the storage.
-    con.sendline("journalctl --list-boots >/dev/null 2>&1 && echo BOOTS_OK || echo BOOTS_NO")
-    con.expect(r"BOOTS_(OK|NO)", timeout=30)
-    assert con.match.group(0) == "BOOTS_OK", "journalctl --list-boots failed"
+    out = _run(con, "journalctl --list-boots >/dev/null 2>&1; echo BOOTS_RC=$?")
+    assert "BOOTS_RC=0" in out, "journalctl --list-boots failed"

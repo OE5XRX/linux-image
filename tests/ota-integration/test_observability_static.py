@@ -9,7 +9,6 @@ import pytest
 pytestmark = pytest.mark.unit
 
 _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-_LAYER = os.path.join(_REPO, "meta-oe5xrx-remotestation")
 
 
 def _read(*parts):
