@@ -3,6 +3,8 @@ LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 SRC_URI = "file://50-oe5xrx-panic.conf \
            file://watchdog.conf \
+           file://journald-persistent.conf \
+           file://pstore.conf \
 "
 S = "${UNPACKDIR}"
 inherit allarch
@@ -12,7 +14,14 @@ do_install() {
 
     install -d ${D}${sysconfdir}/systemd/system.conf.d
     install -m 0644 ${UNPACKDIR}/watchdog.conf ${D}${sysconfdir}/systemd/system.conf.d/
+
+    install -d ${D}${sysconfdir}/systemd/journald.conf.d
+    install -m 0644 ${UNPACKDIR}/journald-persistent.conf ${D}${sysconfdir}/systemd/journald.conf.d/
+
+    install -m 0644 ${UNPACKDIR}/pstore.conf ${D}${sysconfdir}/systemd/pstore.conf
 }
 FILES:${PN} = "${sysconfdir}/sysctl.d/50-oe5xrx-panic.conf \
                ${sysconfdir}/systemd/system.conf.d/watchdog.conf \
+               ${sysconfdir}/systemd/journald.conf.d/journald-persistent.conf \
+               ${sysconfdir}/systemd/pstore.conf \
 "

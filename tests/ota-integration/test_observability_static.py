@@ -64,3 +64,37 @@ def test_ramoops_cmdline_present_in_every_bootloader(path):
     txt = _read(*path)
     for tok in _RAMOOPS_TOKENS:
         assert tok in txt, f"{'/'.join(path)} missing ramoops token {tok!r}"
+
+
+# ---- Task 3: persistent journald + pstore retention --------------------
+
+_BR = ("meta-oe5xrx-remotestation", "recipes-core", "oe5xrx-boot-robustness")
+
+
+def test_data_init_seeds_journal_dir():
+    sh = _read("meta-oe5xrx-remotestation", "recipes-core", "ab-layout",
+               "files", "data-init.sh")
+    # Must be an entry in the existing `for d in ... log/journal ...` loop,
+    # not a separate fragile statement (set -eu runs before local-fs.target).
+    assert "log/journal" in sh, "data-init.sh does not seed /var/log/journal"
+
+
+def test_journald_dropin_is_persistent():
+    conf = _read(*_BR, "files", "journald-persistent.conf")
+    assert "[Journal]" in conf
+    assert "Storage=persistent" in conf
+
+
+def test_pstore_conf_keeps_records_for_consumer():
+    conf = _read(*_BR, "files", "pstore.conf")
+    assert "[PStore]" in conf
+    assert "Unlink=no" in conf
+
+
+def test_boot_robustness_recipe_ships_both_dropins():
+    bb = _read(*_BR, "oe5xrx-boot-robustness_1.0.bb")
+    for f in ("journald-persistent.conf", "pstore.conf"):
+        assert f in bb, f"{f} not referenced in oe5xrx-boot-robustness_1.0.bb"
+    # Installed to the right dirs.
+    assert "journald.conf.d" in bb
+    assert "${sysconfdir}/systemd/pstore.conf" in bb
