@@ -92,8 +92,25 @@ rootfs DTB, so a rootfs `reserved-memory` node would never take effect.
 Cmdline tokens added to **both** bootloaders:
 
 ```
-reserve_mem=1M:4K:oops ramoops.mem_name=oops ramoops.ecc=1
+reserve_mem=2M:4096:oops ramoops.mem_name=oops ramoops.ecc=1 ramoops.record_size=0x40000 ramoops.console_size=0x40000 ramoops.pmsg_size=0x40000
 ```
+
+`reserve_mem` size/align/label match the kernel-doc example form
+(`reserve_mem=2M:4096:oops ramoops.mem_name=oops`). The explicit
+`record_size`/`console_size`/`pmsg_size` are required: module-parameter
+ramoops defaults these to 0, which would register the region but capture
+nothing. 3×256 KiB fits comfortably in the 2 MiB region (negligible on a
+≥1 GiB CM4).
+
+**Keep records readable for Consumer B.** `systemd-pstore.service` defaults to
+`Unlink=yes`, which moves records out of `/sys/fs/pstore` (into
+`/var/lib/systemd/pstore/`) and deletes them there — hiding fresh records from
+B. Ship `/etc/systemd/pstore.conf` with `[PStore] Unlink=no` so systemd still
+archives to `/var` (bonus persistence) but **leaves the record in
+`/sys/fs/pstore`** for B to read and delete per the contract. `/sys/fs/pstore`
+itself is mounted automatically by systemd's early mount-setup once
+`CONFIG_PSTORE=y` — no fstab entry needed. `pstore.conf` is folded into the
+`oe5xrx-boot-robustness` recipe (same "diagnosable across reboots" purpose).
 
 - rpi: appended to `bootargs` in `recipes-bsp/u-boot-ab/files/boot.cmd`.
 - qemu: appended to the `linux` line in
@@ -217,7 +234,8 @@ cheap — the primary regression net):
 - Both bootloader configs (`boot.cmd`, `files/wic/oe5xrx-grub.cfg`) carry the
   `reserve_mem=…:oops` + `ramoops.mem_name=oops` cmdline tokens.
 - `data-init.sh` seeds `log/journal`; the `journald-persistent.conf` drop-in
-  ships `Storage=persistent` and is in the recipe `SRC_URI` + `FILES`.
+  ships `Storage=persistent` and `pstore.conf` ships `Unlink=no`, both in the
+  recipe `SRC_URI` + `FILES`.
 - Image recipe installs `mmc-utils` (base) and `userland` +
   `oe5xrx-throttle-log` (rpi-only); throttle-log script is shellcheck-clean.
 
@@ -238,6 +256,7 @@ real CM4 reboot; `vcgencmd get_throttled` on real hardware.
 New:
 - `recipes-kernel/linux/files/oe5xrx-pstore.cfg`
 - `recipes-core/oe5xrx-boot-robustness/files/journald-persistent.conf`
+- `recipes-core/oe5xrx-boot-robustness/files/pstore.conf`
 - `recipes-core/oe5xrx-throttle-log/oe5xrx-throttle-log_1.0.bb`
 - `recipes-core/oe5xrx-throttle-log/files/throttle-log.sh`
 - `recipes-core/oe5xrx-throttle-log/files/oe5xrx-throttle-log.service`
