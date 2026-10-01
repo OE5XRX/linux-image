@@ -99,6 +99,19 @@ def test_boot_robustness_recipe_ships_both_dropins():
     assert "${sysconfdir}/systemd/pstore.conf" in bb
 
 
+def test_boot_robustness_mounts_pstore():
+    # This systemd has no pstore PACKAGECONFIG, so /sys/fs/pstore is not
+    # auto-mounted; we ship + enable a mount unit (contract source #1 must be
+    # readable). The unit basename MUST be sys-fs-pstore.mount.
+    unit = _read(*_BR, "files", "sys-fs-pstore.mount")
+    assert "Type=pstore" in unit
+    assert "Where=/sys/fs/pstore" in unit
+    assert "WantedBy=sysinit.target" in unit
+    bb = _read(*_BR, "oe5xrx-boot-robustness_1.0.bb")
+    assert "sys-fs-pstore.mount" in bb
+    assert "SYSTEMD_SERVICE" in bb
+
+
 # ---- Task 4: mmc-utils in base image -----------------------------------
 
 _IMAGE = ("meta-oe5xrx-remotestation", "recipes-core", "images",

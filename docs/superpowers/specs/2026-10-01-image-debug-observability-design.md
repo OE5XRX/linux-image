@@ -107,9 +107,7 @@ nothing. 3×256 KiB fits comfortably in the 2 MiB region (negligible on a
 `/var/lib/systemd/pstore/`) and deletes them there — hiding fresh records from
 B. Ship `/etc/systemd/pstore.conf` with `[PStore] Unlink=no` so systemd still
 archives to `/var` (bonus persistence) but **leaves the record in
-`/sys/fs/pstore`** for B to read and delete per the contract. `/sys/fs/pstore`
-itself is mounted automatically by systemd's early mount-setup once
-`CONFIG_PSTORE=y` — no fstab entry needed. `pstore.conf` is folded into the
+`/sys/fs/pstore`** for B to read and delete per the contract. This Yocto `systemd` is built without the pstore PACKAGECONFIG, so it does NOT auto-mount `/sys/fs/pstore` (and `systemd-pstore.service` is absent). The image therefore ships a `sys-fs-pstore.mount` unit (in `oe5xrx-boot-robustness`, enabled) that mounts the pstore filesystem at boot. Because `systemd-pstore` is absent, nothing deletes records from `/sys/fs/pstore`, so `pstore.conf` (`Unlink=no`) is inert here but kept as a harmless future-proofing guard should a later systemd enable that service. `pstore.conf` is folded into the
 `oe5xrx-boot-robustness` recipe (same "diagnosable across reboots" purpose).
 
 - rpi: appended to `bootargs` in `recipes-bsp/u-boot-ab/files/boot.cmd`.

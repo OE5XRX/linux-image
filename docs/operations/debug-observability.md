@@ -40,8 +40,9 @@ pmsg) fit comfortably in the 2 MiB region.
 and unlinks them from `/sys/fs/pstore`. The image ships
 `/etc/systemd/pstore.conf` with `Unlink=no`, so records stay in
 `/sys/fs/pstore` where Consumer B can read and delete them per the contract.
-`/sys/fs/pstore` itself is mounted automatically by systemd (no fstab entry
-needed) when `CONFIG_PSTORE=y`.
+`/sys/fs/pstore` is mounted by the shipped `sys-fs-pstore.mount` unit (enabled
+in `oe5xrx-boot-robustness`) — this systemd build has no pstore PACKAGECONFIG
+so there is no automatic mount.
 
 **On-target verification:**
 
