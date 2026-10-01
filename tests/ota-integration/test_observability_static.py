@@ -39,3 +39,28 @@ def test_pstore_fragment_wired_into_both_kernels(bbappend):
     assert "oe5xrx-pstore.cfg" in txt, (
         f"{bbappend} does not SRC_URI:append file://oe5xrx-pstore.cfg"
     )
+
+
+# ---- Task 2: ramoops cmdline in both bootloaders ------------------------
+
+_RAMOOPS_TOKENS = [
+    "reserve_mem=2M:4096:oops",
+    "ramoops.mem_name=oops",
+    "ramoops.ecc=1",
+    "ramoops.record_size=0x40000",
+    "ramoops.console_size=0x40000",
+    "ramoops.pmsg_size=0x40000",
+]
+
+_BOOTLOADERS = [
+    ("meta-oe5xrx-remotestation", "recipes-bsp", "u-boot-ab", "files", "boot.cmd"),
+    ("meta-oe5xrx-remotestation", "files", "wic", "oe5xrx-grub.cfg"),
+    ("meta-oe5xrx-remotestation", "recipes-bsp", "grub-ab", "files", "grub.cfg"),
+]
+
+
+@pytest.mark.parametrize("path", _BOOTLOADERS, ids=lambda p: p[-1] + ":" + p[-2])
+def test_ramoops_cmdline_present_in_every_bootloader(path):
+    txt = _read(*path)
+    for tok in _RAMOOPS_TOKENS:
+        assert tok in txt, f"{'/'.join(path)} missing ramoops token {tok!r}"
