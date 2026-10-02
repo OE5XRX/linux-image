@@ -11,6 +11,7 @@ IMAGE_INSTALL = " \
     python3 \
     htop \
     i2c-tools \
+    mmc-utils \
     station-agent \
     ab-layout \
 "
@@ -82,6 +83,11 @@ WKS_FILE_DEPENDS:append:qemux86-64 = " grub-ab"
 # ---- Raspberry Pi: U-Boot A/B ----------------------------------------------
 
 IMAGE_INSTALL:append:raspberrypi4-64 = " u-boot-ab u-boot-fw-utils"
+
+# Undervoltage/throttle visibility (debug-observability): vcgencmd (userland)
+# + a oneshot+timer that logs get_throttled to the persistent journal. RPi-only
+# — the qemu image has no VideoCore firmware, so this stays a genuine no-op there.
+IMAGE_INSTALL:append:raspberrypi4-64 = " userland oe5xrx-throttle-log"
 
 # RPi: u-boot ext4load's /boot/Image + the CM4 dtb from the rootfs slot.
 # kernel-image + kernel-devicetree for RPi already come from
