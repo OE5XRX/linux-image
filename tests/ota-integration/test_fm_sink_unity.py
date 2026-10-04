@@ -73,6 +73,18 @@ def test_conf_no_catch_all_match(conf_text):
         conf_text,
     ), "conf must not have a catch-all alsa_card.* match"
 
+    # Positive guard: EVERY device.name match in the conf must be scoped to the
+    # FM Transceiver Board. This catches broadening regressions regardless of
+    # form (unanchored ~alsa_card, a differently-worded wildcard, etc.) rather
+    # than only the one exact literal rejected above.
+    device_name_matches = re.findall(r'device\.name\s*=\s*"([^"]*)"', conf_text)
+    assert device_name_matches, "conf must contain at least one device.name match"
+    for value in device_name_matches:
+        assert "OE5XRX_FM_Transceiver_Board" in value, (
+            f"device.name match '{value}' is not scoped to the FM Transceiver "
+            "Board — would affect other ALSA devices"
+        )
+
 
 def test_recipe_lists_conf_in_src_uri(bb_text):
     assert "52-oe5xrx-fm-sink-unity.conf" in bb_text, (
@@ -88,7 +100,14 @@ def test_recipe_installs_conf(bb_text):
 
 
 def test_recipe_includes_conf_in_files(bb_text):
+    # Scope the check to the FILES:${PN} block itself. A bare basename (or even
+    # the full sysconfdir path) appears in SRC_URI and the do_install line too,
+    # so matching anywhere in the .bb gives false coverage: the FILES entry
+    # could be removed and the test would still pass. Extract the FILES block
+    # and assert the conf is listed there.
+    files_block = re.search(r'FILES:\$\{PN\}\s*=\s*"(.*?)"', bb_text, re.DOTALL)
+    assert files_block, "oe5xrx-audio-system_1.0.bb must define a FILES:${PN} block"
     assert re.search(
-        r"52-oe5xrx-fm-sink-unity\.conf",
-        bb_text,
-    ), "oe5xrx-audio-system_1.0.bb must list 52-oe5xrx-fm-sink-unity.conf in FILES"
+        r"wireplumber\.conf\.d/52-oe5xrx-fm-sink-unity\.conf",
+        files_block.group(1),
+    ), "FILES:${PN} must list the 52-oe5xrx-fm-sink-unity.conf sysconfdir path"
