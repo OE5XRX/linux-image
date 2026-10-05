@@ -119,6 +119,14 @@ jobs:
       - name: Prod-safety lint
         run: bash scripts/l0-dev-packages-lint.sh
 
+  audio-rdepends:
+    name: Audio stack RDEPENDS complete (gst audiofx etc.)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Audio RDEPENDS lint
+        run: bash scripts/l3-audio-rdepends-lint.sh
+
   image-variant:
     name: Image-variant marker wired in both recipes
     runs-on: ubuntu-latest
