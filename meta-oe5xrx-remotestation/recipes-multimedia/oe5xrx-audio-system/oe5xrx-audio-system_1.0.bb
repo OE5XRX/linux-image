@@ -37,13 +37,19 @@ inherit systemd allarch
 #   udpsink/udpsrc           -> gstreamer1.0-plugins-good-udp
 #   rtpjitterbuffer          -> gstreamer1.0-plugins-good-rtpmanager
 #   audiotestsrc/alsasink/audioconvert/audioresample -> gstreamer1.0-plugins-base
+# The agent's TX DSP chain (station_agent/audio/tx_dsp.py: band-pass -> gate ->
+# compressor -> makeup -> limiter) additionally needs:
+#   audiocheblimit/audiodynamic -> gstreamer1.0-plugins-good-audiofx
+#   volume                      -> gstreamer1.0-plugins-base (already above)
+#   tee/queue/fdsink            -> gstreamer1.0 (coreelements)
+# Without audiofx the agent degrades to a pass-through volume (no leveling/limiter).
 # gst-inspect-1.0 / gst-launch-1.0 live in the gstreamer1.0 package.
 #
 # NOTE: depend on the SPECIFIC split plugin packages, NOT the bare
 # 'gstreamer1.0-plugins-good' — that top package is EMPTY (FILES=""), it only
 # *RRECOMMENDS* '-meta', which is best-effort and can be dropped in an image
 # build. Same reason we pin 'gstreamer1.0-plugins-base-opus' rather than bare
-# '-base'. Pinning the three sub-plugins keeps the headless appliance image
+# '-base'. Pinning the four sub-plugins keeps the headless appliance image
 # lean (no v4l2/jpeg/png/... from the full -good set) while guaranteeing the
 # bridge elements are actually installed.
 RDEPENDS:${PN} = " \
@@ -61,6 +67,7 @@ RDEPENDS:${PN} = " \
     gstreamer1.0-plugins-good-rtp \
     gstreamer1.0-plugins-good-udp \
     gstreamer1.0-plugins-good-rtpmanager \
+    gstreamer1.0-plugins-good-audiofx \
     libopus \
     alsa-utils \
     dbus \
