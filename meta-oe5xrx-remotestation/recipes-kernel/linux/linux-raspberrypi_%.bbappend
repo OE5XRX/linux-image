@@ -14,3 +14,7 @@ SRC_URI:append = " file://oe5xrx-watchdog.cfg"
 # and lives in linux-raspberrypi_6.18.bbappend — setting it here would clobber
 # the 6.1/6.6/6.12 recipes too and break PREFERRED_VERSION selection.
 SRC_URI:append = " file://oe5xrx-ikconfig.cfg"
+
+# Kernel crash capture (pstore/ramoops). SoC-agnostic fragment shared with the
+# qemu kernel; the reserved RAM region is set on the cmdline in boot.cmd.
+SRC_URI:append = " file://oe5xrx-pstore.cfg"

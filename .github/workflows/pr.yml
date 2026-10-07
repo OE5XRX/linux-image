@@ -34,6 +34,7 @@ on:
       - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-native-sim-fm/**'
       - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-sim-harness/**'
       - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-slot-udev/**'
+      - 'meta-oe5xrx-remotestation/recipes-core/oe5xrx-throttle-log/**'
       - 'meta-oe5xrx-remotestation/recipes-core/packagegroups/**'
       - 'meta-oe5xrx-remotestation/recipes-core/station-agent/**'
       # audio subsystem foundation (Session A): system audio stack + gst opus
@@ -62,7 +63,7 @@ jobs:
     outputs:
       tag: ${{ steps.last.outputs.tag }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: last
         uses: ./.github/actions/resolve-last-release
         with:

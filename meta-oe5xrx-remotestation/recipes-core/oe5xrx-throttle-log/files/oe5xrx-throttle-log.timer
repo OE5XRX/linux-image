@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic RPi throttle/undervoltage logging
+
+[Timer]
+# First run shortly after boot, then every 5 minutes. Persistent=false: we want
+# live samples, not a catch-up burst after downtime.
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=Mount pstore (kernel crash records) for the station telemetry consumer
+# This Yocto systemd is built without the pstore PACKAGECONFIG (no systemd-pstore,
+# no automatic /sys/fs/pstore mount), so mount the pstore filesystem ourselves.
+# ConditionPathExists guards kernels without CONFIG_PSTORE — the sysfs mount point
+# only exists when pstore is built in — so this is a clean no-op there.
+DefaultDependencies=no
+ConditionPathExists=/sys/fs/pstore
+Before=sysinit.target
+
+[Mount]
+What=pstore
+Where=/sys/fs/pstore
+Type=pstore
+Options=nosuid,nodev,noexec
+
+[Install]
+WantedBy=sysinit.target

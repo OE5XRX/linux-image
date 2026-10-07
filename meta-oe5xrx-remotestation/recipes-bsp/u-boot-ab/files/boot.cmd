@@ -73,7 +73,7 @@ fi
 
 echo "  Loading kernel from rootfs mmc 0:${root_partnum} (/boot/Image)"
 if ext4load mmc 0:${root_partnum} ${kernel_addr_r} /boot/Image; then
-    setenv bootargs "root=PARTLABEL=root_${boot_part} ro rootwait fsck.repair=yes net.ifnames=0 panic=5 softlockup_panic=1 console=tty1 console=serial0,115200"
+    setenv bootargs "root=PARTLABEL=root_${boot_part} ro rootwait fsck.repair=yes net.ifnames=0 panic=5 softlockup_panic=1 reserve_mem=2M:4096:oops ramoops.mem_name=oops ramoops.ecc=1 ramoops.record_size=0x40000 ramoops.console_size=0x40000 ramoops.pmsg_size=0x40000 console=tty1 console=serial0,115200"
 
     # Prefer the firmware-provided DTB (config.txt/otg_mode applied). booti only
     # returns if the DTB is rejected — then we fall through to the fallback.

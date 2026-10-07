@@ -24,7 +24,8 @@ mkdir -p \
     "${DATA}/etc-overlay/work"
 
 # /var subtree — systemd/journald/apps expect these.
-for d in log lib lib/systemd lib/dbus lib/station-agent lib/station-agent/downloads cache spool tmp local backups; do
+# log/journal must exist for journald to write persistent logs (Storage=persistent).
+for d in log log/journal lib lib/systemd lib/dbus lib/station-agent lib/station-agent/downloads cache spool tmp local backups; do
     mkdir -p "${DATA}/var/${d}"
 done
 

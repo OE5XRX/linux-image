@@ -13,6 +13,7 @@ SRC_URI = " \
     file://oe5xrx-wireplumber.service \
     file://10-oe5xrx-pipewire-system.conf \
     file://51-oe5xrx-slot-naming.conf \
+    file://52-oe5xrx-fm-sink-unity.conf \
 "
 
 S = "${UNPACKDIR}"
@@ -85,6 +86,7 @@ do_install() {
 
     install -d ${D}${sysconfdir}/wireplumber/wireplumber.conf.d
     install -m 0644 ${UNPACKDIR}/51-oe5xrx-slot-naming.conf ${D}${sysconfdir}/wireplumber/wireplumber.conf.d/51-oe5xrx-slot-naming.conf
+    install -m 0644 ${UNPACKDIR}/52-oe5xrx-fm-sink-unity.conf ${D}${sysconfdir}/wireplumber/wireplumber.conf.d/52-oe5xrx-fm-sink-unity.conf
 }
 
 FILES:${PN} = " \
@@ -92,4 +94,5 @@ FILES:${PN} = " \
     ${systemd_system_unitdir}/oe5xrx-wireplumber.service \
     ${sysconfdir}/pipewire/pipewire.conf.d/10-oe5xrx-system.conf \
     ${sysconfdir}/wireplumber/wireplumber.conf.d/51-oe5xrx-slot-naming.conf \
+    ${sysconfdir}/wireplumber/wireplumber.conf.d/52-oe5xrx-fm-sink-unity.conf \
 "
