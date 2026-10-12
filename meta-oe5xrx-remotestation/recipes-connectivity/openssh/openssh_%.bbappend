@@ -27,3 +27,6 @@ do_install:append() {
 }
 
 FILES:${PN}-sshd += "${systemd_system_unitdir}/sshdgenkeys.service.d"
+
+# The drop-in's ExecStartPre uses /usr/bin/install (coreutils; busybox here has no install).
+RDEPENDS:${PN}-sshd += "coreutils"
