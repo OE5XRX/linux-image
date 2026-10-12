@@ -127,6 +127,14 @@ jobs:
       - name: Audio RDEPENDS lint
         run: bash scripts/l3-audio-rdepends-lint.sh
 
+  ssh-hostkeys:
+    name: SSH host keys persistent (/var/lib/ssh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: SSH host-key lint
+        run: bash scripts/l4-ssh-hostkeys-lint.sh
+
   image-variant:
     name: Image-variant marker wired in both recipes
     runs-on: ubuntu-latest
