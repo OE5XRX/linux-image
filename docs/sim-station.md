@@ -56,3 +56,5 @@ The station_agent's heartbeat now reports the module inventory under
   `/var/lib/oe5xrx/sim` (`SIM_STATE_DIR`, persistent `/var`), so the UID — and thus
   the module identity — survives reboots, OTA and sim-flashes. If that dir is
   unusable the harness warns and falls back to the volatile run dir (new UID each boot).
+  The same directory also holds native_sim's `eeprom.bin` (32 KiB), so EEPROM contents
+  written via the shell persist as well. Keep the dir `root:root 0755`.

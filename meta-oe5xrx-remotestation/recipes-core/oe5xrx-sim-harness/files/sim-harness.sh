@@ -30,7 +30,10 @@
 # persists it as `oe5xrx_sim_uid.txt` in its CWD. The CWD must therefore be persistent
 # ($SIM_STATE_DIR, on /var) — in the volatile $RUNDIR every boot would mint a new UID and
 # the server would see a brand-new module each time. Falls back to $RUNDIR (per-boot UID,
-# warned) only if the state dir is unusable.
+# warned) only if the state dir is unusable. Side effect: native_sim's other CWD file,
+# the 32 KiB `eeprom.bin` (Zephyr -eeprom default), is persistent too. The state dir is
+# root:root 0755 (data-init) — keep it so: root-written files here are opened without
+# O_NOFOLLOW by the FW.
 #
 # SLOT_DIR is overridable for host testing (default is the canonical /dev path).
 set -eu
