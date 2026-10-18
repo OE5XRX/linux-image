@@ -49,22 +49,24 @@ it. The agent runs as root.
     D=/var/lib/oe5xrx/sim
     1. write + verify the new binary to   $D/native-sim-fm.new   (same dir => same fs)
        chown root:root; chmod 0755
-    2. mark the flash in flight:          touch $D/pending   (fsync the dir)
-    3. if $D/native-sim-fm exists:        ln -f $D/native-sim-fm $D/native-sim-fm.prev   (hardlink)
+    2. if $D/native-sim-fm exists:        ln -f $D/native-sim-fm $D/native-sim-fm.prev   (hardlink)
        else:                              rm -f $D/native-sim-fm.prev
+    3. mark the flash in flight:          touch $D/pending   (fsync the dir)
     4. atomic install:                    mv -f $D/native-sim-fm.new $D/native-sim-fm   (rename(2))
     5. systemctl restart oe5xrx-sim-harness
     6. health check over /dev/oe5xrx/slot1/control (describe → expected version)
     7. health OK:                         rm -f $D/pending
 
-`pending` is set before anything touches the live override, and step 3 hardlinks
-instead of moving, so the override is never absent: a crash at any point leaves
-either the old or the new binary live plus `pending`. Step 3's `else` matters: a
-`.prev` left over from an earlier flash (e.g. before a factory reset) must never
-become the rollback target of a flash that replaced the image binary.
+Order matters. `.prev` is refreshed (step 2) before `pending` is set (step 3), so
+whenever `pending` exists `.prev` already matches the pre-flash state; a crash
+before step 3 leaves no `pending` and the untouched, verified override live. Step 2
+hardlinks instead of moving, so the override is never absent: a crash after step 3
+leaves either the old or the new binary live plus `pending`. Step 2's `else`
+matters: a `.prev` left over from an earlier flash (e.g. before a factory reset)
+must never become the rollback target of a flash that replaced the image binary.
 
 Rollback (health check failed, **or** the agent finds `$D/pending` on startup — it
-crashed / the station rebooted between steps 2 and 7, so the live override was never
+crashed / the station rebooted between steps 3 and 7, so the live override was never
 verified):
 
 - no `$D/native-sim-fm` → nothing was installed (crash before step 4 of a flash
@@ -88,7 +90,8 @@ the image must be bumped (`bump-fw-release.sh`) rather than sim-flashed.
 ## Firmware release pin
 
 The image-baked artifacts (`/lib/firmware/oe5xrx/fm-sa818-vhf.bin` — fixed name,
-whatever the release asset is called — the native_sim and the SA818 emulator) come from the one FW-RemoteStation release pinned in
+whatever the release asset is called — the native_sim and the SA818 emulator) come
+from the one FW-RemoteStation release pinned in
 `meta-oe5xrx-remotestation/conf/oe5xrx-fw-release.inc` (`FW_RELEASE_TAG`). The asset
 basename is `FW_FM_ASSET` in the same file: `fm-sa818-2m` up to and including FW
 release 26.07.25-01, `fm-sa818-vhf` for releases cut after FW #66.
