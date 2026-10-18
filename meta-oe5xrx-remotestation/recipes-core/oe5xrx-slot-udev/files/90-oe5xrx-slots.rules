@@ -2,7 +2,9 @@
 # BusBoard FE1.1s hub ports are fixed-wired: port = slot.
 # The FM module's CDC-ACM (control) interface is a child of the hub port.
 # Two identical modules are told apart by PORT PATH only, never serial.
-# Only slotN/control (CDC-ACM/tty) is in D2 scope. audio (UAC2) and dfu are later deliverables.
+# The slot<->port mapping is single-sourced in /etc/oe5xrx/slots.conf (shipped by this
+# recipe); the KERNELS== values below MUST match it (CI-checked). DFU needs no rule: the
+# agent addresses a module in its DFU bootloader with `dfu-util -p <port>` from slots.conf.
 # Match KERNEL=="ttyACM*": the control interface is CDC-ACM, so this ignores unrelated
 # USB serial devices (e.g. an FTDI ttyUSB) that might share a hub port path.
 ACTION=="remove", GOTO="oe5xrx_slots_end"

@@ -24,3 +24,6 @@ Sim side (harness resolves the same symlink):
 Both yield `/dev/oe5xrx/slot1/control`; the agent's `slot_discovery` opens that
 path unchanged in either case (proven end-to-end by tests/sim-harness against the
 real native_sim binary, and by the station_agent slot_discovery tests).
+
+Flashing module firmware (dfu-util by slot port, `/etc/oe5xrx/slots.conf`; sim
+binary override): see `docs/module-firmware-flash.md`.

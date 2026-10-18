@@ -17,10 +17,25 @@
 # there can never be a stray/duplicate emulator on the radio pty — duplicate
 # emulators each answer every command and desync the AT request/response stream.
 #
+# Binary selection (module-firmware flash, Teil D — sim backend): if the agent has
+# staged a flashed native_sim at $SIM_OVERRIDE (persistent /var, survives reboots
+# and OTA) and it is an executable regular file (not a symlink), run THAT;
+# otherwise fall back to the image-baked binary. The staging/rollback contract
+# (atomic rename, native-sim-fm.prev, restart) is documented in
+# docs/module-firmware-flash.md. An explicit SIM_BIN env always wins (host testing).
+#
 # SLOT_DIR is overridable for host testing (default is the canonical /dev path).
 set -eu
 
-SIM_BIN="${SIM_BIN:-/usr/libexec/oe5xrx/native-sim-fm}"
+SIM_IMAGE_BIN="${SIM_IMAGE_BIN:-/usr/libexec/oe5xrx/native-sim-fm}"
+SIM_OVERRIDE="${SIM_OVERRIDE:-/var/lib/oe5xrx/sim/native-sim-fm}"
+if [ -z "${SIM_BIN:-}" ]; then
+    if [ -f "$SIM_OVERRIDE" ] && [ ! -L "$SIM_OVERRIDE" ] && [ -x "$SIM_OVERRIDE" ]; then
+        SIM_BIN="$SIM_OVERRIDE"
+    else
+        SIM_BIN="$SIM_IMAGE_BIN"
+    fi
+fi
 SA818_SIM="${SA818_SIM:-/usr/libexec/oe5xrx/sa818-sim.py}"
 SLOT_DIR="${SLOT_DIR:-/dev/oe5xrx/slot1}"
 SLOT_LINK="${SLOT_DIR}/control"
@@ -29,6 +44,7 @@ LOG="${RUNDIR}/sim.log"
 SA818_LOG="${RUNDIR}/sa818-sim.log"
 
 [ -x "$SIM_BIN" ] || { echo "sim-harness: native_sim binary missing: $SIM_BIN" >&2; exit 1; }
+echo "sim-harness: using native_sim $SIM_BIN" >&2
 
 mkdir -p "$SLOT_DIR" "$RUNDIR"
 cd "$RUNDIR"

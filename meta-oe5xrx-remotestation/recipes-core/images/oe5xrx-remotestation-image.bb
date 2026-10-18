@@ -37,6 +37,12 @@ IMAGE_INSTALL:append = " picocom"
 # D2 slot contract: udev rules that map BusBoard hub ports to /dev/oe5xrx/slotN/control.
 IMAGE_INSTALL:append = " oe5xrx-slot-udev oe5xrx-fm-firmware"
 
+# Module-firmware flash (Teil D): the station_agent flashes FM modules over USB DFU
+# with `dfu-util -p <port>` (port from /etc/oe5xrx/slots.conf). dfu-util comes from
+# meta-oe. All machines — the qemu image carries it too so the prod package set is
+# identical (the sim backend itself swaps the native_sim binary instead of DFU).
+IMAGE_INSTALL:append = " dfu-util"
+
 # Audio subsystem foundation (Spec 0 §3/§7-A, Session A): system-wide
 # PipeWire/WirePlumber + GStreamer/Opus bridge elements + the oe5xrx.slotN
 # WirePlumber naming rule. All machines — real HW UAC2 and the sim snd-aloop
