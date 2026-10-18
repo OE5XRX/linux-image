@@ -97,6 +97,7 @@ whatever the release asset is called — the native_sim and the SA818 emulator) 
 from the one FW-RemoteStation release pinned in
 `meta-oe5xrx-remotestation/conf/oe5xrx-fw-release.inc` (`FW_RELEASE_TAG`). The asset
 basename is `FW_FM_ASSET` in the same file: `fm-sa818-2m` up to and including FW
-release 26.07.25-01, `fm-sa818-vhf` for releases cut after FW #66.
+release 26.07.25-01, `fm-sa818-vhf` for 26.10.18-01 and later (FW #66; the UHF
+sibling is `fm-sa818-uhf`, not shipped in the image yet).
 `scripts/bump-fw-release.sh <tag>` detects which the release carries and rewrites both
 lines, so the rename takes no recipe edit.

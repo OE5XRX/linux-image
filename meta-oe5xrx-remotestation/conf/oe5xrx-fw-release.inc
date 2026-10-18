@@ -19,5 +19,5 @@
 # line together with the tag, so the rename is a pure bump — no recipe edit.
 
 FW_RELEASE_URL_BASE ?= "https://github.com/OE5XRX/FW-RemoteStation/releases/download"
-FW_RELEASE_TAG ?= "26.07.21-01"
-FW_FM_ASSET ?= "fm-sa818-2m"
+FW_RELEASE_TAG ?= "26.10.18-01"
+FW_FM_ASSET ?= "fm-sa818-vhf"

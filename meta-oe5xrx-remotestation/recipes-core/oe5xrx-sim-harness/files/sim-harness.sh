@@ -26,6 +26,12 @@
 # (atomic rename, native-sim-fm.prev, restart) is documented in
 # docs/module-firmware-flash.md. An explicit SIM_BIN env always wins (host testing).
 #
+# Persistent identity: FW schema 2 native_sim generates a synthetic device UID once and
+# persists it as `oe5xrx_sim_uid.txt` in its CWD. The CWD must therefore be persistent
+# ($SIM_STATE_DIR, on /var) — in the volatile $RUNDIR every boot would mint a new UID and
+# the server would see a brand-new module each time. Falls back to $RUNDIR (per-boot UID,
+# warned) only if the state dir is unusable.
+#
 # SLOT_DIR is overridable for host testing (default is the canonical /dev path).
 set -eu
 
@@ -56,6 +62,7 @@ SA818_SIM="${SA818_SIM:-/usr/libexec/oe5xrx/sa818-sim.py}"
 SLOT_DIR="${SLOT_DIR:-/dev/oe5xrx/slot1}"
 SLOT_LINK="${SLOT_DIR}/control"
 RUNDIR="${RUNDIR:-/run/oe5xrx/native-sim-fm}"
+SIM_STATE_DIR="${SIM_STATE_DIR:-/var/lib/oe5xrx/sim}"
 LOG="${RUNDIR}/sim.log"
 SA818_LOG="${RUNDIR}/sa818-sim.log"
 
@@ -63,7 +70,12 @@ SA818_LOG="${RUNDIR}/sa818-sim.log"
 echo "sim-harness: using native_sim $SIM_BIN" >&2
 
 mkdir -p "$SLOT_DIR" "$RUNDIR"
-cd "$RUNDIR"
+if [ -d "$SIM_STATE_DIR" ] && [ -w "$SIM_STATE_DIR" ]; then
+    cd "$SIM_STATE_DIR"
+else
+    echo "sim-harness: WARNING state dir $SIM_STATE_DIR unusable — synthetic UID will NOT persist across reboots" >&2
+    cd "$RUNDIR"
+fi
 : > "$LOG"
 
 # Start native_sim, stdout+stderr to a regular file (never blocks the child).

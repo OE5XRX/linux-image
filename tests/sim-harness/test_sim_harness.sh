@@ -48,7 +48,8 @@ echo "${sa818_sha}  ${sa818_sim}" | sha256sum -c - || { echo "FAIL: sha256 misma
 # driver_error on the unanswered SA818 UART).
 slot_dir="${work}/slot1"
 # Invoke via `sh` so the test doesn't depend on the source file's git exec bit.
-SIM_BIN="$bin" SA818_SIM="$sa818_sim" SLOT_DIR="$slot_dir" RUNDIR="${work}/run" sh "$harness" &
+state_dir="${work}/state"; mkdir -p "$state_dir"
+SIM_BIN="$bin" SA818_SIM="$sa818_sim" SLOT_DIR="$slot_dir" RUNDIR="${work}/run" SIM_STATE_DIR="$state_dir" sh "$harness" &
 harness_pid=$!
 
 for _ in $(seq 1 100); do
@@ -89,6 +90,18 @@ case "$resp" in
     MODULE-DESCRIBE\ *fm_transceiver*) : ;;  # describe OK — continue to the set check
     *) echo "FAIL: unexpected describe response"; exit 1 ;;
 esac
+
+# FW schema 2 identity: the synthetic UID must be persisted in the (persistent)
+# state dir, not the volatile RUNDIR — otherwise every reboot is a "new module".
+case "$resp" in
+    *'"schema":2'*'"uid_source":"synthetic"'*) : ;;
+    *) echo "FAIL: describe is not schema 2 with a synthetic uid"; exit 1 ;;
+esac
+uid="$(printf '%s' "$resp" | sed -nE 's/.*"uid":"([0-9A-F]{24})".*/\1/p')"
+[ -n "$uid" ] || { echo "FAIL: no 24-hex uid in describe"; exit 1; }
+[ "$(cat "${state_dir}/oe5xrx_sim_uid.txt" 2>/dev/null)" = "$uid" ] \
+    || { echo "FAIL: synthetic uid not persisted in SIM_STATE_DIR (would change every boot)"; exit 1; }
+[ ! -e "${work}/run/oe5xrx_sim_uid.txt" ] || { echo "FAIL: uid file leaked into volatile RUNDIR"; exit 1; }
 
 # The real regression this recipe fixes: a `set` reaches native_sim's SA818
 # driver, which emits AT+DMOSETGROUP on uart_1. Without an emulator on that pty

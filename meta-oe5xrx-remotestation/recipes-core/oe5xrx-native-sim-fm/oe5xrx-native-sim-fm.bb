@@ -10,7 +10,7 @@ LICENSE = "CLOSED"
 #   scripts/bump-fw-release.sh <tag>  (rewrites the tag + all shas, cosign-verified).
 require conf/oe5xrx-fw-release.inc
 SRC_URI = "${FW_RELEASE_URL_BASE}/${FW_RELEASE_TAG}/${FW_FM_ASSET}.native_sim;downloadfilename=${FW_FM_ASSET}.native_sim"
-SRC_URI[sha256sum] = "263f952c88d17ee9663819b743120acd272c3e87904151b3b4b167d47b55aae2"
+SRC_URI[sha256sum] = "49348d8766760561fe6df4a4137f442fd034a032fec263fb6dffc4760fd75463"
 
 # PV = the dotted date part of the tag (e.g. 26.07.21-01 -> 26.07.21).
 PV = "${@d.getVar('FW_RELEASE_TAG').split('-')[0]}"
