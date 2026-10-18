@@ -177,3 +177,108 @@ def test_fw_recipes_use_asset_variable(recipe):
     bb = _read(os.path.join(_LAYER, "recipes-core", *recipe))
     assert "${FW_FM_ASSET}" in bb
     assert "fm-sa818-2m" not in bb and "fm-sa818-vhf" not in bb
+
+
+def test_harness_ignores_group_writable_override(sim_dirs):
+    tmp_path, override = sim_dirs
+    _fake_sim(override, tmp_path / "override-ran", mode=0o775)
+    res = _run_harness(tmp_path, override)
+    assert "ignoring unsafe override" in res.stderr
+    assert f"using native_sim {tmp_path / 'image-bin'}" in res.stderr
+    assert not (tmp_path / "override-ran").exists()
+
+
+# ---- bump-fw-release.sh FW_FM_ASSET detection (hermetic) -------------------------
+
+_FW_FILES = [
+    ("scripts", "bump-fw-release.sh"),
+    ("meta-oe5xrx-remotestation", "conf", "oe5xrx-fw-release.inc"),
+    ("meta-oe5xrx-remotestation", "recipes-core", "oe5xrx-fm-firmware",
+     "oe5xrx-fm-firmware.bb"),
+    ("meta-oe5xrx-remotestation", "recipes-core", "oe5xrx-native-sim-fm",
+     "oe5xrx-native-sim-fm.bb"),
+    ("meta-oe5xrx-remotestation", "recipes-core", "oe5xrx-sim-harness",
+     "oe5xrx-sim-harness_1.0.bb"),
+]
+
+# curl stub: serves `-o <file> <url>` from $FAKE_RELEASE/<basename(url)>; 22 if absent.
+_CURL_STUB = """#!/bin/sh
+out=""; url=""
+while [ $# -gt 0 ]; do
+    case "$1" in -o) out="$2"; shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac
+done
+src="$FAKE_RELEASE/${url##*/}"
+[ -f "$src" ] || exit 22
+cp "$src" "$out"
+"""
+
+
+@pytest.fixture
+def fw_tree(tmp_path):
+    import shutil
+    root = tmp_path / "repo"
+    for parts in _FW_FILES:
+        dst = root.joinpath(*parts)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(os.path.join(_REPO, *parts), dst)
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    (stubs / "curl").write_text(_CURL_STUB)
+    (stubs / "cosign").write_text("#!/bin/sh\nexit 0\n")  # authenticity is not under test
+    for s in ("curl", "cosign"):
+        os.chmod(stubs / s, 0o755)
+    release = tmp_path / "release"
+    release.mkdir()
+    return root, stubs, release
+
+
+def _publish(release, prefixes):
+    import hashlib
+    sums = []
+    for pfx in prefixes:
+        for ext in (".bin", ".native_sim", ".sa818-sim.py"):
+            name = pfx + ext
+            data = f"{name}\n".encode()
+            (release / name).write_bytes(data)
+            (release / (name + ".bundle")).write_text("{}")
+            sums.append(f"{hashlib.sha256(data).hexdigest()}  {name}")
+    (release / "SHA256SUMS").write_text("\n".join(sums) + "\n")
+
+
+def _bump(fw_tree, *args):
+    root, stubs, release = fw_tree
+    env = dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}",
+               FAKE_RELEASE=str(release))
+    return subprocess.run(["bash", str(root / "scripts" / "bump-fw-release.sh"), *args],
+                          env=env, capture_output=True, text=True, timeout=60)
+
+
+def _inc_var(root, var):
+    inc = (root / "meta-oe5xrx-remotestation" / "conf" / "oe5xrx-fw-release.inc").read_text()
+    return re.search(rf'^{var} \?= "([^"]*)"$', inc, re.M).group(1)
+
+
+@pytest.mark.parametrize("published,expected", [
+    (["fm-sa818-vhf", "fm-sa818-uhf"], "fm-sa818-vhf"),
+    (["fm-sa818-2m", "fm-sa818-70cm"], "fm-sa818-2m"),
+    (["fm-sa818-2m", "fm-sa818-vhf"], "fm-sa818-vhf"),
+])
+def test_bump_detects_fm_asset(fw_tree, published, expected):
+    root, _, release = fw_tree
+    _publish(release, published)
+    res = _bump(fw_tree, "99.01.01-01")
+    assert res.returncode == 0, res.stderr
+    assert _inc_var(root, "FW_RELEASE_TAG") == "99.01.01-01"
+    assert _inc_var(root, "FW_FM_ASSET") == expected
+    check = _bump(fw_tree, "--check")
+    assert check.returncode == 0, check.stderr
+
+
+def test_bump_fails_untouched_without_fm_asset(fw_tree):
+    root, _, release = fw_tree
+    _publish(release, ["fm-sa818-70cm"])
+    before = {p: root.joinpath(*p).read_bytes() for p in _FW_FILES}
+    res = _bump(fw_tree, "99.01.01-01")
+    assert res.returncode != 0
+    assert "no FM asset" in res.stderr
+    assert {p: root.joinpath(*p).read_bytes() for p in _FW_FILES} == before

@@ -19,8 +19,10 @@
 #
 # Binary selection (module-firmware flash, Teil D — sim backend): if the agent has
 # staged a flashed native_sim at $SIM_OVERRIDE (persistent /var, survives reboots
-# and OTA) and it is an executable regular file (not a symlink), run THAT;
-# otherwise fall back to the image-baked binary. The staging/rollback contract
+# and OTA) and it is an executable regular file (not a symlink), owned by the
+# harness user (root) and not group/world-writable, run THAT; otherwise fall back
+# to the image-baked binary. The owner/mode check matters because the harness
+# executes it as root: data-init only re-asserts the directory's permissions. The staging/rollback contract
 # (atomic rename, native-sim-fm.prev, restart) is documented in
 # docs/module-firmware-flash.md. An explicit SIM_BIN env always wins (host testing).
 #
@@ -29,10 +31,24 @@ set -eu
 
 SIM_IMAGE_BIN="${SIM_IMAGE_BIN:-/usr/libexec/oe5xrx/native-sim-fm}"
 SIM_OVERRIDE="${SIM_OVERRIDE:-/var/lib/oe5xrx/sim/native-sim-fm}"
+
+# True if $1 is a safe override: regular file, not a symlink, executable, owned by
+# us, no group/other write bit.
+override_ok() {
+    [ -f "$1" ] && [ ! -L "$1" ] && [ -x "$1" ] || return 1
+    # shellcheck disable=SC2046  # intentional split of "uid mode"
+    set -- $(stat -c '%u %a' "$1" 2>/dev/null) || return 1
+    [ "${1:-}" = "$(id -u)" ] || return 1
+    [ $(( 0${2:-7777} & 022 )) -eq 0 ]
+}
+
 if [ -z "${SIM_BIN:-}" ]; then
-    if [ -f "$SIM_OVERRIDE" ] && [ ! -L "$SIM_OVERRIDE" ] && [ -x "$SIM_OVERRIDE" ]; then
+    if override_ok "$SIM_OVERRIDE"; then
         SIM_BIN="$SIM_OVERRIDE"
     else
+        if [ -e "$SIM_OVERRIDE" ] || [ -L "$SIM_OVERRIDE" ]; then
+            echo "sim-harness: ignoring unsafe override $SIM_OVERRIDE (must be a regular executable, owned by uid $(id -u), not group/world-writable)" >&2
+        fi
         SIM_BIN="$SIM_IMAGE_BIN"
     fi
 fi
