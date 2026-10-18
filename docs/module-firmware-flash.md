@@ -67,16 +67,19 @@ must never become the rollback target of a flash that replaced the image binary.
 
 Rollback (health check failed, **or** the agent finds `$D/pending` on startup — it
 crashed / the station rebooted between steps 3 and 7, so the live override was never
-verified):
+verified). Idempotent — if it is interrupted, simply run it again from the top:
 
-- no `$D/native-sim-fm` → nothing was installed (crash before step 4 of a flash
-  over the image binary): `rm -f $D/native-sim-fm.prev`, no restart needed.
-- `.prev` exists → `mv -f $D/native-sim-fm.prev $D/native-sim-fm`, restart.
-- no `.prev` (the flash replaced the image binary) → `rm -f $D/native-sim-fm`,
-  restart — the harness falls back to the image binary.
-- then `rm -f $D/pending $D/native-sim-fm.new` and report the flash as rolled back.
+    R1. if $D/native-sim-fm.prev exists:  ln -f $D/native-sim-fm.prev $D/native-sim-fm.rb
+                                          mv -f $D/native-sim-fm.rb $D/native-sim-fm   (rename(2))
+        else:                             rm -f $D/native-sim-fm
+    R2. systemctl restart oe5xrx-sim-harness   (always — the unverified binary may be running)
+    R3. rm -f $D/pending $D/native-sim-fm.new $D/native-sim-fm.rb   (last), report rolled back
 
-(A crash before step 4 makes the `.prev` restore a no-op — it is the same inode.)
+`.prev` is kept (never moved), so a re-run restores the same pre-flash binary; no
+`.prev` means the flash replaced the image binary, and removing the override falls
+back to it. `pending` goes last, so an interrupted rollback is always re-run. A crash
+before step 4 makes R1 a no-op (`.prev` is the same inode as the live override, or
+neither exists). The next flash's step 2 refreshes `.prev` anyway.
 
 "Factory reset" to the image-baked firmware: `rm -f $D/native-sim-fm
 $D/native-sim-fm.prev $D/pending`, restart.
