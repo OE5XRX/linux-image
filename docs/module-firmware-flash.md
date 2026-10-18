@@ -49,26 +49,32 @@ it. The agent runs as root.
     D=/var/lib/oe5xrx/sim
     1. write + verify the new binary to   $D/native-sim-fm.new   (same dir => same fs)
        chown root:root; chmod 0755
-    2. if $D/native-sim-fm exists:        mv -f $D/native-sim-fm $D/native-sim-fm.prev
+    2. mark the flash in flight:          touch $D/pending   (fsync the dir)
+    3. if $D/native-sim-fm exists:        ln -f $D/native-sim-fm $D/native-sim-fm.prev   (hardlink)
        else:                              rm -f $D/native-sim-fm.prev
-    3. mark the flash in flight:          touch $D/pending   (fsync the dir)
     4. atomic install:                    mv -f $D/native-sim-fm.new $D/native-sim-fm   (rename(2))
     5. systemctl restart oe5xrx-sim-harness
     6. health check over /dev/oe5xrx/slot1/control (describe → expected version)
     7. health OK:                         rm -f $D/pending
 
-Step 2's `else` matters: a `.prev` left over from an earlier flash (e.g. before a
-factory reset) must never become the rollback target of a flash that replaced the
-image binary.
+`pending` is set before anything touches the live override, and step 3 hardlinks
+instead of moving, so the override is never absent: a crash at any point leaves
+either the old or the new binary live plus `pending`. Step 3's `else` matters: a
+`.prev` left over from an earlier flash (e.g. before a factory reset) must never
+become the rollback target of a flash that replaced the image binary.
 
 Rollback (health check failed, **or** the agent finds `$D/pending` on startup — it
-crashed / the station rebooted between steps 3 and 7, so the live override was never
+crashed / the station rebooted between steps 2 and 7, so the live override was never
 verified):
 
+- no `$D/native-sim-fm` → nothing was installed (crash before step 4 of a flash
+  over the image binary): `rm -f $D/native-sim-fm.prev`, no restart needed.
 - `.prev` exists → `mv -f $D/native-sim-fm.prev $D/native-sim-fm`, restart.
 - no `.prev` (the flash replaced the image binary) → `rm -f $D/native-sim-fm`,
   restart — the harness falls back to the image binary.
-- then `rm -f $D/pending` and report the flash as rolled back.
+- then `rm -f $D/pending $D/native-sim-fm.new` and report the flash as rolled back.
+
+(A crash before step 4 makes the `.prev` restore a no-op — it is the same inode.)
 
 "Factory reset" to the image-baked firmware: `rm -f $D/native-sim-fm
 $D/native-sim-fm.prev $D/pending`, restart.
@@ -79,13 +85,10 @@ release, so a flashed native_sim runs against that emulator. Fine as long as the
 SA818 AT link protocol is unchanged between FW releases; if a FW release changes it,
 the image must be bumped (`bump-fw-release.sh`) rather than sim-flashed.
 
-Between steps 2 and 4 there is briefly no override; a harness (re)start in that
-window runs the image binary — harmless, step 5 restarts onto the new one.
-
 ## Firmware release pin
 
-The image-baked artifacts (`/lib/firmware/oe5xrx/<asset>.bin`, the native_sim and the
-SA818 emulator) come from the one FW-RemoteStation release pinned in
+The image-baked artifacts (`/lib/firmware/oe5xrx/fm-sa818-vhf.bin` — fixed name,
+whatever the release asset is called — the native_sim and the SA818 emulator) come from the one FW-RemoteStation release pinned in
 `meta-oe5xrx-remotestation/conf/oe5xrx-fw-release.inc` (`FW_RELEASE_TAG`). The asset
 basename is `FW_FM_ASSET` in the same file: `fm-sa818-2m` up to and including FW
 release 26.07.25-01, `fm-sa818-vhf` for releases cut after FW #66.

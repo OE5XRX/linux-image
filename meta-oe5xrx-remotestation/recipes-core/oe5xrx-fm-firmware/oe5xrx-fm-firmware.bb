@@ -19,9 +19,11 @@ S = "${UNPACKDIR}"
 
 inherit allarch
 
+# Stable on-target name, independent of the release-asset basename (FW_FM_ASSET
+# switches fm-sa818-2m -> fm-sa818-vhf with a bump): consumers never chase a rename.
 do_install() {
     install -d ${D}${nonarch_base_libdir}/firmware/oe5xrx
-    install -m 0644 ${UNPACKDIR}/${FW_FM_ASSET}.bin ${D}${nonarch_base_libdir}/firmware/oe5xrx/${FW_FM_ASSET}.bin
+    install -m 0644 ${UNPACKDIR}/${FW_FM_ASSET}.bin ${D}${nonarch_base_libdir}/firmware/oe5xrx/fm-sa818-vhf.bin
 }
 
-FILES:${PN} = "${nonarch_base_libdir}/firmware/oe5xrx/${FW_FM_ASSET}.bin"
+FILES:${PN} = "${nonarch_base_libdir}/firmware/oe5xrx/fm-sa818-vhf.bin"

@@ -175,8 +175,18 @@ def test_fw_recipes_use_asset_variable(recipe):
     """The asset basename lives only in the include, so the 2m->vhf rename is a
     pure bump-fw-release.sh run (no recipe edit)."""
     bb = _read(os.path.join(_LAYER, "recipes-core", *recipe))
-    assert "${FW_FM_ASSET}" in bb
-    assert "fm-sa818-2m" not in bb and "fm-sa818-vhf" not in bb
+    fetch = [ln for ln in bb.splitlines() if "${FW_RELEASE_TAG}/" in ln]
+    assert fetch, "no release-asset SRC_URI line"
+    for ln in fetch:
+        assert "${FW_RELEASE_TAG}/${FW_FM_ASSET}." in ln, ln
+
+
+def test_fm_firmware_installs_stable_name():
+    """On-target path must not move when FW_FM_ASSET flips 2m -> vhf."""
+    bb = _read(os.path.join(_LAYER, "recipes-core", "oe5xrx-fm-firmware",
+                            "oe5xrx-fm-firmware.bb"))
+    assert "${D}${nonarch_base_libdir}/firmware/oe5xrx/fm-sa818-vhf.bin" in bb
+    assert 'FILES:${PN} = "${nonarch_base_libdir}/firmware/oe5xrx/fm-sa818-vhf.bin"' in bb
 
 
 def test_harness_ignores_group_writable_override(sim_dirs):
