@@ -48,3 +48,5 @@ The station_agent's heartbeat now reports the module inventory under
 - On real hardware the identical path `/dev/oe5xrx/slot1/control` is created by
   udev (`90-oe5xrx-slots.rules`) from the BusBoard hub port — see
   `docs/slot-contract-parity.md`.
+- A flashed native_sim staged by the agent at `/var/lib/oe5xrx/sim/native-sim-fm`
+  overrides the image binary — contract in `docs/module-firmware-flash.md`.

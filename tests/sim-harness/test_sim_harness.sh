@@ -13,17 +13,18 @@ inc="${repo_root}/meta-oe5xrx-remotestation/conf/oe5xrx-fw-release.inc"
 # so reconstruct the asset URLs here the same way BitBake would (base/tag/asset).
 url_base="$(sed -nE 's/^FW_RELEASE_URL_BASE[[:space:]]*\?=[[:space:]]*"([^"]+)".*/\1/p' "$inc")"
 tag="$(sed -nE 's/^FW_RELEASE_TAG[[:space:]]*\?=[[:space:]]*"([^"]+)".*/\1/p' "$inc")"
-if [ -z "$url_base" ] || [ -z "$tag" ]; then echo "FAIL: could not read FW_RELEASE_URL_BASE/TAG from $inc"; exit 1; fi
+fm_asset="$(sed -nE 's/^FW_FM_ASSET[[:space:]]*\?=[[:space:]]*"([^"]+)".*/\1/p' "$inc")"
+if [ -z "$url_base" ] || [ -z "$tag" ] || [ -z "$fm_asset" ]; then echo "FAIL: could not read FW_RELEASE_URL_BASE/TAG/FW_FM_ASSET from $inc"; exit 1; fi
 
 # sha regexes tolerate flexible spacing and hex case (normalized to lowercase) so a
 # harmless recipe reformat never false-fails the test.
-url="${url_base}/${tag}/fm-sa818-2m.native_sim"
+url="${url_base}/${tag}/${fm_asset}.native_sim"
 sha="$(sed -nE 's/^SRC_URI\[sha256sum\][[:space:]]*=[[:space:]]*"([0-9a-fA-F]+)".*/\1/p' "$recipe" | tr 'A-F' 'a-f')"
 if [ -z "$sha" ]; then echo "FAIL: could not read native_sim sha from recipe"; exit 1; fi
 
 # The SA818 emulator is pinned as a co-versioned FW release asset (same tag). Download
 # the EXACT pinned bytes so the test exercises what the image ships.
-sa818_url="${url_base}/${tag}/fm-sa818-2m.sa818-sim.py"
+sa818_url="${url_base}/${tag}/${fm_asset}.sa818-sim.py"
 sa818_sha="$(sed -nE 's/^SRC_URI\[sa818sim\.sha256sum\][[:space:]]*=[[:space:]]*"([0-9a-fA-F]+)".*/\1/p' "$harness_recipe" | tr 'A-F' 'a-f')"
 if [ -z "$sa818_sha" ]; then echo "FAIL: could not read SA818 sha from harness recipe"; exit 1; fi
 

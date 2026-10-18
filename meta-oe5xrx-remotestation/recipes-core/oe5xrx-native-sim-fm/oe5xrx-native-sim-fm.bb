@@ -9,7 +9,7 @@ LICENSE = "CLOSED"
 # (FW_RELEASE_TAG). Only the sha256 below is per-asset; re-pin the whole layer with:
 #   scripts/bump-fw-release.sh <tag>  (rewrites the tag + all shas, cosign-verified).
 require conf/oe5xrx-fw-release.inc
-SRC_URI = "${FW_RELEASE_URL_BASE}/${FW_RELEASE_TAG}/fm-sa818-2m.native_sim;downloadfilename=fm-sa818-2m.native_sim"
+SRC_URI = "${FW_RELEASE_URL_BASE}/${FW_RELEASE_TAG}/${FW_FM_ASSET}.native_sim;downloadfilename=${FW_FM_ASSET}.native_sim"
 SRC_URI[sha256sum] = "263f952c88d17ee9663819b743120acd272c3e87904151b3b4b167d47b55aae2"
 
 # PV = the dotted date part of the tag (e.g. 26.07.21-01 -> 26.07.21).
@@ -26,7 +26,7 @@ EXCLUDE_FROM_SHLIBS = "1"
 
 do_install() {
     install -d ${D}${libexecdir}/oe5xrx
-    install -m 0755 ${UNPACKDIR}/fm-sa818-2m.native_sim ${D}${libexecdir}/oe5xrx/native-sim-fm
+    install -m 0755 ${UNPACKDIR}/${FW_FM_ASSET}.native_sim ${D}${libexecdir}/oe5xrx/native-sim-fm
 }
 
 FILES:${PN} = "${libexecdir}/oe5xrx/native-sim-fm"

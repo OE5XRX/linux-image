@@ -12,7 +12,7 @@ LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
 # The SA818 AT-emulator is NOT vendored — it is pinned from the co-versioned
-# FW-RemoteStation release asset (fm-sa818-2m.sa818-sim.py), the same canonical,
+# FW-RemoteStation release asset (${FW_FM_ASSET}.sa818-sim.py), the same canonical,
 # unit-tested source the native_sim binary is built from. It shares the layer-wide
 # release tag (FW_RELEASE_TAG, single source of truth in the include below), so
 # emulator and sim binary stay in lockstep. Only the sha256 is per-asset; re-pin the
@@ -23,7 +23,7 @@ SRC_URI = " \
     file://oe5xrx-sim-harness.service \
     file://sim-audio.sh \
     file://oe5xrx-sim-audio.service \
-    ${FW_RELEASE_URL_BASE}/${FW_RELEASE_TAG}/fm-sa818-2m.sa818-sim.py;name=sa818sim;downloadfilename=sa818-sim.py \
+    ${FW_RELEASE_URL_BASE}/${FW_RELEASE_TAG}/${FW_FM_ASSET}.sa818-sim.py;name=sa818sim;downloadfilename=sa818-sim.py \
 "
 SRC_URI[sa818sim.sha256sum] = "cb35b4ef54e9f71ddcae8f912a9184172dac7a621c4d0ebb5c5e7a8f5229c085"
 

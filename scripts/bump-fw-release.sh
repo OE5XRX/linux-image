@@ -10,6 +10,10 @@
 # This script rewrites the tag + all three sha256s, cosign-verifying each asset
 # (authenticity) and cross-checking its sha against the release SHA256SUMS.
 #
+# Asset basename: FW_FM_ASSET in the same include. FW-RemoteStation renamed the VHF
+# build `fm-sa818-2m` -> `fm-sa818-vhf` (FW #66); a bump picks whichever the target
+# release's SHA256SUMS lists (vhf preferred) and rewrites FW_FM_ASSET with the tag.
+#
 # Usage:
 #   scripts/bump-fw-release.sh <tag>     # re-pin the whole layer to <tag>
 #   scripts/bump-fw-release.sh --check   # verify current pins, no rewrite (CI gate)
@@ -24,11 +28,17 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 inc="${repo_root}/meta-oe5xrx-remotestation/conf/oe5xrx-fw-release.inc"
 recipes_dir="${repo_root}/meta-oe5xrx-remotestation/recipes-core"
 
+# Candidate FW_FM_ASSET basenames, in preference order (new name first).
+readonly FM_ASSET_CANDIDATES="fm-sa818-vhf fm-sa818-2m"
+
 # asset : recipe : sha-key  — every asset is driven by the single FW_RELEASE_TAG.
-# sha-key is the SRC_URI[...] checksum flavour in that recipe.
-readonly ASSETS="fm-sa818-2m.native_sim:${recipes_dir}/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm.bb:sha256sum
-fm-sa818-2m.sa818-sim.py:${recipes_dir}/oe5xrx-sim-harness/oe5xrx-sim-harness_1.0.bb:sa818sim.sha256sum
-fm-sa818-2m.bin:${recipes_dir}/oe5xrx-fm-firmware/oe5xrx-fm-firmware.bb:sha256sum"
+# sha-key is the SRC_URI[...] checksum flavour in that recipe. $1 = FW_FM_ASSET.
+assets_for() {
+    printf '%s\n' \
+        "${1}.native_sim:${recipes_dir}/oe5xrx-native-sim-fm/oe5xrx-native-sim-fm.bb:sha256sum" \
+        "${1}.sa818-sim.py:${recipes_dir}/oe5xrx-sim-harness/oe5xrx-sim-harness_1.0.bb:sa818sim.sha256sum" \
+        "${1}.bin:${recipes_dir}/oe5xrx-fm-firmware/oe5xrx-fm-firmware.bb:sha256sum"
+}
 
 fail() { echo "bump-fw-release: $*" >&2; exit 1; }
 
@@ -51,14 +61,33 @@ inc_tag() {
     sed -nE 's/^FW_RELEASE_TAG[[:space:]]*\?=[[:space:]]*"([^"]+)".*/\1/p' "$inc"
 }
 
-set_inc_tag() {
-    grep -qE '^FW_RELEASE_TAG[[:space:]]*\?=' "$inc" || fail "FW_RELEASE_TAG not in $inc"
-    _t="$(mktemp "${_tmproot}/tag.XXXXXX")"
-    awk -v val="$1" '
-        /^FW_RELEASE_TAG[[:space:]]*\?=/ { print "FW_RELEASE_TAG ?= \"" val "\""; next }
+inc_fm_asset() {
+    sed -nE 's/^FW_FM_ASSET[[:space:]]*\?=[[:space:]]*"([^"]+)".*/\1/p' "$inc"
+}
+
+# set_inc_var <VAR> <value> — rewrite the `VAR ?= "..."` line in the include.
+set_inc_var() {
+    grep -qE "^$1[[:space:]]*[?]=" "$inc" || fail "$1 not in $inc"
+    _t="$(mktemp "${_tmproot}/inc.XXXXXX")"
+    awk -v var="$1" -v val="$2" '
+        $0 ~ ("^" var "[[:space:]]*[?]=") { print var " ?= \"" val "\""; next }
         { print }
     ' "$inc" > "$_t"
     cat "$_t" > "$inc"; rm -f "$_t"
+}
+
+# Echo the FW_FM_ASSET basename <tag>'s SHA256SUMS actually lists (preference order
+# FM_ASSET_CANDIDATES); fail if none. Only the listing is trusted here — every asset
+# is still cosign-verified individually by verify_asset afterwards.
+detect_fm_asset() {
+    _sums="$(mktemp "${_tmproot}/sums.XXXXXX")"
+    curl -fsSL "$(url_base)/$1/SHA256SUMS" -o "$_sums" || fail "download failed: $(url_base)/$1/SHA256SUMS"
+    for _cand in $FM_ASSET_CANDIDATES; do
+        if awk -v f="${_cand}.bin" '$2==f {found=1} END {exit !found}' "$_sums"; then
+            printf '%s' "$_cand"; return 0
+        fi
+    done
+    fail "no FM asset (${FM_ASSET_CANDIDATES}) listed in SHA256SUMS@$1"
 }
 
 recipe_sha() {
@@ -110,7 +139,8 @@ verify_asset() {
 
 bump() {
     _tag="$1"
-    echo "Re-pinning FW_RELEASE_TAG -> ${_tag}" >&2
+    _fm="$(detect_fm_asset "$_tag")"
+    echo "Re-pinning FW_RELEASE_TAG -> ${_tag} (FW_FM_ASSET=${_fm})" >&2
     # Phase 1: verify EVERY asset and collect its sha BEFORE writing anything.
     # A here-doc (not a pipe) keeps the loop in the current shell, so verify_asset's
     # fail()->exit aborts the whole run — and since no recipe has been touched yet,
@@ -125,7 +155,7 @@ bump() {
         _pins="${_pins}${recipe}:${key}:${sha}
 "
     done <<EOF
-${ASSETS}
+$(assets_for "$_fm")
 EOF
     # Phase 2: all verified — commit the shas, then the tag. Here-doc again so a
     # set_recipe_sha failure (missing key) still aborts instead of dying in a subshell.
@@ -136,14 +166,17 @@ EOF
     done <<EOF
 ${_pins}
 EOF
-    set_inc_tag "$_tag"
-    echo "Pinned FW_RELEASE_TAG=${_tag}" >&2
+    set_inc_var FW_FM_ASSET "$_fm"
+    set_inc_var FW_RELEASE_TAG "$_tag"
+    echo "Pinned FW_RELEASE_TAG=${_tag} FW_FM_ASSET=${_fm}" >&2
 }
 
 check() {
     _tag="$(inc_tag)"
     [ -n "$_tag" ] || fail "FW_RELEASE_TAG unset in include"
-    printf '%s\n' "$ASSETS" | while IFS=: read -r asset recipe key; do
+    _fm="$(inc_fm_asset)"
+    [ -n "$_fm" ] || fail "FW_FM_ASSET unset in include"
+    assets_for "$_fm" | while IFS=: read -r asset recipe key; do
         [ -n "$asset" ] || continue
         recorded="$(recipe_sha "$recipe" "$key")"
         [ -n "$recorded" ] || fail "no recorded sha for SRC_URI[$key] in $(basename "$recipe")"

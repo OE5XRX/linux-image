@@ -29,6 +29,14 @@ for d in log log/journal lib lib/systemd lib/dbus lib/station-agent lib/station-
     mkdir -p "${DATA}/var/${d}"
 done
 
+# /var/lib/oe5xrx/sim — staging dir for an agent-flashed native_sim (sim backend
+# of the module-firmware flash; see docs/module-firmware-flash.md). sim-harness.sh
+# runs whatever executable lands here as root, so the dir MUST stay root-owned and
+# not group/world-writable — re-asserted every boot.
+mkdir -p "${DATA}/var/lib/oe5xrx/sim"
+chown 0:0 "${DATA}/var/lib/oe5xrx" "${DATA}/var/lib/oe5xrx/sim"
+chmod 0755 "${DATA}/var/lib/oe5xrx" "${DATA}/var/lib/oe5xrx/sim"
+
 chmod 0700 "${DATA}/root"
 chown 0:0 "${DATA}/root"
 chmod 0755 "${DATA}/etc-overlay/upper" "${DATA}/etc-overlay/work"
