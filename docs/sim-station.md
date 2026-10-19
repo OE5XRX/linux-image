@@ -50,3 +50,11 @@ The station_agent's heartbeat now reports the module inventory under
   `docs/slot-contract-parity.md`.
 - A flashed native_sim staged by the agent at `/var/lib/oe5xrx/sim/native-sim-fm`
   overrides the image binary — contract in `docs/module-firmware-flash.md`.
+- With FW schema 2 the native_sim reports a synthetic device UID
+  (`identity.uid`, `uid_source=synthetic`) generated once and persisted as
+  `oe5xrx_sim_uid.txt` in its CWD. The harness runs it with CWD
+  `/var/lib/oe5xrx/sim` (`SIM_STATE_DIR`, persistent `/var`), so the UID — and thus
+  the module identity — survives reboots, OTA and sim-flashes. If that dir is
+  unusable the harness warns and falls back to the volatile run dir (new UID each boot).
+  The same directory also holds native_sim's `eeprom.bin` (32 KiB), so EEPROM contents
+  written via the shell persist as well. Keep the dir `root:root 0755`.

@@ -161,6 +161,14 @@ def test_harness_ignores_symlinked_override(sim_dirs):
 
 # ---- FW_FM_ASSET indirection ---------------------------------------------------
 
+def test_harness_runs_sim_in_persistent_state_dir():
+    """FW schema 2 persists the synthetic UID in the sim's CWD; that must be on /var."""
+    sh = _read(os.path.join(_LAYER, "recipes-core", "oe5xrx-sim-harness", "files",
+                            "sim-harness.sh"))
+    assert 'SIM_STATE_DIR="${SIM_STATE_DIR:-/var/lib/oe5xrx/sim}"' in sh
+    assert 'cd "$SIM_STATE_DIR"' in sh
+
+
 def test_fw_fm_asset_defined_in_include():
     inc = _read(os.path.join(_LAYER, "conf", "oe5xrx-fw-release.inc"))
     assert re.search(r'^FW_FM_ASSET \?= "fm-sa818-(2m|vhf)"$', inc, re.M)
