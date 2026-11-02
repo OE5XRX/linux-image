@@ -27,7 +27,7 @@ RATE="${RATE:-8000}"
 # Quiet the kernel console so printk lines can't splice into the agent's log output
 # on the shared serial console; restore the full 4-tuple on every exit path.
 prev_printk="$(cat /proc/sys/kernel/printk 2>/dev/null || true)"
-# shellcheck disable=SC2317  # body runs via the EXIT/INT/TERM traps below, not inline
+# shellcheck disable=SC2317,SC2329  # body runs via the EXIT/INT/TERM traps below, not inline
 restore_printk() {
     [ -n "$prev_printk" ] || return 0
     echo "$prev_printk" > /proc/sys/kernel/printk 2>/dev/null || true
