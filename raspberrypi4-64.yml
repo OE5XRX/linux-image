@@ -19,7 +19,11 @@ local_conf_header:
     # passes to u-boot; boot.cmd now boots THAT firmware DTB via ${fdt_addr}
     # (instead of loading its own rootfs DTB), so config.txt directives finally
     # take effect. See docs/superpowers/specs/2026-07-24-cm4-usb-firmware-dtb.md.
-    RPI_EXTRA_CONFIG = "\notg_mode=1\n"
+    # dtoverlay=oe5xrx-ina226: the PowerBoard's two INA226 (+5V @0x40, +12V
+    # @0x41) on i2c1 (dtparam=i2c_arm=on comes from ENABLE_I2C above). The
+    # .dtbo is built by recipes-bsp/oe5xrx-dt-overlays and routed onto FAT
+    # overlays/ by the image recipe.
+    RPI_EXTRA_CONFIG = "\notg_mode=1\ndtoverlay=oe5xrx-ina226\n"
     # Dev-only: allow root login with empty password on the serial console.
     # For production, drop this and rely on the station-agent terminal (with
     # proper auth) for remote access + a provisioned recovery password.

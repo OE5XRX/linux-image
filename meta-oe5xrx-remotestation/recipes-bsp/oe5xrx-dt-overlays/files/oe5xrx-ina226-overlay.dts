@@ -1,0 +1,40 @@
+// OE5XRX PowerBoard power monitors: two TI INA226 on the CM4's i2c1
+// (GPIO2/3, `dtparam=i2c_arm=on`). The bus is CM4 <-> PowerBoard only.
+//   0x40  +5V rail
+//   0x41  +12V rail
+// Both use a 10 mOhm shunt (shunt-resistor is in micro-ohms). The ALERT pins
+// are not wired, so no interrupts. The ina2xx hwmon driver binds via the
+// compatible; the station-agent finds the sensors by device path
+// (/sys/bus/i2c/devices/1-0040|1-0041/hwmon/hwmon*/), never by hwmonN.
+// Without a PowerBoard the probe just fails (logged), boot is unaffected.
+//
+// Applied by the RPi GPU firmware from config.txt (dtoverlay=oe5xrx-ina226);
+// u-boot boots that firmware DTB (see u-boot-ab/files/boot.cmd).
+
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2711";
+
+	fragment@0 {
+		target = <&i2c1>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			ina226@40 {
+				compatible = "ti,ina226";
+				reg = <0x40>;
+				shunt-resistor = <10000>;
+			};
+
+			ina226@41 {
+				compatible = "ti,ina226";
+				reg = <0x41>;
+				shunt-resistor = <10000>;
+			};
+		};
+	};
+};
