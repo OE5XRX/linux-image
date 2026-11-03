@@ -69,9 +69,12 @@ def test_overlay_targets_i2c1_with_both_ina226():
     assert "interrupt" not in dts
 
 
-@pytest.mark.skipif(shutil.which("dtc") is None or shutil.which("fdtget") is None,
-                    reason="dtc/fdtget not installed")
 def test_overlay_compiles_and_has_expected_nodes(tmp_path):
+    if shutil.which("dtc") is None or shutil.which("fdtget") is None:
+        # CI installs device-tree-compiler (ci.yml); never skip silently there.
+        if os.environ.get("CI"):
+            pytest.fail("dtc/fdtget missing in CI (install device-tree-compiler)")
+        pytest.skip("dtc/fdtget not installed")
     out = tmp_path / "oe5xrx-ina226.dtbo"
     subprocess.run(["dtc", "-@", "-q", "-I", "dts", "-O", "dtb",
                     "-o", str(out), _path(*_DTS)], check=True)
