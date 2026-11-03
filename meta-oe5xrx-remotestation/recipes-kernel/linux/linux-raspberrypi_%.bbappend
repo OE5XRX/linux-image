@@ -18,3 +18,7 @@ SRC_URI:append = " file://oe5xrx-ikconfig.cfg"
 # Kernel crash capture (pstore/ramoops). SoC-agnostic fragment shared with the
 # qemu kernel; the reserved RAM region is set on the cmdline in boot.cmd.
 SRC_URI:append = " file://oe5xrx-pstore.cfg"
+
+# PowerBoard INA226 hwmon driver (rpi-only; the DT overlay that instantiates the
+# sensors lives in recipes-bsp/oe5xrx-dt-overlays).
+SRC_URI:append = " file://oe5xrx-ina226.cfg"
