@@ -100,7 +100,8 @@ def test_overlay_recipe_deploys_dtbo():
     bb = _read(*_RECIPE)
     assert "file://oe5xrx-ina226-overlay.dts" in bb
     assert "dtc-native" in bb
-    assert "inherit" in bb and "deploy" in bb
+    assert any(ln.startswith("inherit") and "deploy" in ln.split()
+               for ln in _code_lines(bb)), "recipe must inherit deploy"
     assert "${DEPLOYDIR}/oe5xrx-ina226.dtbo" in bb
     # Only meaningful on the RPi (firmware applies overlays from config.txt).
     assert 'COMPATIBLE_MACHINE = "^(raspberrypi.*|.*cm4.*)$"' in bb
