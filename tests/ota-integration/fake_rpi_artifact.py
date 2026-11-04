@@ -8,7 +8,7 @@ the wks GPT layout (firmware vfat, uboot_env, uboot_envr, root_a ext4,
 root_b empty, data ext4) built from the repo sources the same way the
 recipes do: FAT boot.scr = mkimage(boot.cmd), config.txt, the CM4 DTB
 (CM4_BASE_DTB); root_a /boot/boot-stage2.scr = mkimage(render_stage2(...)),
-/boot/overlays/<name>.dtbo = dtc -@, /boot/Image stub.
+/boot/overlays/<name>.dtbo = dtc -@, /boot/Image stub (arm64 header).
 
 --fault injects one defect the gate must catch (manual negative check):
   test-overlay   rootfs + stage 2 additionally carry oe5xrx-test-marker
@@ -16,6 +16,7 @@ recipes do: FAT boot.scr = mkimage(boot.cmd), config.txt, the CM4 DTB
   fat-dtoverlay  config.txt carries dtoverlay=oe5xrx-ina226
   fat-overlay    FAT carries overlays/oe5xrx-ina226.dtbo
   fat-root-overlay  FAT root carries OE5XRX-INA226.DTBO
+  kernel-too-big    /boot/Image header image_size overlaps scriptaddr
 Needs: mkimage (UBOOT_SANDBOX/tools or PATH), dtc, sgdisk, mkfs.vfat, mcopy,
 mkfs.ext4, bzip2 (python), CM4_BASE_DTB.
 """
@@ -26,6 +27,7 @@ import argparse
 import bz2
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -88,7 +90,12 @@ def build(outdir: Path, fault: str | None) -> Path:
     if fault == "fat-root-overlay":
         fat["/OE5XRX-INA226.DTBO"] = compile_dtbo(
             _OVERLAY_DIR / "oe5xrx-ina226-overlay.dts")
-    root = {"/boot/Image": b"KERNEL-STUB" + bytes(4096),
+    # arm64 Image header (text_offset 0, flags 0xa) so the gate's booti
+    # layout check has something real to parse.
+    image_size = 0x5400000 if fault == "kernel-too-big" else 0x2000000
+    image = struct.pack("<IIQQQQQQII", 0, 0, 0, image_size, 0xA, 0, 0, 0,
+                        0x644D5241, 0) + b"KERNEL-STUB" + bytes(4096)
+    root = {"/boot/Image": image,
             "/boot/boot-stage2.scr": script_bytes(stage2, mkimage),
             "/boot/boot-stage2.cmd": stage2.encode()}
     for name in overlays:
@@ -151,7 +158,7 @@ def main() -> None:
     ap.add_argument("outdir", type=Path)
     ap.add_argument("--fault", choices=("test-overlay", "stage2-broken",
                                         "fat-dtoverlay", "fat-overlay",
-                                        "fat-root-overlay"))
+                                        "fat-root-overlay", "kernel-too-big"))
     a = ap.parse_args()
     print(build(a.outdir, a.fault))
 

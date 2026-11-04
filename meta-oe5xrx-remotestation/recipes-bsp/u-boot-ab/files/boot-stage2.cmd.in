@@ -20,11 +20,20 @@
 #     stage 1 then boots its frozen fallback (oe5xrx.stage2=failed).
 #   - This file is the authoritative source of the kernel bootargs.
 #
-# Memory layout (HW-CHECK on real CM4): the DTB work copy at ${fdt_addr_r} sits
-# 1 MiB below ${ramdisk_addr_r} (overlay load buffer; rpi defaults 0x02600000 /
-# 0x02700000). The kernel is loaded at ${kernel_addr_r}, so this requires
-# kernel_addr_r + size(/boot/Image) < fdt_addr_r — a kernel Image growing past
-# that would be overwritten by the DTB copy. Verify against the shipped Image.
+# Memory layout (HW-CHECK on real CM4). U-Boot v2026.01 rpi defaults
+# (board/raspberrypi/rpi/rpi.env): kernel_addr_r 0x00080000, scriptaddr
+# 0x05400000, fdt_addr_r 0x05600000 (DTB work copy, 1 MiB below the overlay
+# load buffer ramdisk_addr_r 0x05700000). Two constraints on the shipped Image:
+#   load:  kernel_addr_r + filesize(/boot/Image) <= scriptaddr
+#   booti: booti (arch/arm/lib/image.c booti_setup) memmoves image_size bytes
+#          (Image header; includes BSS) to
+#            reloc = ALIGN(kernel_addr_r - text_offset, 2 MiB) + text_offset
+#          (header flags bit 3 set; else ALIGN(DRAM base 0, 2 MiB) +
+#          text_offset), so reloc + image_size <= scriptaddr — otherwise the
+#          move overwrites the DTB copy at fdt_addr_r.
+# With text_offset 0 (arm64 Linux >= 5.8): reloc 0x00200000, so image_size
+# <= 0x05200000. Checked against the built Image by
+# tests/ota-integration/test_rpi_artifact.py (release gate).
 #
 # Build-time placeholders (written @NAME@ in the code; filled by the recipe and
 # by tests/ota-integration/boot_scripts.py render_stage2 with the same rules):

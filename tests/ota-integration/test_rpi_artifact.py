@@ -12,6 +12,8 @@ release job will publish is inspected without mounting:
     no test overlay — however it got there)
   - the FAT CM4 DTB has __symbols__ and every shipped overlay applies
     (fdtoverlay); INA226 @40/@41 with shunt-resistor 10000
+  - /boot/Image (file size and booti's relocated image_size) ends below
+    scriptaddr with the rpi load addresses
   - the BUILT boot.scr + boot-stage2.scr + dtbo + FAT DTB boot in the U-Boot
     sandbox (needs UBOOT_SANDBOX): stage2=ok, overlays=ok:<list>, INA226 nodes
 
@@ -33,6 +35,9 @@ from pathlib import Path
 import pytest
 from boot_scripts import read_stage1, read_stage2_template, render_stage2
 from rpi_artifact import (
+    Arm64Image,
+    arm64_image_header,
+    booti_relocated_addr,
     ext4_list,
     ext4_read,
     fat_list,
@@ -47,6 +52,7 @@ from rpi_artifact import (
 from uboot_sandbox import (
     FDT_ADDR_R,
     KERNEL_ADDR_R,
+    SCRIPTADDR,
     compile_script,
     fdtget,
     find_mkimage,
@@ -179,6 +185,24 @@ def test_base_dtb_has_symbols_and_overlay_applies(root_a, base_dtb,
         assert fdtget(out, node, "shunt-resistor") == "10000", node
 
 
+@pytest.mark.rpi_artifact
+def test_kernel_image_fits_below_scriptaddr(root_a):
+    # boot-stage2.cmd.in "Memory layout": with the rpi load addresses the
+    # loaded file AND booti's relocated copy (image_size incl. BSS) must end
+    # at or below scriptaddr, else the DTB copy at fdt_addr_r is clobbered.
+    blob = root_a("/boot/Image")
+    assert blob, "root_a has no /boot/Image"
+    img = arm64_image_header(blob)
+    load, limit = int(KERNEL_ADDR_R, 16), int(SCRIPTADDR, 16)
+    reloc = booti_relocated_addr(load, img)
+    assert load + len(blob) <= limit, (
+        f"Image file ({len(blob):#x} bytes at {load:#x}) overlaps "
+        f"scriptaddr {limit:#x}")
+    assert reloc + img.image_size <= limit, (
+        f"booti copy [{reloc:#x}, {reloc + img.image_size:#x}) overlaps "
+        f"scriptaddr {limit:#x} ({img})")
+
+
 # --- sandbox boot of the built scripts ---------------------------------------
 
 def _sandbox_bins():
@@ -231,6 +255,34 @@ def test_sandbox_boot_with_built_scripts(fat, root_a, stage2_text, base_dtb,
     # firmware DTB at ${fdt_addr} untouched (overlays only on the copy)
     assert r.fdt_addr_after.read_bytes() == base_dtb.read_bytes()
     assert r.env.get("bootcount") == "1", r.env
+
+
+# --- unit: arm64 Image header / booti relocation -------------------------------
+
+def _arm64_hdr(text_offset, image_size, flags, magic=0x644D5241):
+    return struct.pack("<IIQQQQQQII", 0, 0, text_offset, image_size, flags,
+                       0, 0, 0, magic, 0)
+
+
+@pytest.mark.unit
+def test_arm64_image_header_and_booti_relocation():
+    img = arm64_image_header(_arm64_hdr(0, 0x2000000, 0xA) + bytes(16))
+    assert img == Arm64Image(0, 0x2000000, 0xA)
+    # flags bit 3 (anywhere): 2 MiB-aligned above the load address
+    assert booti_relocated_addr(0x80000, img) == 0x200000
+    assert booti_relocated_addr(0x200000, img) == 0x200000
+    # text_offset 0x80000 loaded at a 2 MiB boundary + 0x80000: no move
+    old = Arm64Image(0x80000, 0x2000000, 0xA)
+    assert booti_relocated_addr(0x80000, old) == 0x80000
+    # bit 3 clear: base of DRAM (0 on the CM4) + text_offset
+    assert booti_relocated_addr(0x1000000, Arm64Image(0, 0x100, 0x2)) == 0
+    # image_size 0 (pre-3.17): booti assumes 16 MiB at text_offset 0x80000
+    assert arm64_image_header(_arm64_hdr(7, 0, 0)) == Arm64Image(
+        0x80000, 16 << 20, 0)
+    with pytest.raises(ValueError, match="magic"):
+        arm64_image_header(_arm64_hdr(0, 1, 0, magic=0))
+    with pytest.raises(ValueError, match="short"):
+        arm64_image_header(b"\0" * 10)
 
 
 # --- unit: legacy script image unwrapping -------------------------------------

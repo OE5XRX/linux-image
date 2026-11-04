@@ -83,6 +83,41 @@ def script_text(scr: bytes) -> str:
     return payload[off:off + lengths[0]].decode()
 
 
+# --- arm64 kernel Image header (booti) ----------------------------------------
+
+_ARM64_MAGIC = 0x644D5241  # "ARM\x64", Linux Documentation/arm64/booting
+_ARM64_HDR = struct.Struct("<IIQQQQQQII")  # code0 code1 text_offset image_size
+assert _ARM64_HDR.size == 64               # flags res2-4 magic res5
+_SZ_2M = 2 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class Arm64Image:
+    text_offset: int
+    image_size: int  # effective size incl. BSS (what booti memmoves)
+    flags: int
+
+
+def arm64_image_header(blob: bytes) -> Arm64Image:
+    """Header fields of an arm64 Linux `Image`, as U-Boot booti_setup
+    (arch/arm/lib/image.c) reads them. ValueError on a bad magic."""
+    if len(blob) < _ARM64_HDR.size:
+        raise ValueError("too short for an arm64 Image header")
+    (_c0, _c1, text_offset, image_size, flags, _r2, _r3, _r4, magic,
+     _r5) = _ARM64_HDR.unpack_from(blob)
+    if magic != _ARM64_MAGIC:
+        raise ValueError(f"bad arm64 Image magic {magic:#x}")
+    if image_size == 0:  # pre-3.17 kernel: booti assumes these
+        return Arm64Image(0x80000, 16 << 20, flags)
+    return Arm64Image(text_offset, image_size, flags)
+
+
+def booti_relocated_addr(load: int, img: Arm64Image, dram_base: int = 0) -> int:
+    """Where booti moves the Image to (booti_setup, force_reloc=false)."""
+    dst = load - img.text_offset if img.flags & (1 << 3) else dram_base
+    return (dst + _SZ_2M - 1) // _SZ_2M * _SZ_2M + img.text_offset
+
+
 # --- artifact discovery -------------------------------------------------------
 
 # Same order as release.yml `pick_wic`: the gate checks exactly the file the

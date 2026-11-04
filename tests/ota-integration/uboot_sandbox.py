@@ -33,19 +33,20 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# rpi_arm64-like load addresses. fdt_addr deviates from the rpi value: the
-# sandbox has 256 MiB RAM and U-Boot's own malloc area occupies ~0x9c11000..
-# 0xfc11000 (lmb-reserved), so the firmware-DTB stand-in sits below it.
+# Load addresses = U-Boot v2026.01 rpi defaults (board/raspberrypi/rpi/
+# rpi.env). fdt_addr is set by the GPU firmware on the CM4; in the sandbox
+# (256 MiB RAM, U-Boot's own malloc area ~0x9c11000..0xfc11000 lmb-reserved)
+# the firmware-DTB stand-in sits below that.
 KERNEL_ADDR_R = "0x00080000"
-SCRIPTADDR = "0x02400000"
-FDT_ADDR_R = "0x02600000"
-RAMDISK_ADDR_R = "0x02700000"
+SCRIPTADDR = "0x05400000"
+FDT_ADDR_R = "0x05600000"
+RAMDISK_ADDR_R = "0x05700000"
 FDT_ADDR = "0x08000000"
-# Harness-private buffers (not visible to the scripts under test).
+# Harness-private buffers (not visible to the scripts under test), clear of
+# the script-visible areas above and of 0x5000000 (a test injects
+# kernel_addr_r=0x5000000 to prove stage 1 re-pins its addresses).
 _PRELUDE_ADDR = "0x06000000"
-# 0x05800000, not 0x05000000: a test injects kernel_addr_r=0x5000000 to prove
-# stage 1 re-pins its addresses; the harness copy of stage 1 must not sit there.
-_STAGE1_ADDR = "0x05800000"
+_STAGE1_ADDR = "0x06800000"
 _ENV_ADDR = "0x07000000"
 
 # Only these survive a simulated reboot (saveenv): they are the complete
