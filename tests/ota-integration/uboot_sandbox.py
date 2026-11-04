@@ -160,9 +160,28 @@ def compile_dtbo(dts: Path) -> bytes:
 
 # --- disk image -------------------------------------------------------------
 
-def make_test_disk(path, slots: dict[str, dict[str, bytes]]) -> None:
+@dataclass(frozen=True)
+class Symlink:
+    """A symlink entry in a rootfs file map (mkfs.ext4 -d keeps it as one),
+    e.g. /boot/Image -> Image-<KERNEL_VERSION> as OE-core installs it."""
+    target: str
+
+
+def write_tree(root: Path, files: dict[str, bytes | Symlink]) -> None:
+    """Materialize a rootfs file map {"/abs/path": bytes | Symlink}."""
+    for name, content in files.items():
+        p = root / name.lstrip("/")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, Symlink):
+            os.symlink(content.target, p)
+        else:
+            p.write_bytes(content)
+
+
+def make_test_disk(path, slots: dict[str, dict[str, bytes | Symlink]]) -> None:
     """GPT image with the wks partition layout; `slots` maps "a"/"b" to
-    {"/abs/path/in/rootfs": content}. Slots not listed stay unformatted."""
+    {"/abs/path/in/rootfs": content | Symlink}. Slots not listed stay
+    unformatted."""
     path = Path(path)
     unknown = set(slots) - {"a", "b"}
     assert not unknown, f"unknown slots: {unknown}"
@@ -186,10 +205,7 @@ def make_test_disk(path, slots: dict[str, dict[str, bytes]]) -> None:
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / "root"
             root.mkdir()
-            for name, content in files.items():
-                p = root / name.lstrip("/")
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_bytes(content)
+            write_tree(root, files)
             fs = Path(d) / "fs.img"
             with open(fs, "wb") as f:
                 f.truncate(mib * _MIB)

@@ -9,7 +9,8 @@ Nothing here mounts anything or needs root:
   - GPT parsed in Python (wks: firmware, uboot_env, uboot_envr, root_a,
     root_b, data — looked up by PARTLABEL, not by number)
   - FAT files via mtools (`mcopy -i img@@<offset>`)
-  - ext4 files via debugfs (`debugfs -R "dump …" "img?offset=<offset>"`)
+  - ext4 files via debugfs (`debugfs -R "dump …" "img?offset=<offset>"`),
+    symlinks resolved via `stat` (debugfs dump does not follow them)
   - mkimage legacy script images unwrapped by `script_text`.
 """
 
@@ -19,6 +20,7 @@ import bz2
 import gzip
 import lzma
 import os
+import posixpath
 import re
 import shutil
 import struct
@@ -288,6 +290,25 @@ def _debugfs(img: Path, part: Partition, cmd: str) -> subprocess.CompletedProces
                           capture_output=True, text=True, timeout=120)
 
 
+def _debugfs_raw(img: Path, part: Partition,
+                 cmd: str) -> tuple[int, bytes, str]:
+    """(returncode, stdout bytes, stderr minus the version banner)."""
+    r = subprocess.run(["debugfs", "-R", cmd, f"{img}?offset={part.offset}"],
+                       capture_output=True, timeout=120)
+    err = "\n".join(
+        line for line in r.stderr.decode(errors="replace").splitlines()
+        if line.strip() and not _DEBUGFS_BANNER.match(line))
+    return r.returncode, r.stdout, err
+
+
+# debugfs prints "debugfs 1.47.2 (1-Jan-2025)" on stderr for every command;
+# anything else on stderr is an error (debugfs itself exits 0 regardless).
+_DEBUGFS_BANNER = re.compile(r"^debugfs \d+\.\d+")
+_NOT_FOUND = "File not found by ext2_lookup"
+# Max symlink hops (Linux follows 40; a release rootfs needs 1).
+EXT4_MAX_LINK_HOPS = 8
+
+
 def ext4_list(img: Path, part: Partition, directory: str) -> list[str] | None:
     """Entry names in an ext4 directory (no . / ..), None if absent."""
     r = _debugfs(img, part, f"ls -p {directory}")
@@ -302,14 +323,105 @@ def ext4_list(img: Path, part: Partition, directory: str) -> list[str] | None:
     return names
 
 
+@dataclass(frozen=True)
+class Ext4Inode:
+    ino: int
+    type: str   # debugfs "Type:": regular, directory, symlink, ...
+    size: int   # i_size (for a symlink: length of the target)
+    fast_link: bytes | None  # target of a fast (inline) symlink
+
+
+def ext4_stat(img: Path, part: Partition, path: str) -> Ext4Inode | None:
+    """Inode of `path` WITHOUT following a final symlink; None if absent.
+    RuntimeError on any other debugfs error (bad fs, unparsable output)."""
+    rc, out, err = _debugfs_raw(img, part, f"stat {path}")
+    if _NOT_FOUND in err:
+        return None
+    if rc != 0 or err:
+        raise RuntimeError(f"debugfs stat {path} failed (rc {rc}): {err}")
+    m = re.search(rb"^Inode: (\d+)\s+Type: (\S+)", out, re.M)
+    sz = re.search(rb"^User:.*\bSize: (\d+)", out, re.M)
+    if m is None or sz is None:
+        raise RuntimeError(f"debugfs stat {path}: unparsable output:\n"
+                           f"{out.decode(errors='replace')}")
+    size = int(sz.group(1))
+    fast = None
+    tag = b'Fast link dest: "'
+    i = out.find(b"\n" + tag)
+    if i >= 0:
+        # Raw target bytes, exactly i_size of them, then the closing quote.
+        start = i + 1 + len(tag)
+        fast = out[start:start + size]
+        if out[start + size:start + size + 1] != b'"':
+            raise RuntimeError(f"debugfs stat {path}: fast link dest does "
+                               f"not match i_size {size}")
+    return Ext4Inode(int(m.group(1)), m.group(2).decode(), size, fast)
+
+
+def _ext4_link_target(img: Path, part: Partition, path: str,
+                      st: Ext4Inode) -> str:
+    """Target of the symlink `path` (fast: inline in the inode, else the
+    data block via `cat <ino>`). Length must equal i_size."""
+    if st.fast_link is not None:
+        target = st.fast_link
+    else:
+        rc, target, err = _debugfs_raw(img, part, f"cat <{st.ino}>")
+        if rc != 0 or err:
+            raise RuntimeError(
+                f"debugfs cat of symlink {path} failed (rc {rc}): {err}")
+    if len(target) != st.size or not target:
+        raise RuntimeError(f"symlink {path}: read {len(target)} target "
+                           f"bytes, inode says {st.size}")
+    return target.decode()
+
+
+def ext4_resolve(img: Path, part: Partition,
+                 path: str) -> tuple[str, Ext4Inode] | None:
+    """Follow `path` through symlinks (relative targets against the link's
+    directory, at most EXT4_MAX_LINK_HOPS) to its final inode. None if
+    `path` itself is absent; RuntimeError on a dangling link or a loop.
+    Symlinked intermediate directories are followed by debugfs (namei)."""
+    cur = path
+    for _hop in range(EXT4_MAX_LINK_HOPS + 1):
+        st = ext4_stat(img, part, cur)
+        if st is None:
+            if cur == path:
+                return None
+            raise RuntimeError(f"dangling symlink: {path} -> {cur} "
+                               "does not exist")
+        if st.type != "symlink":
+            return cur, st
+        target = _ext4_link_target(img, part, cur, st)
+        base = "/" if target.startswith("/") else posixpath.dirname(cur)
+        cur = "/" + posixpath.normpath(
+            posixpath.join(base, target)).lstrip("/")
+    raise RuntimeError(f"{path}: more than {EXT4_MAX_LINK_HOPS} symlink hops")
+
+
 def ext4_read(img: Path, part: Partition, path: str) -> bytes | None:
-    """Regular-file content from an ext4 partition, None if absent."""
+    """Content of the regular file at `path` on an ext4 partition, following
+    symlinks (the rootfs /boot/Image is one: OE-core
+    KERNEL_IMAGETYPE_SYMLINK -> Image-<KERNEL_VERSION>). None if `path` is
+    absent. RuntimeError on a dangling link, a non-regular target, any
+    debugfs error or a short read (`debugfs dump` of a symlink silently
+    writes 0 bytes with exit 0 — never trust its exit code alone)."""
+    res = ext4_resolve(img, part, path)
+    if res is None:
+        return None
+    real, st = res
+    if st.type != "regular":
+        raise RuntimeError(f"{path} -> {real} is a {st.type}, not a file")
     with tempfile.TemporaryDirectory() as d:
         out = Path(d) / "f"
-        r = _debugfs(img, part, f"dump {path} {out}")
-        if r.returncode != 0 or not out.exists():
-            return None
-        return out.read_bytes()
+        rc, _, err = _debugfs_raw(img, part, f"dump <{st.ino}> {out}")
+        if rc != 0 or err or not out.exists():
+            raise RuntimeError(
+                f"debugfs dump {path} ({real}) failed (rc {rc}): {err}")
+        blob = out.read_bytes()
+    if len(blob) != st.size:
+        raise RuntimeError(f"{path} ({real}): read {len(blob)} bytes, "
+                           f"inode size {st.size}")
+    return blob
 
 
 def missing_tools() -> list[str]:

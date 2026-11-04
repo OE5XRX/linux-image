@@ -12,15 +12,15 @@ release job will publish is inspected without mounting:
     no test overlay — however it got there)
   - the FAT CM4 DTB has __symbols__ and every shipped overlay applies
     (fdtoverlay); INA226 @40/@41 with shunt-resistor 10000
-  - /boot/Image (file size and booti's relocated image_size) ends below
-    scriptaddr with the rpi load addresses
+  - /boot/Image (a symlink to Image-<KERNEL_VERSION>, followed; file size
+    and booti's relocated image_size) ends below scriptaddr with the rpi load addresses
   - the BUILT boot.scr + boot-stage2.scr + dtbo + FAT DTB boot in the U-Boot
     sandbox (needs UBOOT_SANDBOX): stage2=ok, overlays=ok:<list>, INA226 nodes
 
 Skipped locally without RPI_ARTIFACT_DIR, a hard failure in CI. Locally:
 `python3 tests/ota-integration/fake_rpi_artifact.py DIR` builds a fake one.
-The `unit` tests here (script_text, Image header, wic decompression) run in
-every PR.
+The `unit` tests here (script_text, Image header, wic decompression, ext4
+symlink reads) run in every PR.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ import pytest
 from boot_scripts import read_stage1, read_stage2_template, render_stage2
 from rpi_artifact import (
     Arm64Image,
+    Partition,
     arm64_image_header,
     booti_relocated_addr,
     ext4_list,
@@ -55,6 +56,7 @@ from uboot_sandbox import (
     FDT_ADDR_R,
     KERNEL_ADDR_R,
     SCRIPTADDR,
+    Symlink,
     compile_script,
     fdtget,
     find_mkimage,
@@ -62,6 +64,7 @@ from uboot_sandbox import (
     rewrite_for_sandbox,
     run_boot,
     script_bytes,
+    write_tree,
 )
 
 INA = "oe5xrx-ina226"
@@ -228,7 +231,9 @@ def test_sandbox_boot_with_built_scripts(fat, root_a, stage2_text, base_dtb,
     stage1 = script_text(fat("/boot.scr"))
     kernel = b"KERNEL-SLOT-A..." + bytes(4080)
     files = {
-        "/boot/Image": kernel,
+        # real layout: /boot/Image -> Image-<KERNEL_VERSION>
+        "/boot/Image-6.12.47-v8": kernel,
+        "/boot/Image": Symlink("Image-6.12.47-v8"),
         "/boot/boot-stage2.scr": script_bytes(
             rewrite_for_sandbox(stage2_text, stage1=False), mkimage),
     }
@@ -369,3 +374,51 @@ def test_materialize_wic_tool_failure_raises(tmp_path):
     src.write_bytes(b"not bzip2")
     with pytest.raises(RuntimeError, match="rc 1"):
         materialize_wic(src, tmp_path, bz2_tool=shutil.which("false"))
+
+
+# --- unit: ext4 reads through symlinks (debugfs dump does not follow them) ----
+
+@pytest.mark.unit
+def test_ext4_read_follows_symlinks(tmp_path):
+    for tool in ("mkfs.ext4", "debugfs"):
+        if shutil.which(tool) is None:
+            pytest.skip(f"{tool} not on PATH (e2fsprogs)")
+    blob = os.urandom(70000)
+    slow = "/boot/" + "L" * 80  # > 60 bytes: target in a data block
+    files = {
+        "/boot/Image-6.12.47-v8": blob,
+        "/boot/Image": Symlink("Image-6.12.47-v8"),       # fast, relative
+        "/boot/abs": Symlink("/boot/Image"),              # absolute, 2 hops
+        "/boot/up": Symlink("../boot/./Image-6.12.47-v8"),
+        slow: blob[:5],
+        "/boot/slow": Symlink(slow),                      # slow symlink
+        "/boot/dangling": Symlink("Image-missing"),
+        "/boot/loop1": Symlink("loop2"),
+        "/boot/loop2": Symlink("loop1"),
+        "/boot/dirlink": Symlink("/boot"),
+        "/empty": b"",
+    }
+    tree = tmp_path / "t"
+    tree.mkdir()
+    write_tree(tree, files)
+    fs = tmp_path / "fs.img"
+    with open(fs, "wb") as f:
+        f.truncate(8 * 1024 * 1024)
+    subprocess.run(["mkfs.ext4", "-q", "-F", "-d", str(tree), str(fs)],
+                   check=True, capture_output=True)
+    part = Partition(1, "root_a", 0, fs.stat().st_size)
+
+    assert ext4_read(fs, part, "/boot/Image-6.12.47-v8") == blob
+    assert ext4_read(fs, part, "/boot/Image") == blob
+    assert ext4_read(fs, part, "/boot/abs") == blob
+    assert ext4_read(fs, part, "/boot/up") == blob
+    assert ext4_read(fs, part, "/boot/slow") == blob[:5]
+    assert ext4_read(fs, part, "/boot/dirlink/Image") == blob
+    assert ext4_read(fs, part, "/empty") == b""
+    assert ext4_read(fs, part, "/boot/nope") is None
+    with pytest.raises(RuntimeError, match="dangling"):
+        ext4_read(fs, part, "/boot/dangling")
+    with pytest.raises(RuntimeError, match="hops"):
+        ext4_read(fs, part, "/boot/loop1")
+    with pytest.raises(RuntimeError, match="not a file"):
+        ext4_read(fs, part, "/boot/dirlink")

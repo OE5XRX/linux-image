@@ -26,6 +26,7 @@ from uboot_sandbox import (
     KERNEL_ADDR_R,
     BootiReject,
     SandboxUnavailable,
+    Symlink,
     make_test_disk,
     compile_dtbo,
     rewrite_for_sandbox,
@@ -159,8 +160,18 @@ def assert_no_overlay_applied(r):
 
 # --- tests ------------------------------------------------------------------
 
+def kernel_as_symlink(slots, target="Image-6.12.47-v8"):
+    """Real rootfs layout: /boot/Image -> Image-<KERNEL_VERSION> (OE-core
+    KERNEL_IMAGETYPE_SYMLINK); ext4load has to follow the link."""
+    for files in slots.values():
+        files[f"/boot/{target}"] = files["/boot/Image"]
+        files["/boot/Image"] = Symlink(target)
+    return slots
+
+
 def test_normal_boot_applies_slot_overlay(sbx, dtbos, tmp_path):
-    r = boot(sbx, tmp_path, standard_slots(sbx, dtbos, [INA]))
+    r = boot(sbx, tmp_path,
+             kernel_as_symlink(standard_slots(sbx, dtbos, [INA])))
     assert_booted(r, "a")
     assert marker(r.bootargs, "oe5xrx.stage2") == ["ok"]
     assert marker(r.bootargs, "oe5xrx.overlays") == [f"ok:{INA}"]
@@ -438,6 +449,18 @@ def test_kernel_missing_resets(sbx, dtbos, tmp_path):
     assert "OE5XRX_T_BOOTI" not in r.output
     assert "Stage 2 could not boot" in r.output
     assert "Kernel/dtb load failed" in r.output
+    assert r.env["bootcount"] == "1"
+
+
+def test_dangling_kernel_symlink_resets(sbx, dtbos, tmp_path):
+    # /boot/Image -> a missing file behaves like a missing kernel.
+    slots = kernel_as_symlink(standard_slots(sbx, dtbos, [INA]))
+    for files in slots.values():
+        del files["/boot/Image-6.12.47-v8"]
+    r = boot(sbx, tmp_path, slots)
+    assert r.reset, r.output
+    assert not r.booted
+    assert "OE5XRX_T_BOOTI" not in r.output
     assert r.env["bootcount"] == "1"
 
 

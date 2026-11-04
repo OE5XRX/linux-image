@@ -8,7 +8,9 @@ the wks GPT layout (firmware vfat, uboot_env, uboot_envr, root_a ext4,
 root_b empty, data ext4) built from the repo sources the same way the
 recipes do: FAT boot.scr = mkimage(boot.cmd), config.txt, the CM4 DTB
 (CM4_BASE_DTB); root_a /boot/boot-stage2.scr = mkimage(render_stage2(...)),
-/boot/overlays/<name>.dtbo = dtc -@, /boot/Image stub (arm64 header).
+/boot/overlays/<name>.dtbo = dtc -@, /boot/Image -> Image-<KERNEL_VERSION>
+symlink (as OE-core's KERNEL_IMAGETYPE_SYMLINK postinst lays it out) to an
+arm64-header stub.
 
 --fault injects one defect the gate must catch (manual negative check):
   test-overlay   rootfs + stage 2 additionally carry oe5xrx-test-marker
@@ -17,6 +19,7 @@ recipes do: FAT boot.scr = mkimage(boot.cmd), config.txt, the CM4 DTB
   fat-overlay    FAT carries overlays/oe5xrx-ina226.dtbo
   fat-root-overlay  FAT root carries OE5XRX-INA226.DTBO
   kernel-too-big    /boot/Image header image_size overlaps scriptaddr
+  kernel-link-broken  /boot/Image is a dangling symlink
 Needs: mkimage (UBOOT_SANDBOX/tools or PATH), dtc, sgdisk, mkfs.vfat, mcopy,
 mkfs.ext4, bzip2 (python), CM4_BASE_DTB.
 """
@@ -38,12 +41,14 @@ from boot_scripts import (  # noqa: E402
     STAGE2_TEMPLATE, read_stage1, read_stage2_template, render_stage2)
 from rpi_artifact import release_overlays  # noqa: E402
 from uboot_sandbox import (  # noqa: E402
-    compile_dtbo, find_mkimage, script_bytes)
+    Symlink, compile_dtbo, find_mkimage, script_bytes, write_tree)
 
 _REPO = Path(__file__).resolve().parents[2]
 _OVERLAY_DIR = (_REPO / "meta-oe5xrx-remotestation" / "recipes-bsp"
                 / "oe5xrx-dt-overlays" / "files")
 _MIB = 1024 * 1024
+# Versioned kernel file the /boot/Image symlink points at (rpi linux 6.12).
+KERNEL_VERSION = "6.12.47-v8"
 # (label, MiB, kind) in wks order; sizes shrunk, order/labels as the wks.
 _LAYOUT = (("firmware", 8, "vfat"), ("uboot_env", 1, None),
            ("uboot_envr", 1, None), ("root_a", 24, "ext4"),
@@ -95,7 +100,10 @@ def build(outdir: Path, fault: str | None) -> Path:
     image_size = 0x5400000 if fault == "kernel-too-big" else 0x2000000
     image = struct.pack("<IIQQQQQQII", 0, 0, 0, image_size, 0xA, 0, 0, 0,
                         0x644D5241, 0) + b"KERNEL-STUB" + bytes(4096)
-    root = {"/boot/Image": image,
+    real = f"Image-{KERNEL_VERSION}"
+    link = "Image-missing" if fault == "kernel-link-broken" else real
+    root = {f"/boot/{real}": image,
+            "/boot/Image": Symlink(link),
             "/boot/boot-stage2.scr": script_bytes(stage2, mkimage),
             "/boot/boot-stage2.cmd": stage2.encode()}
     for name in overlays:
@@ -136,11 +144,8 @@ def build(outdir: Path, fault: str | None) -> Path:
                                     f"::{p}"], check=True, env=env)
             else:
                 tree = d / f"{label}-tree"
-                for p, content in (root if label == "root_a" else {}).items():
-                    q = tree / p.lstrip("/")
-                    q.parent.mkdir(parents=True, exist_ok=True)
-                    q.write_bytes(content)
-                tree.mkdir(exist_ok=True)
+                tree.mkdir()
+                write_tree(tree, root if label == "root_a" else {})
                 subprocess.run(["mkfs.ext4", "-q", "-F", "-L", label, "-d",
                                 str(tree), str(fs)], check=True,
                                capture_output=True)
@@ -158,7 +163,8 @@ def main() -> None:
     ap.add_argument("outdir", type=Path)
     ap.add_argument("--fault", choices=("test-overlay", "stage2-broken",
                                         "fat-dtoverlay", "fat-overlay",
-                                        "fat-root-overlay", "kernel-too-big"))
+                                        "fat-root-overlay", "kernel-too-big",
+                                        "kernel-link-broken"))
     a = ap.parse_args()
     print(build(a.outdir, a.fault))
 
