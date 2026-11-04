@@ -193,8 +193,15 @@ jobs:
       # Same cache key as ci.yml job uboot-sandbox (shared build).
       - name: Cache U-Boot sandbox build
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # Only what the tests need (binary, mkimage, stamp with the pinned
+        # SHA) — not the ~1 GiB source/object tree. build-uboot-sandbox.sh
+        # treats exactly this as "built". Paths + key MUST stay identical in
+        # ci.yml and release.yml (the cache version hashes the path list).
         with:
-          path: .cache/uboot-sandbox
+          path: |
+            .cache/uboot-sandbox/u-boot
+            .cache/uboot-sandbox/tools/mkimage
+            .cache/uboot-sandbox/.oe5xrx-sandbox-stamp
           key: uboot-sandbox-v2026.01-${{ hashFiles('scripts/build-uboot-sandbox.sh') }}-${{ runner.os }}-${{ env.ImageOS }}
 
       - name: Build U-Boot sandbox (v2026.01)
