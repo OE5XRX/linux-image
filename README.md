@@ -90,6 +90,71 @@ flowchart LR
     DATA --> agent
 ```
 
+### CM4 boot stages + device-tree overlays
+
+The Raspberry Pi target boots in two U-Boot script stages so that boot
+logic and our own device-tree overlays travel with the A/B slot (and
+therefore with OTA) instead of living on the shared FAT partition.
+
+- **Stage 1 — `boot.scr` on the FAT (frozen).** Built from
+  `u-boot-ab/files/boot.cmd`. Owns everything that must never depend on
+  an update: env defaults, `bootcount` increment + `saveenv`, the
+  watchdog, the rollback decision, finding `root_${boot_part}`. It then
+  sources `/boot/boot-stage2.scr` from the slot. If stage 2 is missing
+  or returns without booting, stage 1 boots the slot kernel with the
+  firmware DTB itself (frozen fallback bootargs). Stage 1 changes **only
+  by reflashing**.
+- **Stage 2 — `/boot/boot-stage2.scr` in the slot rootfs (per OTA).**
+  Built from `boot-stage2.cmd.in`. Loads the kernel, copies the firmware
+  DTB, applies every overlay from `/boot/overlays/<name>.dtbo` (installed
+  by `oe5xrx-dt-overlays`) and boots. If any overlay fails to load or
+  apply, it boots with **no** overlays (never a half-patched tree).
+- **Overlay list:** `OE5XRX_DT_OVERLAYS` in
+  [`conf/oe5xrx-boot.inc`](meta-oe5xrx-remotestation/conf/oe5xrx-boot.inc),
+  shared by `u-boot-ab` and `oe5xrx-dt-overlays` so stage 2 and the
+  rootfs always agree. Each name needs `files/<name>-overlay.dts` in
+  `oe5xrx-dt-overlays`. Never machine-override the variable.
+- **Cmdline markers:** `oe5xrx.stage2=ok|missing|failed` and
+  `oe5xrx.overlays=ok:<a,b>|failed:<name>` end up in `/proc/cmdline`.
+  During an OTA trial the station-agent **refuses to commit** when they
+  signal a failure (stage 2 not `ok` or `overlays=failed:…`) and rolls
+  back like a failed health check. No marker at all (old stage 1) is
+  treated as the legacy boot path and does not block.
+
+**Rule:** our own overlays live **only in the slot** (this list).
+`config.txt` is only for things the firmware itself needs (`otg_mode`,
+`dtparam=…`) — never `dtoverlay=oe5xrx-…`. The release gate enforces
+this on the built artifact.
+
+**Migration:** a station needs **one reflash** with an image containing
+stage 1. Until then its old `boot.scr` ignores `boot-stage2.scr` and
+boots as before. After that, overlays and boot logic arrive by OTA.
+
+**Fault-injection builds** (HW boot tests, dev builds only):
+
+```bash
+kas build raspberrypi4-64.yml:include/boot-test-marker.yml          # extra harmless test overlay
+kas build raspberrypi4-64.yml:include/boot-test-overlay-broken.yml  # overlay fails -> overlays=failed:…
+kas build raspberrypi4-64.yml:include/boot-test-stage2-broken.yml   # stage 2 returns -> stage2=failed
+```
+
+Never for releases: the build `bbfatal`s if a test switch or an
+`oe5xrx-test-*` overlay meets `OE5XRX_RELEASE_TAG != dev`, and the
+release artifact gate rejects test overlays/faults in the image.
+
+**Sandbox tests** (CI job `uboot-sandbox`) run the real stage 1/2
+scripts in a U-Boot v2026.01 sandbox against the real CM4 firmware DTB:
+
+```bash
+scripts/build-uboot-sandbox.sh /tmp/sbx/u-boot     # host build, idempotent
+curl -fsSL -o /tmp/sbx/cm4.dtb \
+  https://raw.githubusercontent.com/raspberrypi/firmware/<RPI_FW_REV>/boot/bcm2711-rpi-cm4.dtb
+UBOOT_SANDBOX=/tmp/sbx/u-boot CM4_BASE_DTB=/tmp/sbx/cm4.dtb \
+  python3 -m pytest tests/ota-integration -m sandbox
+```
+
+(`RPI_FW_REV` + checksum: see `.github/workflows/ci.yml`.)
+
 ### Release pipeline
 
 ```mermaid
@@ -202,7 +267,8 @@ Three workflows:
 
 - **`ci.yml`** — every pull request and push to `main`. Parses all kas
   configs with `kas dump`, shellchecks the scripts, yamllints the YAML,
-  sanity-checks the wks files. No Hetzner, no artifact.
+  sanity-checks the wks files, runs the unit tests and the U-Boot sandbox
+  boot-script tests. No Hetzner, no artifact.
 - **`build.yml`** — reusable + manually dispatchable. Full Yocto build
   on an on-demand Hetzner CCX43 for a single machine. Uploads the image
   artifact with 7-day retention. Used ad-hoc or called by `release.yml`.
@@ -215,7 +281,9 @@ Three workflows:
   so `cosign` signs under the tag identity
   (`…/release.yml@refs/tags/<tag>`, which station-manager verifies). Validates
   the tag format, calls `build.yml` for **both** targets in parallel, gates on
-  the boot + cross-build OTA test, signs each image with [cosign keyless][cosign],
+  the boot + cross-build OTA test and the rpi artifact gate
+  (`test_rpi_artifact.py`: stage 2 + overlays in the slot, FAT clean,
+  sandbox boot of the built scripts), signs each image with [cosign keyless][cosign],
   and publishes the GitHub Release. Deletes the tag if a build/gate/sign fails,
   so a failed attempt leaves nothing behind. `dry_run=true` (manual branch
   dispatch) does build + gate only.
@@ -263,12 +331,15 @@ Each image ships with:
 ├── qemux86-64.yml                       x86-64 target
 ├── raspberrypi4-64.yml                  RPi CM4 target
 ├── include/raspberrypi.yml              meta-raspberrypi glue
+├── include/boot-test-*.yml              dev-only boot fault-injection overlays
 ├── meta-oe5xrx-remotestation/
 │   ├── conf/layer.conf
+│   ├── conf/oe5xrx-boot.inc             CM4 boot knobs: DT overlay list + test switch
 │   ├── recipes-bsp/
 │   │   ├── grub/                        grub-efi bbappend + embedded cfg
 │   │   ├── grub-ab/                     seed grubenv with A/B defaults
-│   │   └── u-boot-ab/                   U-Boot A/B boot.scr + fw_env.config
+│   │   ├── oe5xrx-dt-overlays/          our DT overlays -> /boot/overlays in the slot
+│   │   └── u-boot-ab/                   stage 1 boot.scr (FAT) + slot boot-stage2.scr + fw_env.config
 │   ├── recipes-core/
 │   │   ├── ab-layout/                   systemd mount units + first-boot init
 │   │   ├── base-files/                  fstab tweaks (RPi)
