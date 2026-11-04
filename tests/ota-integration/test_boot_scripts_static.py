@@ -64,6 +64,7 @@ fi
 """
 
 SOURCE_LINE = "source ${scriptaddr}"
+DEVICE_LINES = ("setenv oe5xrx_devtype mmc", "setenv oe5xrx_devnum 0")
 SAVED_VARS = ("fdt_addr", "kernel_addr_r", "fdt_addr_r", "root_partnum",
               "boot_part")
 
@@ -72,6 +73,26 @@ def _code_lines(txt):
     """Stripped non-comment, non-blank lines (hush comments start with #)."""
     return [ln.strip() for ln in txt.splitlines()
             if ln.strip() and not ln.lstrip().startswith("#")]
+
+
+def _depths(lines):
+    """Nesting depth (if/for) at which each code line starts."""
+    depth, out = 0, []
+    for ln in lines:
+        out.append(depth)
+        toks = re.split(r"[\s;]+", ln)
+        depth += toks.count("if") + toks.count("for")
+        depth -= toks.count("fi") + toks.count("done")
+    assert depth == 0
+    return out
+
+
+def _commands(ln):
+    """Split a code line into its commands: drops a leading `if `/`else`
+    and a trailing `; then`/`; do`, splits on `&&` and `;`."""
+    ln = re.sub(r"^(if|elif)\s+", "", ln)
+    ln = re.sub(r";\s*(then|do)$", "", ln)
+    return [c.strip() for c in re.split(r"&&|;", ln) if c.strip()]
 
 
 def _index(lines, line):
@@ -134,24 +155,37 @@ def test_stage1_fallback_bootargs_frozen_copy():
 
 def test_stage1_sets_device_unconditionally():
     lines = _code_lines(read_stage1())
-    depth = 0
-    found = {}
-    for ln in lines:
-        if ln in ("setenv oe5xrx_devtype mmc", "setenv oe5xrx_devnum 0"):
-            assert depth == 0, f"{ln!r} is inside an if/for"
-            found[ln] = lines.index(ln)
-        toks = re.split(r"[\s;]+", ln)
-        depth += toks.count("if") + toks.count("for")
-        depth -= toks.count("fi") + toks.count("done")
-    assert depth == 0
-    assert len(found) == 2
-    # Set after the last saveenv (never persisted) and before first use.
+    depths = _depths(lines)
+    src = _index(lines, SOURCE_LINE)
+    last_restore = _index(lines, "setenv boot_part ${oe5xrx_s1_boot_part}")
+    # Any write to the boot-device vars must be exactly one of the literal
+    # lines (the sandbox harness rewrites them textually), at depth 0.
+    for i, ln in enumerate(lines):
+        if re.search(r"\b(setenv|setexpr|env set)\s+oe5xrx_dev(type|num)\b", ln):
+            assert ln in DEVICE_LINES, f"unexpected device write: {ln!r}"
+            assert depths[i] == 0, f"{ln!r} is inside an if/for"
+    uses = [i for i, ln in enumerate(lines) if "${oe5xrx_devtype}" in ln]
     last_save = max(i for i, ln in enumerate(lines) if "saveenv" in ln)
-    first_use = min(i for i, ln in enumerate(lines)
-                    if "${oe5xrx_devtype}" in ln)
-    assert all(last_save < i < first_use for i in found.values())
+    for want in DEVICE_LINES:
+        idx = [i for i, ln in enumerate(lines) if ln == want]
+        # Before stage 2: after the last saveenv (never persisted) and
+        # before the first use.
+        assert any(last_save < i < uses[0] for i in idx), want
+        # After stage 2 returned: re-pinned after the restore block and
+        # before the fallback's first use, so a stage 2 that sets/clears
+        # them can never redirect the frozen fallback.
+        after = [u for u in uses if u > src]
+        assert after, "fallback does not use ${oe5xrx_devtype}"
+        assert any(last_restore < i < after[0] for i in idx), \
+            f"{want!r} not re-pinned after stage 2"
     # No hardcoded boot device left in the code.
     assert not any("mmc 0" in ln for ln in lines)
+
+
+def test_stage1_repins_stage2_marker_after_source():
+    lines = _code_lines(read_stage1())
+    src = _index(lines, SOURCE_LINE)
+    assert lines[src + 1] == "setenv oe5xrx_stage2 failed"
 
 
 def test_stage1_saves_and_restores_vars_around_source():
@@ -170,7 +204,7 @@ _FORBIDDEN_STAGE2 = [
     r"\benv\s+(save|set|import|default|delete)\b",
     (r"\b(setenv|setexpr|editenv|askenv)\s+"
      r"(bootcount|upgrade_available|boot_part|bootlimit|oe5xrx_stage2"
-     r"|oe5xrx_s1_\w*)\b"),
+     r"|oe5xrx_devtype|oe5xrx_devnum|oe5xrx_s1_\w*)\b"),
 ]
 
 
@@ -181,37 +215,81 @@ def test_stage2_never_touches_rollback_state(overlays):
             assert not re.search(pat, ln), f"stage 2 must not: {ln!r}"
 
 
+COPY_CHAIN = ('if test -n "${fdt_addr}" && fdt addr ${fdt_addr} && '
+              'fdt move ${fdt_addr} ${fdt_addr_r} && fdt addr ${fdt_addr_r} && '
+              'fdt resize 0x10000; then')
+BOOTI_S2 = "booti ${kernel_addr_r} - ${fdt_addr_r}"
+FDT_OK_GATE = 'if test "${oe5xrx_fdt_ok}" = 1; then'
+
+
 def test_stage2_works_on_copy():
     lines = _code_lines(_stage2())
     current = None          # working fdt per `fdt addr` / `fdt move`
     copied = False
     applies = 0
-    for ln in lines:
-        m = re.match(r"fdt addr (\S+)$", ln)
+    for cmd in (c for ln in lines for c in _commands(ln)):
+        m = re.match(r"fdt addr (\S+)$", cmd)
         if m:
             current = m.group(1)
             continue
-        m = re.match(r"fdt move (\S+) (\S+) ", ln)
+        m = re.match(r"fdt move (\S+) (\S+)", cmd)
         if m:
-            assert m.groups() == ("${fdt_addr}", "${fdt_addr_r}"), ln
+            assert m.groups() == ("${fdt_addr}", "${fdt_addr_r}"), cmd
             current, copied = "${fdt_addr_r}", True
             continue
-        if re.match(r"(if )?fdt (apply|resize|set|rm|mknode|chosen)\b", ln):
-            assert copied, f"tree modified before copying: {ln!r}"
+        if re.match(r"fdt (apply|resize|set|rm|mknode|chosen)\b", cmd):
+            assert copied, f"tree modified before copying: {cmd!r}"
             assert current == "${fdt_addr_r}", \
-                f"modifies {current} instead of the copy: {ln!r}"
-            applies += ln.startswith(("fdt apply", "if fdt apply"))
+                f"modifies {current} instead of the copy: {cmd!r}"
+            applies += cmd.startswith("fdt apply")
     assert applies >= 1
     booti = [ln for ln in lines if re.match(r"booti\b", ln)]
-    assert booti == ["booti ${kernel_addr_r} - ${fdt_addr_r}"]
+    assert booti == [BOOTI_S2]
+
+
+def test_stage2_copy_steps_are_gated():
+    """Every fdt copy step is part of the && chain of COPY_CHAIN: no bare
+    (unchecked) `fdt addr|move|resize` line exists."""
+    lines = _code_lines(_stage2())
+    for ln in lines:
+        if ln != COPY_CHAIN:
+            assert not re.match(r"fdt (addr|move|resize|header)\b", ln), \
+                f"unchecked fdt copy step: {ln!r}"
+    assert lines.count(COPY_CHAIN) == 2      # first copy + re-copy
+
+
+def test_stage2_booti_only_after_complete_copy():
+    lines = _code_lines(_stage2())
+    depths = _depths(lines)
+    booti = _index(lines, BOOTI_S2)
+    gate = _index(lines, FDT_OK_GATE)
+    # booti sits directly inside the oe5xrx_fdt_ok=1 branch (no else/elif
+    # in between, branch not closed before it).
+    assert gate < booti and depths[booti] == depths[gate] + 1
+    assert all(depths[i] > depths[gate] and lines[i] != "else"
+               and not lines[i].startswith("elif")
+               for i in range(gate + 1, booti + 1))
+    # The flag is cleared at stage-2 start (stale env) and before the
+    # re-copy, and set to 1 ONLY as the first statement of a COPY_CHAIN
+    # success branch.
+    sets = [i for i, ln in enumerate(lines)
+            if re.match(r"setenv oe5xrx_fdt_ok\b", ln)]
+    for i in sets:
+        if lines[i] == "setenv oe5xrx_fdt_ok 1":
+            assert lines[i - 1] == COPY_CHAIN, i
+            assert depths[i] == depths[i - 1] + 1
+        else:
+            assert lines[i] == "setenv oe5xrx_fdt_ok", lines[i]
+            assert lines[i + 1] == COPY_CHAIN, i
+    assert lines[sets[0]] == "setenv oe5xrx_fdt_ok" and sets[0] < gate
+    assert sum(lines[i] == "setenv oe5xrx_fdt_ok 1" for i in sets) == 2
 
 
 def test_stage2_discards_copy_on_overlay_failure():
     lines = _code_lines(_stage2())
     fail = _index(lines, 'if test -n "${oe5xrx_ovl_failed}"; then')
-    booti = _index(lines, "booti ${kernel_addr_r} - ${fdt_addr_r}")
-    recopy = [i for i, ln in enumerate(lines)
-              if ln.startswith("fdt move ${fdt_addr} ${fdt_addr_r} ")]
+    booti = _index(lines, BOOTI_S2)
+    recopy = [i for i, ln in enumerate(lines) if ln == COPY_CHAIN]
     assert any(fail < i < booti for i in recopy)
     assert any(ln.startswith('setenv oe5xrx_ovl_bootarg " oe5xrx.overlays='
                              'failed:${oe5xrx_ovl_failed}"')

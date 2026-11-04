@@ -48,6 +48,9 @@ saveenv
 # a slow boot could reset-loop. If HIL shows false resets, either confirm the
 # u-boot->kernel watchdog handover keeps it fed, or drop this pre-arm and rely
 # on the kernel+systemd watchdog (which still covers kernel-up and userspace hangs).
+# Note: the degraded stage-2 path (stage 2 loads the kernel, booti returns, the
+# fallback below reloads the kernel) lengthens this pre-kernel window — include
+# it when measuring the 15 s budget on HIL.
 wdt dev watchdog@7e100000 || echo "  (no wdt device — continuing)"
 wdt start 15000 || echo "  (wdt start failed — continuing)"
 
@@ -99,7 +102,9 @@ fi
 # bootcount/upgrade_available/boot_part or saveenv. The watchdog is already
 # armed: a hanging stage 2 resets, bootcount rises, rollback above kicks in.
 # If stage 2 returns (failed without booting), we restore the variables it may
-# have clobbered and continue with the frozen fallback below.
+# have clobbered, re-pin the boot device and the stage-2 marker, and continue
+# with the frozen fallback below — nothing an OTA-delivered stage 2 sets can
+# redirect or mislabel the fallback.
 setenv oe5xrx_s1_fdt_addr ${fdt_addr}
 setenv oe5xrx_s1_kernel_addr_r ${kernel_addr_r}
 setenv oe5xrx_s1_fdt_addr_r ${fdt_addr_r}
@@ -110,6 +115,7 @@ if ext4load ${oe5xrx_devtype} ${oe5xrx_devnum}:${root_partnum} ${scriptaddr} /bo
     echo "  Running stage 2 from slot ${boot_part}"
     setenv oe5xrx_stage2 failed
     source ${scriptaddr}
+    setenv oe5xrx_stage2 failed
     echo "  Stage 2 returned without booting — using stage 1 fallback"
 else
     echo "  No stage 2 in slot ${boot_part} — using stage 1 fallback"
@@ -119,6 +125,8 @@ setenv kernel_addr_r ${oe5xrx_s1_kernel_addr_r}
 setenv fdt_addr_r ${oe5xrx_s1_fdt_addr_r}
 setenv root_partnum ${oe5xrx_s1_root_partnum}
 setenv boot_part ${oe5xrx_s1_boot_part}
+setenv oe5xrx_devtype mmc
+setenv oe5xrx_devnum 0
 
 # --- Fallback: boot exactly like before stage 2 existed -----------------------
 # The bootargs below are a deliberately FROZEN copy of the bootargs as of the

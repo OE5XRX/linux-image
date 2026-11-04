@@ -20,6 +20,12 @@
 #     stage 1 then boots its frozen fallback (oe5xrx.stage2=failed).
 #   - This file is the authoritative source of the kernel bootargs.
 #
+# Memory layout (HW-CHECK on real CM4): the DTB work copy at ${fdt_addr_r} sits
+# 1 MiB below ${ramdisk_addr_r} (overlay load buffer; rpi defaults 0x02600000 /
+# 0x02700000). The kernel is loaded at ${kernel_addr_r}, so this requires
+# kernel_addr_r + size(/boot/Image) < fdt_addr_r — a kernel Image growing past
+# that would be overwritten by the DTB copy. Verify against the shipped Image.
+#
 # Build-time placeholders (written @NAME@ in the code; filled by the recipe and
 # by tests/ota-integration/boot_scripts.py render_stage2 with the same rules):
 #   OE5XRX_DT_OVERLAYS       space-separated overlay names (may be empty)
@@ -31,47 +37,47 @@ echo "=== OE5XRX boot stage 2 (slot ${boot_part}) ==="
 echo "  Overlays: @OE5XRX_DT_OVERLAYS_CSV@"
 echo "  Loading kernel from rootfs ${oe5xrx_devtype} ${oe5xrx_devnum}:${root_partnum} (/boot/Image)"
 if ext4load ${oe5xrx_devtype} ${oe5xrx_devnum}:${root_partnum} ${kernel_addr_r} /boot/Image; then
-    if test -n "${fdt_addr}"; then
-        # Copy the firmware DTB into the work area and make room for overlays.
-        setenv oe5xrx_fdt_size
-        fdt addr ${fdt_addr}
-        fdt header get oe5xrx_fdt_size totalsize
-        if test -n "${oe5xrx_fdt_size}"; then
-            fdt move ${fdt_addr} ${fdt_addr_r} ${oe5xrx_fdt_size}
-            fdt addr ${fdt_addr_r}
-            fdt resize 0x10000
+    # Copy the firmware DTB into the work area and make room for overlays.
+    # Every step of the copy is gated (&&): booti below only runs while
+    # oe5xrx_fdt_ok=1, i.e. after a copy that fully succeeded — a failed copy
+    # or re-copy never boots, stage 2 falls off the end instead.
+    setenv oe5xrx_fdt_ok
+    if test -n "${fdt_addr}" && fdt addr ${fdt_addr} && fdt move ${fdt_addr} ${fdt_addr_r} && fdt addr ${fdt_addr_r} && fdt resize 0x10000; then
+        setenv oe5xrx_fdt_ok 1
 
-            # Apply the slot's overlays; stop at the first failure.
-            setenv oe5xrx_ovl_failed
-            for o in @OE5XRX_DT_OVERLAYS@; do
-                if test -z "${oe5xrx_ovl_failed}"; then
-                    setenv oe5xrx_ovl_failed ${o}
-                    echo "  Applying overlay /boot/overlays/${o}.dtbo"
-                    if ext4load ${oe5xrx_devtype} ${oe5xrx_devnum}:${root_partnum} ${ramdisk_addr_r} /boot/overlays/${o}.dtbo; then
-                        if fdt apply ${ramdisk_addr_r}; then
-                            setenv oe5xrx_ovl_failed
-                        fi
+        # Apply the slot's overlays; stop at the first failure.
+        setenv oe5xrx_ovl_failed
+        for o in @OE5XRX_DT_OVERLAYS@; do
+            if test -z "${oe5xrx_ovl_failed}"; then
+                setenv oe5xrx_ovl_failed ${o}
+                echo "  Applying overlay /boot/overlays/${o}.dtbo"
+                if ext4load ${oe5xrx_devtype} ${oe5xrx_devnum}:${root_partnum} ${ramdisk_addr_r} /boot/overlays/${o}.dtbo; then
+                    if fdt apply ${ramdisk_addr_r}; then
+                        setenv oe5xrx_ovl_failed
                     fi
                 fi
-            done
-
-            if test -n "${oe5xrx_ovl_failed}"; then
-                # The copy may be corrupt: discard it, re-copy the pristine
-                # firmware DTB and boot WITHOUT any overlay.
-                echo "  Overlay ${oe5xrx_ovl_failed} failed — booting without overlays"
-                setenv oe5xrx_ovl_bootarg " oe5xrx.overlays=failed:${oe5xrx_ovl_failed}"
-                fdt addr ${fdt_addr}
-                fdt move ${fdt_addr} ${fdt_addr_r} ${oe5xrx_fdt_size}
-                fdt addr ${fdt_addr_r}
-                fdt resize 0x10000
-            else
-                setenv oe5xrx_ovl_bootarg "@OE5XRX_OVERLAYS_BOOTARG@"
             fi
+        done
 
-            setenv bootargs "root=PARTLABEL=root_${boot_part} ro rootwait fsck.repair=yes net.ifnames=0 panic=5 softlockup_panic=1 reserve_mem=2M:4096:oops ramoops.mem_name=oops ramoops.ecc=1 ramoops.record_size=0x40000 ramoops.console_size=0x40000 ramoops.pmsg_size=0x40000 console=tty1 console=serial0,115200 oe5xrx.stage2=ok${oe5xrx_ovl_bootarg}"
-            echo "  Booting with firmware DTB copy at ${fdt_addr_r}"
-            booti ${kernel_addr_r} - ${fdt_addr_r}
+        if test -n "${oe5xrx_ovl_failed}"; then
+            # The copy may be corrupt: discard it, re-copy the pristine
+            # firmware DTB and boot WITHOUT any overlay — only if the re-copy
+            # fully succeeded.
+            echo "  Overlay ${oe5xrx_ovl_failed} failed — booting without overlays"
+            setenv oe5xrx_ovl_bootarg " oe5xrx.overlays=failed:${oe5xrx_ovl_failed}"
+            setenv oe5xrx_fdt_ok
+            if test -n "${fdt_addr}" && fdt addr ${fdt_addr} && fdt move ${fdt_addr} ${fdt_addr_r} && fdt addr ${fdt_addr_r} && fdt resize 0x10000; then
+                setenv oe5xrx_fdt_ok 1
+            fi
+        else
+            setenv oe5xrx_ovl_bootarg "@OE5XRX_OVERLAYS_BOOTARG@"
         fi
+    fi
+
+    if test "${oe5xrx_fdt_ok}" = 1; then
+        setenv bootargs "root=PARTLABEL=root_${boot_part} ro rootwait fsck.repair=yes net.ifnames=0 panic=5 softlockup_panic=1 reserve_mem=2M:4096:oops ramoops.mem_name=oops ramoops.ecc=1 ramoops.record_size=0x40000 ramoops.console_size=0x40000 ramoops.pmsg_size=0x40000 console=tty1 console=serial0,115200 oe5xrx.stage2=ok${oe5xrx_ovl_bootarg}"
+        echo "  Booting with firmware DTB copy at ${fdt_addr_r}"
+        booti ${kernel_addr_r} - ${fdt_addr_r}
     fi
 fi
 echo "  Stage 2 could not boot — returning to stage 1"
