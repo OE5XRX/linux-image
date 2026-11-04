@@ -224,6 +224,12 @@ _FORBIDDEN_STAGE2 = [
     (r"\b(setenv|setexpr|editenv|askenv)\s+"
      r"(bootcount|upgrade_available|boot_part|bootlimit|oe5xrx_stage2"
      r"|oe5xrx_devtype|oe5xrx_devnum|oe5xrx_s1_\w*)\b"),
+    # No bare hush assignment (`name=value`, incl. `oe5xrx_s1_*=`) at all:
+    # it creates a hush LOCAL that survives `source` and that hush expands
+    # wherever the env var of that name is unset or empty (cli_hush.c
+    # lookup_param: env first, then locals) — e.g. in stage 1's fallback
+    # after a restore that cleared an empty ${fdt_addr}.
+    r"(?:^|[;&|]|\b(?:if|then|else|elif|do)\s)\s*\w+=",
 ]
 
 
@@ -232,6 +238,31 @@ def test_stage2_never_touches_rollback_state(overlays):
     for ln in _code_lines(_stage2(overlays)):
         for pat in _FORBIDDEN_STAGE2:
             assert not re.search(pat, ln), f"stage 2 must not: {ln!r}"
+
+
+@pytest.mark.parametrize("ln", [
+    "setenv oe5xrx_s1_fdt_addr 0",
+    "setexpr oe5xrx_s1_root_partnum 1 + 1",
+    "env set oe5xrx_s1_boot_part b",
+    "oe5xrx_s1_fdt_addr=0",
+    "fdt_addr=0",
+    "  kernel_addr_r=0x5000000",
+    "if true; then root_partnum=9; fi",
+    "echo x; boot_part=z",
+    "true && fdt_addr_r=0",
+    "else fdt_addr=0",
+])
+def test_stage2_forbidden_patterns_catch(ln):
+    assert any(re.search(p, ln) for p in _FORBIDDEN_STAGE2), ln
+
+
+@pytest.mark.parametrize("ln", [
+    'setenv bootargs "root=PARTLABEL=root_${boot_part} ro console=tty1"',
+    "setenv oe5xrx_ovl_failed ${o}",
+    'if test "${oe5xrx_fdt_ok}" = 1; then',
+])
+def test_stage2_forbidden_patterns_allow(ln):
+    assert not any(re.search(p, ln) for p in _FORBIDDEN_STAGE2), ln
 
 
 COPY_CHAIN = ('if test -n "${fdt_addr}" && fdt addr ${fdt_addr} && '
