@@ -24,7 +24,6 @@ RDEPENDS:${PN} += " \
     python3-cryptography \
     python3-websockets \
     python3-pyserial \
-    python3-unicodedata \
 "
 
 SYSTEMD_SERVICE:${PN} = "station-agent.service"
