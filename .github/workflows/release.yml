@@ -182,7 +182,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential bison flex libssl-dev libgnutls28-dev uuid-dev \
             python3-dev python3-setuptools swig pkg-config bc \
-            gdisk e2fsprogs device-tree-compiler mtools
+            gdisk e2fsprogs device-tree-compiler mtools lbzip2
 
       # ImageOS (e.g. ubuntu24) is a runner-machine env var, not part of the
       # `env` expression context — export it so the cache key below can use

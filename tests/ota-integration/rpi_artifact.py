@@ -137,26 +137,67 @@ _CHUNK = 1024 * 1024
 _ZERO = bytes(_CHUNK)
 
 
-def materialize_wic(src: Path, dest_dir: Path) -> Path:
+# Parallel bzip2 decompressors (output identical to bzip2/Python bz2, incl.
+# multi-stream files); single-threaded bz2 takes minutes on the ~3.2 GiB wic.
+_PARALLEL_BZ2 = ("lbzip2", "pbzip2")
+
+
+def parallel_bz2_tool() -> str | None:
+    """First parallel bzip2 decompressor on PATH, or None."""
+    for tool in _PARALLEL_BZ2:
+        path = shutil.which(tool)
+        if path is not None:
+            return path
+    return None
+
+
+def _sparse_copy(fin, fout) -> None:
+    """Copy `fin` to `fout`, seeking over all-zero chunks (sparse output)."""
+    total = 0
+    while True:
+        chunk = fin.read(_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if chunk == _ZERO[:len(chunk)]:
+            fout.seek(len(chunk), os.SEEK_CUR)
+        else:
+            fout.write(chunk)
+    fout.truncate(total)
+
+
+def materialize_wic(src: Path, dest_dir: Path,
+                    bz2_tool: str | None = None) -> Path:
     """Path to a raw wic: `src` itself, or a SPARSE decompressed copy in
-    `dest_dir` (the ~3.2 GiB image is mostly zeros)."""
+    `dest_dir` (the ~3.2 GiB image is mostly zeros).
+
+    .bz2 goes through `lbzip2 -dc`/`pbzip2 -dc` when one is on PATH (or
+    `bz2_tool` is given), else Python's bz2. A failing tool raises — a gate
+    must not inspect a truncated image."""
     opener = {".bz2": bz2.open, ".xz": lzma.open, ".gz": gzip.open}.get(
         src.suffix)
     if opener is None:
         return src
     out = Path(dest_dir) / src.with_suffix("").name
-    total = 0
+    tool = None
+    if src.suffix == ".bz2":
+        tool = bz2_tool or parallel_bz2_tool()
+    if tool is not None:
+        # stderr to a file, not a pipe: nobody drains it while we read stdout.
+        with tempfile.TemporaryFile() as errf, \
+                open(out, "wb") as fout, \
+                subprocess.Popen([tool, "-dc", str(src)],
+                                 stdout=subprocess.PIPE, stderr=errf) as proc:
+            _sparse_copy(proc.stdout, fout)
+            proc.wait()
+            errf.seek(0)
+            err = errf.read().decode(errors="replace").strip()
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"{tool} -dc {src} failed (rc {proc.returncode}): {err}")
+        return out
     with opener(src, "rb") as fin, open(out, "wb") as fout:
-        while True:
-            chunk = fin.read(_CHUNK)
-            if not chunk:
-                break
-            total += len(chunk)
-            if chunk == _ZERO[:len(chunk)]:
-                fout.seek(len(chunk), os.SEEK_CUR)
-            else:
-                fout.write(chunk)
-        fout.truncate(total)
+        _sparse_copy(fin, fout)
     return out
 
 

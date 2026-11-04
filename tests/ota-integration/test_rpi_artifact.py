@@ -19,7 +19,8 @@ release job will publish is inspected without mounting:
 
 Skipped locally without RPI_ARTIFACT_DIR, a hard failure in CI. Locally:
 `python3 tests/ota-integration/fake_rpi_artifact.py DIR` builds a fake one.
-The one `unit` test here (script_text) runs in every PR.
+The `unit` tests here (script_text, Image header, wic decompression) run in
+every PR.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from rpi_artifact import (
     fat_read,
     materialize_wic,
     missing_tools,
+    parallel_bz2_tool,
     pick_wic,
     read_gpt,
     release_overlays,
@@ -313,3 +315,57 @@ def test_script_text_strips_mkimage_header(tmp_path):
     hdr[4:8] = struct.pack(">I", zlib.crc32(hdr))
     with pytest.raises(ValueError, match="not a script"):
         script_text(bytes(hdr) + scr[64:])
+
+
+# --- unit: wic decompression (parallel bzip2 tool vs. Python bz2) ---------------
+
+def _sample_wic() -> bytes:
+    # zero runs (sparse holes), data across chunk boundaries, odd tail
+    mib = 1024 * 1024
+    return (b"\0" * (2 * mib) + os.urandom(mib + 17) + b"\0" * (3 * mib)
+            + b"tail" + b"\0" * 5)
+
+
+@pytest.mark.unit
+def test_materialize_wic_bz2_python_fallback(tmp_path, monkeypatch):
+    import bz2
+    import rpi_artifact
+    raw = _sample_wic()
+    # two concatenated streams, as pbzip2/lbzip2 may write
+    half = len(raw) // 2
+    src = tmp_path / "x.wic.bz2"
+    src.write_bytes(bz2.compress(raw[:half]) + bz2.compress(raw[half:]))
+    monkeypatch.setattr(rpi_artifact, "parallel_bz2_tool", lambda: None)
+    out = materialize_wic(src, tmp_path)
+    assert out.name == "x.wic"
+    assert out.read_bytes() == raw
+    # sparse: the zero runs were seeked over, not written
+    assert out.stat().st_blocks * 512 < len(raw)
+
+
+@pytest.mark.unit
+def test_materialize_wic_bz2_parallel_tool(tmp_path):
+    import bz2
+    tool = parallel_bz2_tool()
+    if tool is None:
+        pytest.skip("no lbzip2/pbzip2 on PATH")
+    raw = _sample_wic()
+    half = len(raw) // 2
+    src = tmp_path / "x.wic.bz2"
+    src.write_bytes(bz2.compress(raw[:half]) + bz2.compress(raw[half:]))
+    out = materialize_wic(src, tmp_path)
+    assert out.read_bytes() == raw
+    assert out.stat().st_blocks * 512 < len(raw)
+
+    bad = tmp_path / "bad.wic.bz2"
+    bad.write_bytes(src.read_bytes()[:-50])  # truncated stream
+    with pytest.raises(RuntimeError, match="-dc"):
+        materialize_wic(bad, tmp_path)
+
+
+@pytest.mark.unit
+def test_materialize_wic_tool_failure_raises(tmp_path):
+    src = tmp_path / "x.wic.bz2"
+    src.write_bytes(b"not bzip2")
+    with pytest.raises(RuntimeError, match="rc 1"):
+        materialize_wic(src, tmp_path, bz2_tool=shutil.which("false"))
