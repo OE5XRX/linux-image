@@ -100,11 +100,20 @@ fi
 # applies the slot's DT overlays to a COPY of the firmware DTB and boots. It
 # reads oe5xrx_devtype/oe5xrx_devnum/root_partnum/boot_part and never touches
 # bootcount/upgrade_available/boot_part or saveenv. The watchdog is already
-# armed: a hanging stage 2 resets, bootcount rises, rollback above kicks in.
+# armed, but CONFIG_WDT implies CONFIG_WATCHDOG, so U-Boot itself services it
+# from schedule() (cyclic). It therefore catches only a hard hang that stops
+# calling schedule(), and the kernel/userspace after booti hands over; a
+# stage 2 stuck in a loop that keeps calling schedule() (sleep, I/O) keeps it
+# fed and is NOT caught (no reset, no rollback). Accepted residual risk: stage
+# 2 is rendered from a reviewed template whose only loop is the bounded
+# overlay `for`.
 # If stage 2 returns (failed without booting), we restore the variables it may
 # have clobbered, re-pin the boot device and the stage-2 marker, and continue
-# with the frozen fallback below — nothing an OTA-delivered stage 2 sets can
-# redirect or mislabel the fallback.
+# with the frozen fallback below. This assumes stage 2 does not overwrite the
+# oe5xrx_s1_* save variables and sets no hush locals (name=value), which hush
+# expands wherever the env var of that name is unset or empty (enforced for
+# the template by test_boot_scripts_static.py, not by U-Boot) — a stage 2
+# breaking those rules could still bend the fallback.
 setenv oe5xrx_s1_fdt_addr ${fdt_addr}
 setenv oe5xrx_s1_kernel_addr_r ${kernel_addr_r}
 setenv oe5xrx_s1_fdt_addr_r ${fdt_addr_r}
