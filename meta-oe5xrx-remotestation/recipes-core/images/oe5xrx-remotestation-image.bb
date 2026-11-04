@@ -109,12 +109,14 @@ IMAGE_BOOT_FILES:remove:raspberrypi4-64 = "boot.scr"
 IMAGE_BOOT_FILES:append:raspberrypi4-64 = " oe5xrx-boot.scr;boot.scr"
 WKS_FILE_DEPENDS:append:raspberrypi4-64 = " u-boot-ab"
 
-# PowerBoard INA226 DT overlay: the RPi firmware loads overlays from the FAT
-# partition's overlays/ dir (config.txt: dtoverlay=oe5xrx-ina226, set in
-# raspberrypi4-64.yml) and hands the merged DTB to u-boot. Like config.txt it
-# lives on FAT, which OTA does not touch — a station needs one reflash to gain it.
-IMAGE_BOOT_FILES:append:raspberrypi4-64 = " oe5xrx-ina226.dtbo;overlays/oe5xrx-ina226.dtbo"
-WKS_FILE_DEPENDS:append:raspberrypi4-64 = " oe5xrx-dt-overlays"
+# DT overlays (PowerBoard INA226, …) live in the A/B SLOT, not on FAT: the
+# package installs /boot/overlays/<name>.dtbo into the rootfs and U-Boot boot
+# stage 2 (/boot/boot-stage2.scr from u-boot-ab, also in the rootfs) applies the
+# OE5XRX_DT_OVERLAYS list (conf/oe5xrx-boot.inc) to a copy of the firmware DTB.
+# So overlay changes arrive by OTA and roll back with the slot. Rule: our OWN
+# overlays only ever go here — never onto FAT / as dtoverlay= in config.txt.
+# See docs/superpowers/specs/2026-11-04-slot-boot-stage2-overlays-design.md.
+IMAGE_INSTALL:append:raspberrypi4-64 = " oe5xrx-dt-overlays"
 
 # meta-raspberrypi writes /dev/mmcblk0p1 in fstab for /boot/firmware. Our
 # boot-firmware.mount in /etc/systemd/system/ overrides it with PARTLABEL,

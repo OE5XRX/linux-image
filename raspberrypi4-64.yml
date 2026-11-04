@@ -19,11 +19,13 @@ local_conf_header:
     # passes to u-boot; boot.cmd now boots THAT firmware DTB via ${fdt_addr}
     # (instead of loading its own rootfs DTB), so config.txt directives finally
     # take effect. See docs/superpowers/specs/2026-07-24-cm4-usb-firmware-dtb.md.
-    # dtoverlay=oe5xrx-ina226: the PowerBoard's two INA226 (+5V @0x40, +12V
-    # @0x41) on i2c1 (dtparam=i2c_arm=on comes from ENABLE_I2C above). The
-    # .dtbo is built by recipes-bsp/oe5xrx-dt-overlays and routed onto FAT
-    # overlays/ by the image recipe.
-    RPI_EXTRA_CONFIG = "\notg_mode=1\ndtoverlay=oe5xrx-ina226\n"
+    # Rule: config.txt (on FAT — never touched by OTA) carries only what the GPU
+    # firmware itself needs (otg_mode, dtparam such as i2c_arm via ENABLE_I2C —
+    # i2c1 must be enabled in the FIRMWARE DTB). Our OWN DT overlays (e.g. the
+    # PowerBoard INA226) live in the A/B slot (/boot/overlays/) and are applied
+    # by U-Boot boot stage 2 — see OE5XRX_DT_OVERLAYS in
+    # meta-oe5xrx-remotestation/conf/oe5xrx-boot.inc. Never add dtoverlay=oe5xrx-*.
+    RPI_EXTRA_CONFIG = "\notg_mode=1\n"
     # Dev-only: allow root login with empty password on the serial console.
     # For production, drop this and rely on the station-agent terminal (with
     # proper auth) for remote access + a provisioned recovery password.

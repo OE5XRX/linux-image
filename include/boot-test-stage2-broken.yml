@@ -1,0 +1,10 @@
+# DEV-ONLY boot fault-injection overlay (spec 2026-11-04-slot-boot-stage2-overlays
+# §7, HW tests). Sets OE5XRX_BOOT_TEST=stage2-broken — see conf/oe5xrx-boot.inc for what
+# it does. The build refuses it unless OE5XRX_RELEASE_TAG is "dev".
+#   kas build raspberrypi4-64.yml:include/boot-test-stage2-broken.yml
+header:
+  version: 15
+
+local_conf_header:
+  oe5xrx-boot-test: |
+    OE5XRX_BOOT_TEST = "stage2-broken"

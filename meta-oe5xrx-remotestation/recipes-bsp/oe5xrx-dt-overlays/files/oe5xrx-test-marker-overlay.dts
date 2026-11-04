@@ -1,0 +1,21 @@
+// OE5XRX TEST overlay — harmless marker (dev builds only).
+//
+// Installed + listed only with OE5XRX_BOOT_TEST="marker" (see
+// conf/oe5xrx-boot.inc). Adds one property to the root node, so a station can
+// prove that an overlay shipped in the SLOT (via OTA, no reflash) reached the
+// live device tree:
+//   cat /proc/device-tree/oe5xrx,test-marker   ->  slot-overlay
+// Path-based target: needs no __symbols__ in the base DTB (spec §7, HW
+// scenario 2).
+
+/dts-v1/;
+/plugin/;
+
+/ {
+	fragment@0 {
+		target-path = "/";
+		__overlay__ {
+			oe5xrx,test-marker = "slot-overlay";
+		};
+	};
+};
