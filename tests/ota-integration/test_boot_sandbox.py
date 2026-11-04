@@ -24,6 +24,7 @@ from uboot_sandbox import (
     FDT_ADDR,
     FDT_ADDR_R,
     KERNEL_ADDR_R,
+    BootiReject,
     SandboxUnavailable,
     make_test_disk,
     compile_dtbo,
@@ -96,12 +97,27 @@ def standard_slots(sbx, dtbos, overlays: list[str],
     return {s: slot_files(sbx, s, stage2=s2, overlays=ov) for s in ("a", "b")}
 
 
-def boot(sbx, tmp_path: Path, slots, env=None, name="boot"):
+def boot(sbx, tmp_path: Path, slots, env=None, name="boot", **kw):
     disk = tmp_path / "disk.img"
     if not disk.exists():
         make_test_disk(disk, slots)
     return run_boot(tmp_path / name, disk, read_stage1(), sbx["dtb"],
-                    env or {}, uboot=sbx["uboot"], mkimage=sbx["mkimage"])
+                    env or {}, uboot=sbx["uboot"], mkimage=sbx["mkimage"],
+                    **kw)
+
+
+# Rootfs DTB paths of stage 1's last-resort fallback, in boot.cmd order.
+ROOTFS_DTB_BROADCOM = "/boot/broadcom/bcm2711-rpi-cm4.dtb"
+ROOTFS_DTB_PLAIN = "/boot/bcm2711-rpi-cm4.dtb"
+
+
+def rootfs_dtb(tag: str) -> bytes:
+    """A small valid DTB, distinguishable by its /oe5xrx,rootfs-dtb tag."""
+    dts = ('/dts-v1/;\n/ { compatible = "oe5xrx,test"; '
+           f'oe5xrx,rootfs-dtb = "{tag}"; }};\n')
+    return subprocess.run(["dtc", "-q", "-I", "dts", "-O", "dtb"],
+                          input=dts.encode(), check=True,
+                          capture_output=True, timeout=30).stdout
 
 
 def node_exists(dtb: Path, node: str) -> bool:
@@ -344,6 +360,105 @@ def test_missing_slot_partition_resets(sbx, dtbos, tmp_path):
     assert not r.booted
     assert "root_c partition not found" in r.output
     assert r.env["bootcount"] == "1"  # counted before the reset
+
+
+# --- stage-1 rescue paths: booti returning (BootiReject) ----------------------
+
+def test_stage2_booti_returning_falls_back_failed(sbx, dtbos, tmp_path):
+    # (a) The real stage 2 reaches booti, booti returns -> stage 1's frozen
+    # fallback boots the firmware DTB, tagged oe5xrx.stage2=failed.
+    r = boot(sbx, tmp_path, standard_slots(sbx, dtbos, [INA]),
+             reject_booti=BootiReject(first=1))
+    assert r.rejected_booti == [(KERNEL_ADDR_R, FDT_ADDR_R)], r.output
+    assert "Stage 2 could not boot" in r.output
+    assert "Stage 2 returned without booting" in r.output
+    assert_booted(r, "a")
+    assert r.booti_fdt_addr == FDT_ADDR
+    assert marker(r.bootargs, "oe5xrx.stage2") == ["failed"]
+    assert "oe5xrx.overlays" not in r.bootargs
+    assert_no_overlay_applied(r)
+    assert_base_untouched(sbx, r)
+
+
+@pytest.mark.parametrize("shipped,want", [
+    # both present: the broadcom/ path is tried first and wins
+    ({ROOTFS_DTB_BROADCOM: "broadcom", ROOTFS_DTB_PLAIN: "plain"},
+     "broadcom"),
+    # only the plain path: tried second
+    ({ROOTFS_DTB_PLAIN: "plain"}, "plain"),
+])
+def test_firmware_dtb_rejected_boots_rootfs_dtb(sbx, tmp_path, shipped,
+                                                 want):
+    # (b) No stage 2; the fallback's firmware-DTB booti returns -> the
+    # rootfs DTB is loaded to ${fdt_addr_r} and booted.
+    slots = {}
+    for s_ in ("a", "b"):
+        files = slot_files(sbx, s_, stage2=None)
+        files.update({p: rootfs_dtb(t) for p, t in shipped.items()})
+        slots[s_] = files
+    r = boot(sbx, tmp_path, slots, reject_booti=BootiReject(fdt=(FDT_ADDR,)))
+    assert r.rejected_booti == [(KERNEL_ADDR_R, FDT_ADDR)], r.output
+    assert "falling back to rootfs DTB" in r.output
+    assert_booted(r, "a")
+    assert r.booti_fdt_addr == FDT_ADDR_R
+    assert r.fdt_path.read_bytes() == rootfs_dtb(want)
+    assert marker(r.bootargs, "oe5xrx.stage2") == ["missing"]
+    assert_base_untouched(sbx, r)
+
+
+def test_no_firmware_dtb_skips_stage2_boots_rootfs_dtb(sbx, dtbos, tmp_path):
+    # (c) ${fdt_addr} unset (firmware passed no DTB): stage 2 must not boot
+    # (its copy chain is gated on fdt_addr); the fallback skips the
+    # firmware-DTB booti and boots the rootfs DTB.
+    slots = standard_slots(sbx, dtbos, [INA])
+    for files in slots.values():
+        files[ROOTFS_DTB_BROADCOM] = rootfs_dtb("broadcom")
+    r = boot(sbx, tmp_path, slots, fdt_addr=None)
+    assert "Running stage 2" in r.output
+    assert "Stage 2 could not boot" in r.output
+    assert "Booting with firmware DTB" not in r.output
+    assert r.rejected_booti == []
+    assert_booted(r, "a")
+    assert r.output.count("OE5XRX_T_BOOTI kernel=") == 1
+    assert r.booti_fdt_addr == FDT_ADDR_R
+    assert r.fdt_path.read_bytes() == rootfs_dtb("broadcom")
+    assert marker(r.bootargs, "oe5xrx.stage2") == ["failed"]
+    assert "oe5xrx.overlays" not in r.bootargs
+
+
+def test_kernel_missing_resets(sbx, dtbos, tmp_path):
+    # (d) No /boot/Image in the slot: neither stage 2 nor the fallback can
+    # boot -> reset (bootcount already counted).
+    slots = standard_slots(sbx, dtbos, [INA])
+    for files in slots.values():
+        del files["/boot/Image"]
+    r = boot(sbx, tmp_path, slots)
+    assert r.reset, r.output
+    assert not r.booted
+    assert "OE5XRX_T_BOOTI" not in r.output
+    assert "Stage 2 could not boot" in r.output
+    assert "Kernel/dtb load failed" in r.output
+    assert r.env["bootcount"] == "1"
+
+
+def test_all_booti_rejected_resets_and_counts(sbx, dtbos, tmp_path):
+    # (e) Every booti returns (stage 2 copy, firmware DTB, rootfs DTB) ->
+    # reset; the bootcount increment was persisted before, so repeated
+    # failures progress towards the rollback.
+    slots = standard_slots(sbx, dtbos, [INA])
+    for files in slots.values():
+        files[ROOTFS_DTB_BROADCOM] = rootfs_dtb("broadcom")
+    env = {"boot_part": "b", "upgrade_available": "1", "bootcount": "1",
+           "bootlimit": "3"}
+    r = boot(sbx, tmp_path, slots, env, reject_booti=BootiReject(all=True))
+    assert r.rejected_booti == [(KERNEL_ADDR_R, FDT_ADDR_R),
+                                (KERNEL_ADDR_R, FDT_ADDR),
+                                (KERNEL_ADDR_R, FDT_ADDR_R)], r.output
+    assert r.reset, r.output
+    assert not r.booted
+    assert "Kernel/dtb load failed" in r.output
+    assert r.env == {"boot_part": "b", "bootcount": "2",
+                     "upgrade_available": "1", "bootlimit": "3"}
 
 
 _RE_ECHO = re.compile(

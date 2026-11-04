@@ -6,7 +6,8 @@ hush + fdt/ext4/part commands as the rpi image). Only the hardware-facing
 commands are rewritten textually (`rewrite_for_sandbox`):
 
   booti A - B           -> setenv oe5xrx_t_kernel A; setenv oe5xrx_t_fdt B;
-                           run oe5xrx_t_booti      (dump state + poweroff)
+                           run oe5xrx_t_booti      (dump state + poweroff,
+                           or return like a failed booti: BootiReject)
   wdt ... (line start)  -> echo OE5XRX_T_WDT ...
   reset                 -> run oe5xrx_t_reset      (marker + poweroff)
   saveenv               -> run oe5xrx_t_saveenv    (env export -> env.txt)
@@ -202,6 +203,33 @@ def make_test_disk(path, slots: dict[str, dict[str, bytes]]) -> None:
 
 # --- boot -------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class BootiReject:
+    """Which booti calls RETURN (like a real booti rejecting the Image/DTB)
+    instead of booting. A call is rejected if any rule matches: `all`, it is
+    one of the first `first` calls of this boot (1-based, <= 9), or its
+    expanded fdt argument is in `fdt` (e.g. FDT_ADDR = the firmware DTB)."""
+    all: bool = False
+    first: int = 0
+    fdt: tuple[str, ...] = ()
+
+    def hush(self) -> str:
+        """Commands setting oe5xrx_t_rej=1 for a rejected call (part of the
+        single-quoted oe5xrx_t_booti: no single quotes in here)."""
+        assert 0 <= self.first <= 9  # setexpr counts in hex
+        rules = []
+        if self.all:
+            rules.append("setenv oe5xrx_t_rej 1")
+        if self.first:
+            rules.append(f"if test ${{oe5xrx_t_n}} -le {self.first}; then "
+                         "setenv oe5xrx_t_rej 1; fi")
+        for a in self.fdt:
+            assert re.fullmatch(r"0x[0-9a-fA-F]+", a), a
+            rules.append(f'if test "${{oe5xrx_t_fdt}}" = "{a}"; then '
+                         "setenv oe5xrx_t_rej 1; fi")
+        return "; ".join(rules)
+
+
 @dataclass
 class BootResult:
     booted: bool
@@ -214,6 +242,8 @@ class BootResult:
     output: str
     booti_kernel_addr: str = ""   # booti's literal (expanded) arguments
     booti_fdt_addr: str = ""
+    # (kernel, fdt) of every booti call that returned (BootiReject), in order
+    rejected_booti: list[tuple[str, str]] = field(default_factory=list)
     returncode: int = 0
     extra: dict = field(default_factory=dict)
 
@@ -235,12 +265,16 @@ def _read_env(path: Path) -> dict[str, str]:
 
 def run_boot(workdir, disk, stage1_text: str, base_dtb,
              env: dict[str, str], *, uboot: Path | None = None,
-             mkimage: Path | None = None) -> BootResult:
+             mkimage: Path | None = None,
+             reject_booti: BootiReject | None = None,
+             fdt_addr: str | None = FDT_ADDR) -> BootResult:
     """One simulated boot: prelude -> source (rewritten) stage 1.
 
     `stage1_text` is the RAW stage-1 text (rewritten here). Stage 2 lives in
     the disk image (caller renders, rewrites with stage1=False, compiles).
-    `env` = persisted env before this boot (written to env.txt)."""
+    `env` = persisted env before this boot (written to env.txt).
+    `reject_booti`: booti calls that return instead of booting.
+    `fdt_addr=None`: the firmware passed no DTB (${fdt_addr} unset)."""
     if uboot is None or mkimage is None:
         u, m, _ = sandbox_paths()
         uboot = uboot or u
@@ -264,15 +298,42 @@ def run_boot(workdir, disk, stage1_text: str, base_dtb,
         f"host load hostfs - {_ENV_ADDR} {env_txt}\n"
         f"env import -t {_ENV_ADDR} ${{filesize}}\n") if env else ""
     persisted = " ".join(PERSISTED_VARS)
+    if fdt_addr is None:
+        firmware_dtb = "setenv fdt_addr\n"
+    else:
+        firmware_dtb = (f"setenv fdt_addr {fdt_addr}\n"
+                        f"host load hostfs - ${{fdt_addr}} {base_dtb}\n")
+    boot_now = (
+        "echo OE5XRX_T_BOOTI kernel=${oe5xrx_t_kernel} fdt=${oe5xrx_t_fdt}; "
+        "echo OE5XRX_T_BOOTARGS ${bootargs}; "
+        f"host save hostfs - ${{oe5xrx_t_kernel}} {out_kernel} 0x10; "
+        "setenv oe5xrx_t_sz; fdt addr ${oe5xrx_t_fdt} && "
+        "fdt header get oe5xrx_t_sz totalsize && "
+        f"host save hostfs - ${{oe5xrx_t_fdt}} {out_fdt} ${{oe5xrx_t_sz}}; "
+        'setenv oe5xrx_t_sz; test -n "${fdt_addr}" && fdt addr ${fdt_addr} && '
+        "fdt header get oe5xrx_t_sz totalsize && "
+        f"host save hostfs - ${{fdt_addr}} {out_base} ${{oe5xrx_t_sz}}; "
+        "poweroff")
+    rules = reject_booti.hush() if reject_booti else ""
+    if rules:
+        # A rejected call returns non-zero, like a real failed booti.
+        booti = (
+            "setexpr oe5xrx_t_n ${oe5xrx_t_n} + 1; setenv oe5xrx_t_rej 0; "
+            f"{rules}; if test ${{oe5xrx_t_rej}} = 1; then "
+            "echo OE5XRX_T_BOOTI_REJECTED kernel=${oe5xrx_t_kernel} "
+            f"fdt=${{oe5xrx_t_fdt}}; test 1 = 0; else {boot_now}; fi")
+    else:
+        booti = boot_now
+    assert "'" not in booti
     prelude = f"""\
 setenv kernel_addr_r {KERNEL_ADDR_R}
 setenv scriptaddr {SCRIPTADDR}
 setenv fdt_addr_r {FDT_ADDR_R}
 setenv ramdisk_addr_r {RAMDISK_ADDR_R}
-setenv fdt_addr {FDT_ADDR}
-host load hostfs - ${{fdt_addr}} {base_dtb}
+{firmware_dtb}\
 {env_import}\
-setenv oe5xrx_t_booti 'echo OE5XRX_T_BOOTI kernel=${{oe5xrx_t_kernel}} fdt=${{oe5xrx_t_fdt}}; echo OE5XRX_T_BOOTARGS ${{bootargs}}; host save hostfs - ${{oe5xrx_t_kernel}} {out_kernel} 0x10; setenv oe5xrx_t_sz; fdt addr ${{oe5xrx_t_fdt}} && fdt header get oe5xrx_t_sz totalsize && host save hostfs - ${{oe5xrx_t_fdt}} {out_fdt} ${{oe5xrx_t_sz}}; setenv oe5xrx_t_sz; fdt addr ${{fdt_addr}} && fdt header get oe5xrx_t_sz totalsize && host save hostfs - ${{fdt_addr}} {out_base} ${{oe5xrx_t_sz}}; poweroff'
+setenv oe5xrx_t_n 0
+setenv oe5xrx_t_booti '{booti}'
 setenv oe5xrx_t_saveenv 'echo OE5XRX_T_SAVEENV; env export -t {_ENV_ADDR} {persisted} && host save hostfs - {_ENV_ADDR} {env_txt} ${{filesize}}'
 setenv oe5xrx_t_reset 'echo OE5XRX_T_RESET; poweroff'
 host bind 0 {disk}
@@ -309,6 +370,8 @@ poweroff
         output=output,
         booti_kernel_addr=m.group(1) if m else "",
         booti_fdt_addr=m.group(2) if m else "",
+        rejected_booti=re.findall(
+            r"^OE5XRX_T_BOOTI_REJECTED kernel=(\S*) fdt=(\S*)", output, re.M),
         returncode=r.returncode,
     )
 
