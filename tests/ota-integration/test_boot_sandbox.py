@@ -236,6 +236,32 @@ def test_trial_rollback_when_bootcount_exceeds_limit(sbx, dtbos, tmp_path):
                      "upgrade_available": "0", "bootlimit": "3"}
 
 
+def test_agent_gate_rollback_bootcount_at_limit(sbx, dtbos, tmp_path):
+    # Agent commit gate (spec §5): a trial boot (slot b) whose boot gate fails
+    # (oe5xrx.stage2 != ok or oe5xrx.overlays=failed:...) makes the agent set
+    # bootcount=<bootlimit> (upgrade_available stays 1), report rolled_back
+    # and reboot ONCE. Stage 1's existing rollback branch (increment, then
+    # bootcount -gt bootlimit) must switch the slot on exactly that boot.
+    slots = standard_slots(sbx, dtbos, [INA])
+    env = {"boot_part": "b", "upgrade_available": "1", "bootcount": "3",
+           "bootlimit": "3"}
+    r = boot(sbx, tmp_path, slots, env)
+    assert_booted(r, "a")
+    assert "rolling back" in r.output
+    assert marker(r.bootargs, "oe5xrx.stage2") == ["ok"]
+    assert {k: r.env[k] for k in ("boot_part", "upgrade_available",
+                                  "bootcount")} == {
+        "boot_part": "a", "upgrade_available": "0", "bootcount": "1"}
+    # Boundary: one below the limit must NOT roll back (the agent has to
+    # write exactly bootlimit, not bootlimit-1).
+    env_below = dict(env, bootcount="2")
+    r2 = boot(sbx, tmp_path, slots, env_below, name="below")
+    assert_booted(r2, "b")
+    assert "rolling back" not in r2.output
+    assert r2.env["boot_part"] == "b" and r2.env["bootcount"] == "3"
+    assert r2.env["upgrade_available"] == "1"
+
+
 def test_trial_without_commit_rolls_back_after_bootlimit(sbx, dtbos,
                                                          tmp_path):
     # Review Focus 5: an OTA trial (slot b) that never commits.

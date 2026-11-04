@@ -126,6 +126,25 @@ def test_stage1_keeps_rollback_block_verbatim():
     assert lines[first_save - 1] == "setexpr bootcount ${bootcount} + 1"
 
 
+def test_stage1_increments_bootcount_before_gt_check():
+    # Agent commit gate contract (spec §5): on a boot-gate failure during a
+    # trial the agent writes bootcount=<bootlimit> and reboots once. That only
+    # rolls back if stage 1 increments FIRST and then compares with a strict
+    # `-gt` — so the next boot sees bootlimit+1 > bootlimit. Reordering or
+    # turning -gt into -ge would break (or shift) that contract.
+    lines = _code_lines(read_stage1())
+    inc = _index(lines, "setexpr bootcount ${bootcount} + 1")
+    gt = [i for i, ln in enumerate(lines)
+          if re.search(r"\$\{bootcount\}\s+-gt\s+\$\{bootlimit\}", ln)]
+    assert len(gt) == 1, gt
+    assert inc < gt[0]
+    assert "upgrade_available} -gt 0" in lines[gt[0]]
+    # No other write to bootcount between the increment and the comparison.
+    for ln in lines[inc + 1:gt[0]]:
+        assert not re.search(r"\b(setenv|setexpr)\s+bootcount\b", ln), ln
+    assert not any(re.search(r"\bbootcount\b.*-ge\b", ln) for ln in lines)
+
+
 def test_stage1_arms_watchdog_before_source():
     lines = _code_lines(read_stage1())
     src = _index(lines, SOURCE_LINE)
