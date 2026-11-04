@@ -62,8 +62,14 @@ Bleibt in `u-boot-ab`, wird aus `boot.cmd` gebaut. Verantwortlich für alles, wa
   ohne selbst zu booten), bootet Stufe 1 **exakt wie heute** (Kernel aus dem Slot,
   Firmware-DTB `${fdt_addr}`, Rootfs-DTB-Fallback, sonst `reset`) — mit zusätzlichem
   bootarg `oe5xrx.stage2=missing` bzw. `=failed`.
-- Der Watchdog ist vor `source` scharf → hängt Stufe 2, resettet der Watchdog, der
-  Bootcount steigt, der bestehende Rollback greift.
+- Der Watchdog ist vor `source` scharf — fängt aber nur einen **harten** Hänger von
+  Stufe 2: `CONFIG_WDT` impliziert `CONFIG_WATCHDOG`, d. h. U-Boot füttert den Watchdog
+  selbst zyklisch aus `schedule()`. Ein harter Hänger (kein `schedule()` mehr) → Reset,
+  der Bootcount steigt, der bestehende Rollback greift. Eine Stufe 2, die in einer
+  Schleife hängt, die weiter `schedule()` aufruft (`sleep`, I/O), hält den Watchdog am
+  Leben → **kein** Reset, kein Rollback. Akzeptiertes Restrisiko (so auch im Kommentar in
+  `boot.cmd`): Stufe 2 wird aus einem reviewten Template gerendert, dessen einzige
+  Schleife das begrenzte Overlay-`for` ist.
 - Der Fallback-Pfad bootet mit der eingefrorenen bootargs-Kopie (siehe §2.6).
 - Stufe 1 so klein und defensiv wie möglich halten; sie wird nach diesem PR nur noch per
   Neuflash geändert. Kommentar im Kopf von `boot.cmd`, der das sagt.
@@ -91,6 +97,17 @@ eigenes Rezept), per `mkimage -T script` gebaut. Ablauf:
 
 Stufe 2 fasst `bootcount`, `upgrade_available`, `boot_part` **nicht** an und ruft kein
 `saveenv`.
+
+**Vertrauensmodell.** Stufe 2 und die Overlays sind **nicht signiert**; ihre Integrität ist
+die des Slots. Der Slot-Inhalt kommt nur per OTA: station-manager prüft beim Import eines
+Releases die cosign-Signatur des Image-Assets (keyless, Identität `release.yml@refs/tags/…`),
+der Agent prüft das heruntergeladene Rootfs gegen die SHA-256 vom Server, bevor er den
+inaktiven Slot beschreibt. Stufe 2 schafft damit **kein neues Privileg**: Wer den Slot
+schreiben kann, kann schon heute `/boot/Image` (und damit alles) ersetzen. Die Stufe-2-Regeln
+(kein `saveenv`, keine Rollback-Variablen, keine hush-Locals, `oe5xrx_s1_*` unangetastet)
+sind eine **Robustheits-Konvention**, durchgesetzt von statischen Tests
+(`test_boot_scripts_static.py`) gegen das Template — **keine Sicherheitsgrenze**; eine
+manipulierte Stufe 2 kann sie trivial brechen.
 
 ## 3. U-Boot-Konfiguration
 
@@ -169,7 +186,8 @@ Skript-Text-Regeln) bleiben `-m unit`. *(Entscheidung Spec-Autor)*
   `/boot/overlays/oe5xrx-ina226.dtbo` im Rootfs; **kein** `dtoverlay=oe5xrx-` in der
   FAT-`config.txt`; `CONFIG_OF_LIBFDT_OVERLAY=y` (bbfatal-Guard).
 - Text-Checks auf `boot.cmd`/Stufe 2: Stufe 2 enthält kein `saveenv`/`bootcount`/
-  `boot_part`-Schreiben; Stufe 1 armt den Watchdog vor `source`.
+  `boot_part`-Schreiben; Stufe 1 armt den Watchdog vor `source` (fängt nur harte
+  Hänger von Stufe 2, siehe §1).
 
 ### 7a. U-Boot-Sandbox-Tests (CI, ohne Hardware)
 
