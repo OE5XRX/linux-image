@@ -32,7 +32,9 @@ if [ "$#" -ne 1 ]; then
     echo "usage: $0 <output-dir>" >&2
     exit 2
 fi
-out="$1"
+# Absolute: the build below runs after `cd "${out}"`, so a relative path
+# would put the stamp in the wrong place.
+out="$(realpath -m -- "$1")"
 stamp="${out}/.oe5xrx-sandbox-stamp"
 want="${UBOOT_VERSION} ${UBOOT_SHA} OF_LIBFDT_OVERLAY CMD_FDT CMD_EXT4 CMD_PART -EFI_CAPSULE_AUTHENTICATE NO_SDL"
 
@@ -49,7 +51,25 @@ if [ -x "${out}/u-boot" ] && [ -x "${out}/tools/mkimage" ] \
     exit 0
 fi
 
+# True if ${out} may be deleted for a fresh clone: absent, empty, or holding
+# only our cache set (u-boot, tools/mkimage, stamp). Never wipe anything else.
+replaceable() {
+    local entry
+    [ -e "${out}" ] || return 0
+    [ -d "${out}" ] || return 1
+    while IFS= read -r -d '' entry; do
+        case "${entry#"${out}"/}" in
+            u-boot | tools | tools/mkimage | .oe5xrx-sandbox-stamp) ;;
+            *) return 1 ;;
+        esac
+    done < <(find "${out}" -mindepth 1 -print0)
+}
+
 if [ ! -d "${out}/.git" ]; then
+    if ! replaceable; then
+        echo "error: ${out} exists and is neither empty, a U-Boot clone nor a sandbox cache (u-boot, tools/mkimage, .oe5xrx-sandbox-stamp); refusing to delete it" >&2
+        exit 1
+    fi
     rm -rf "${out}"
     git -c advice.detachedHead=false clone --quiet --depth 1 --branch "${UBOOT_VERSION}" "${UBOOT_REPO}" "${out}"
 fi
