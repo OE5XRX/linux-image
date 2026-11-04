@@ -124,6 +124,15 @@ Stufe 2 fasst `bootcount`, `upgrade_available`, `boot_part` **nicht** an und ruf
   Pre-Commit-Health-Check (`station_agent/health_check.py` → `run_health_checks`, Aufrufer
   `commit_boot` in `ota.py`): gleicher Fehlerpfad, gleiche Rollback-Mechanik, OTA-Ergebnis
   `rolled_back` mit Grund an den Server.
+- **Rollback-Mechanik des Gates:** Schlägt das Boot-Gate während eines Trials fehl, setzt
+  der Agent `bootcount=<bootlimit>` (`upgrade_available` bleibt `1`), meldet `rolled_back`
+  und rebootet **einmal**. Stufe 1 erhöht beim nächsten Boot `bootcount` (dann
+  `bootlimit + 1`) und ihr **bestehender** Rollback-Zweig (`bootcount > bootlimit` nach dem
+  Inkrement, `-gt`) wechselt den Slot (`boot_part` getauscht, `bootcount=1`,
+  `upgrade_available=0`). Stufe 1 muss diesen Zweig daher **exakt** so behalten
+  (Inkrement vor dem Vergleich, strikt `-gt`) — abgesichert durch den statischen Test
+  `test_stage1_increments_bootcount_before_gt_check` und den Sandbox-Test
+  `test_agent_gate_rollback_bootcount_at_limit`.
 - **Kein Rollback** bei reinen Hardware-Zuständen: PowerBoard fehlt, INA antwortet nicht,
   I²C aus. Das Overlay wird dann trotzdem erfolgreich angewendet; der Treiber findet nur
   nichts → Agent lässt die `pwr.*`-Metriken weg (wie bisher).
