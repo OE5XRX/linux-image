@@ -353,6 +353,9 @@ def test_materialize_wic_bz2_parallel_tool(tmp_path):
     import bz2
     tool = parallel_bz2_tool()
     if tool is None:
+        # CI installs lbzip2 (ci.yml); never skip silently there.
+        if os.environ.get("CI"):
+            pytest.fail("no lbzip2/pbzip2 on PATH in CI (install lbzip2)")
         pytest.skip("no lbzip2/pbzip2 on PATH")
     raw = _sample_wic()
     half = len(raw) // 2

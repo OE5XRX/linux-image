@@ -28,7 +28,7 @@ jobs:
         run: |
           pip install --quiet -r .github/requirements-kas.txt
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck yamllint udev device-tree-compiler u-boot-tools
+          sudo apt-get install -y --no-install-recommends shellcheck yamllint udev device-tree-compiler u-boot-tools lbzip2
 
       - name: Verify kas configs parse (qemux86-64)
         run: kas dump qemux86-64.yml > /dev/null
