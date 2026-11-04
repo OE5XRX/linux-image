@@ -41,7 +41,7 @@ from boot_scripts import (  # noqa: E402
     STAGE2_TEMPLATE, read_stage1, read_stage2_template, render_stage2)
 from rpi_artifact import release_overlays  # noqa: E402
 from uboot_sandbox import (  # noqa: E402
-    Symlink, compile_dtbo, find_mkimage, script_bytes, write_tree)
+    Symlink, compile_dtbo, env_path, find_mkimage, script_bytes, write_tree)
 
 _REPO = Path(__file__).resolve().parents[2]
 _OVERLAY_DIR = (_REPO / "meta-oe5xrx-remotestation" / "recipes-bsp"
@@ -70,8 +70,8 @@ def _mkimage() -> Path:
 
 
 def build(outdir: Path, fault: str | None) -> Path:
-    dtb = os.environ.get("CM4_BASE_DTB")
-    if not dtb or not Path(dtb).exists():
+    dtb = env_path("CM4_BASE_DTB")
+    if dtb is None or not dtb.exists():
         sys.exit("CM4_BASE_DTB must point at a CM4 DTB (FAT stand-in)")
     mkimage = _mkimage()
     overlays = release_overlays()
@@ -85,7 +85,7 @@ def build(outdir: Path, fault: str | None) -> Path:
 
     fat = {"/boot.scr": script_bytes(read_stage1(), mkimage),
            "/config.txt": _CONFIG_TXT.encode(),
-           "/bcm2711-rpi-cm4.dtb": Path(dtb).read_bytes(),
+           "/bcm2711-rpi-cm4.dtb": dtb.read_bytes(),
            "/overlays/vc4-kms-v3d.dtbo": b"not-a-real-dtbo"}
     if fault == "fat-dtoverlay":
         fat["/config.txt"] += b"dtoverlay=oe5xrx-ina226\n"

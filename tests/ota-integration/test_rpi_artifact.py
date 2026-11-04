@@ -31,7 +31,6 @@ import shutil
 import struct
 import subprocess
 import zlib
-from pathlib import Path
 
 import pytest
 from boot_scripts import read_stage1, read_stage2_template, render_stage2
@@ -58,6 +57,7 @@ from uboot_sandbox import (
     SCRIPTADDR,
     Symlink,
     compile_script,
+    env_path,
     fdtget,
     find_mkimage,
     make_test_disk,
@@ -82,14 +82,14 @@ def _unavailable(msg: str):
 
 @pytest.fixture(scope="session")
 def wic(tmp_path_factory):
-    d = os.environ.get("RPI_ARTIFACT_DIR")
-    if not d:
+    d = env_path("RPI_ARTIFACT_DIR")
+    if d is None:
         _unavailable("RPI_ARTIFACT_DIR not set")
-    if not Path(d).is_dir():
+    if not d.is_dir():
         _unavailable(f"RPI_ARTIFACT_DIR is not a directory: {d}")
     if missing_tools():
         _unavailable(f"tools not on PATH: {missing_tools()}")
-    src = pick_wic(Path(d))
+    src = pick_wic(d)
     img = materialize_wic(src, tmp_path_factory.mktemp("wic"))
     parts = read_gpt(img)
     for label in ("firmware", "root_a"):
@@ -211,10 +211,10 @@ def test_kernel_image_fits_below_scriptaddr(root_a):
 # --- sandbox boot of the built scripts ---------------------------------------
 
 def _sandbox_bins():
-    ub = os.environ.get("UBOOT_SANDBOX")
-    if not ub:
+    ub = env_path("UBOOT_SANDBOX")  # absolute: run_boot changes the cwd
+    if ub is None:
         _unavailable("UBOOT_SANDBOX not set")
-    uboot, mkimage = Path(ub) / "u-boot", Path(ub) / "tools" / "mkimage"
+    uboot, mkimage = ub / "u-boot", ub / "tools" / "mkimage"
     for p in (uboot, mkimage):
         if not p.exists():
             _unavailable(f"missing: {p}")
@@ -422,3 +422,17 @@ def test_ext4_read_follows_symlinks(tmp_path):
         ext4_read(fs, part, "/boot/loop1")
     with pytest.raises(RuntimeError, match="not a file"):
         ext4_read(fs, part, "/boot/dirlink")
+
+
+@pytest.mark.unit
+def test_env_path_is_absolute(tmp_path, monkeypatch):
+    # run_boot runs the sandbox with cwd=<workdir>: a relative UBOOT_SANDBOX
+    # / CM4_BASE_DTB / RPI_ARTIFACT_DIR must be resolved against the CWD
+    # the tests were started from.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("UBOOT_SANDBOX", "rel/sbx")
+    assert env_path("UBOOT_SANDBOX") == tmp_path / "rel" / "sbx"
+    monkeypatch.setenv("UBOOT_SANDBOX", "")
+    assert env_path("UBOOT_SANDBOX") is None
+    monkeypatch.delenv("UBOOT_SANDBOX")
+    assert env_path("UBOOT_SANDBOX") is None

@@ -72,21 +72,30 @@ class SandboxUnavailable(RuntimeError):
     pass
 
 
+def env_path(name: str) -> Path | None:
+    """Absolute path from environment variable `name` (None if unset/empty).
+    Resolved against the CWD at call time: run_boot executes the sandbox
+    with cwd=<workdir>, where a relative path would point elsewhere."""
+    v = os.environ.get(name)
+    return Path(v).resolve() if v else None
+
+
 def sandbox_paths() -> tuple[Path, Path, Path]:
-    """(u-boot, mkimage, base_dtb) from UBOOT_SANDBOX / CM4_BASE_DTB."""
-    ub = os.environ.get("UBOOT_SANDBOX")
-    dtb = os.environ.get("CM4_BASE_DTB")
-    if not ub or not dtb:
+    """(u-boot, mkimage, base_dtb) from UBOOT_SANDBOX / CM4_BASE_DTB,
+    absolute."""
+    ub = env_path("UBOOT_SANDBOX")
+    dtb = env_path("CM4_BASE_DTB")
+    if ub is None or dtb is None:
         raise SandboxUnavailable("UBOOT_SANDBOX and/or CM4_BASE_DTB not set")
-    uboot = Path(ub) / "u-boot"
-    mkimage = Path(ub) / "tools" / "mkimage"
-    for p in (uboot, mkimage, Path(dtb)):
+    uboot = ub / "u-boot"
+    mkimage = ub / "tools" / "mkimage"
+    for p in (uboot, mkimage, dtb):
         if not p.exists():
             raise SandboxUnavailable(f"missing: {p}")
     for tool in ("sgdisk", "mkfs.ext4", "dtc", "fdtget"):
         if shutil.which(tool) is None:
             raise SandboxUnavailable(f"tool not on PATH: {tool}")
-    return uboot, mkimage, Path(dtb)
+    return uboot, mkimage, dtb
 
 
 # --- script rewriting -------------------------------------------------------
@@ -122,12 +131,13 @@ def rewrite_for_sandbox(script: str, *, stage1: bool) -> str:
 
 
 def find_mkimage() -> Path | None:
-    """mkimage from UBOOT_SANDBOX/tools, else PATH (u-boot-tools), else None."""
-    ub = os.environ.get("UBOOT_SANDBOX")
-    if ub and (Path(ub) / "tools" / "mkimage").exists():
-        return Path(ub) / "tools" / "mkimage"
+    """mkimage from UBOOT_SANDBOX/tools, else PATH (u-boot-tools), else None
+    (absolute)."""
+    ub = env_path("UBOOT_SANDBOX")
+    if ub is not None and (ub / "tools" / "mkimage").exists():
+        return ub / "tools" / "mkimage"
     m = shutil.which("mkimage")
-    return Path(m) if m else None
+    return Path(m).resolve() if m else None
 
 
 def compile_script(text: str, out: Path, mkimage: Path | None = None) -> None:
@@ -295,6 +305,9 @@ def run_boot(workdir, disk, stage1_text: str, base_dtb,
         u, m, _ = sandbox_paths()
         uboot = uboot or u
         mkimage = mkimage or m
+    # The sandbox runs with cwd=w: every path it sees must be absolute.
+    uboot = Path(uboot).resolve()
+    mkimage = Path(mkimage).resolve()
     w = Path(workdir).resolve()
     w.mkdir(parents=True, exist_ok=True)
     disk = Path(disk).resolve()
