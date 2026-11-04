@@ -17,7 +17,9 @@ User-Entscheidungen (Brainstorm 2026-11-04):
 - **Umsetzen:** Boot-Logik in zwei Stufen (Stufe 2 im Slot) + Overlays aus dem Slot,
   angewendet von U-Boot.
 - **Nicht umsetzen:** Laufzeit-Instanziierung des INA226 ohne Overlay; RPi-eigenes
-  A/B für die FAT-Partition (`tryboot`/`autoboot.txt`); U-Boot-Sandbox-Tests.
+  A/B für die FAT-Partition (`tryboot`/`autoboot.txt`).
+- **Umsetzen (nachgeschoben, nach erfolgreichem Spike 2026-11-04):** U-Boot-Sandbox-Tests der
+  Boot-Logik in der CI (§7a).
 
 ## Ziele
 
@@ -159,6 +161,43 @@ Skript-Text-Regeln) bleiben `-m unit`. *(Entscheidung Spec-Autor)*
   FAT-`config.txt`; `CONFIG_OF_LIBFDT_OVERLAY=y` (bbfatal-Guard).
 - Text-Checks auf `boot.cmd`/Stufe 2: Stufe 2 enthält kein `saveenv`/`bootcount`/
   `boot_part`-Schreiben; Stufe 1 armt den Watchdog vor `source`.
+
+### 7a. U-Boot-Sandbox-Tests (CI, ohne Hardware)
+
+**Spike 2026-11-04 (Koordinator, lokal im Container) — verifiziert:**
+- U-Boot **v2026.01** (= Image-Stand) baut als Sandbox: `sandbox_defconfig` +
+  `OF_LIBFDT_OVERLAY`, `CMD_FDT`, `CMD_EXT4`, `CMD_PART`; zusätzlich
+  `--disable EFI_CAPSULE_AUTHENTICATE` (sonst bricht der Build an einem fehlenden
+  EFI-Signatur-Tool ab); `make NO_SDL=1`. Build-Deps (Debian): build-essential bison flex
+  libssl-dev libgnutls28-dev uuid-dev python3-dev python3-setuptools swig pkg-config bc.
+- `host bind 0 disk.img` mit GPT (`sgdisk -o …`; Partitionen `root_a`/`root_b`) →
+  `part number host 0 root_b` liefert die Partition, `ext4load` liest aus dem Slot,
+  `source` führt ein per `mkimage` gebautes Stufe-2-Skript aus.
+- Echtes INA226-Overlay (`dtc -@`) auf den **echten CM4-Firmware-DTB**
+  (raspberrypi/firmware `boot/bcm2711-rpi-cm4.dtb`, hat `__symbols__`) per `fdt apply`:
+  `ina226@40/@41` mit `shunt-resistor = <10000>` unter `/soc/i2c@7e804000`.
+- Kaputtes Overlay (unbekanntes Label): `fdt apply` scheitert mit `FDT_ERR_NOTFOUND` **und
+  der Basisbaum ist danach beschädigt** (`FDT_ERR_BADMAGIC`) → bestätigt §2.4 zwingend:
+  immer auf einer Kopie arbeiten, bei Fehler frisch aus `${fdt_addr}` kopieren.
+- Env lässt sich zwischen simulierten Boots persistieren: `env export -t` + `host save` /
+  `host load` + `env import` (Sandbox hat kein persistentes Env).
+
+**Umsetzung:**
+- CI-Job baut die Sandbox (gecacht) aus derselben U-Boot-Version wie das Image.
+- Skripte (Stufe 1 + 2) bekommen das Boot-Gerät als Variable (`${bootdev}`, Default
+  `mmc 0`); `booti` und `wdt` laufen über kleine Indirektionen, die im Test durch
+  „Zustand ausgeben + beenden" ersetzt werden. **Die Indirektionen müssen im echten Image
+  identisch zum heutigen Verhalten sein** (Text-Check im Test, dass Release-Skripte
+  `booti`/`wdt` direkt bzw. unverändert aufrufen).
+- Python-Testharness (pytest, `tests/…`) baut pro Fall ein GPT-Test-Image (root_a/root_b ext4,
+  Stufe 2, Overlays, CM4-Basis-DTB aus dem Build bzw. dem Firmware-Repo-Pin) und ruft die
+  Sandbox wiederholt auf (Env per Datei durchgereicht).
+- Mindest-Fälle: normaler Boot (Slot, bootargs, Overlay-Knoten im Ergebnis-DTB);
+  Stufe 2 fehlt → Fallback + `oe5xrx.stage2=missing`; Stufe 2 kehrt zurück → Fallback +
+  `=failed`; Overlay kaputt → Boot mit **unbeschädigtem** Baum ohne Overlays +
+  `oe5xrx.overlays=failed:…`; Trial mit `bootcount > bootlimit` → Slot-Wechsel +
+  `upgrade_available=0`.
+- Nicht abgedeckt (bleibt HW-Test): GPU-Firmware/`config.txt`, echter Kernel-Start, Watchdog.
 
 **Hardware (einmalig, Test-Station; manuell mit User, Checkliste im PR):**
 1. Neues Image flashen → bootet, `/proc/cmdline` enthält `oe5xrx.overlays=ok:oe5xrx-ina226`,
