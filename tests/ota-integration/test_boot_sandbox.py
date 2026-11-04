@@ -226,14 +226,18 @@ def test_missing_overlay_file_marks_failed(sbx, dtbos, tmp_path):
     assert_base_untouched(sbx, r)
 
 
-def test_trial_rollback_when_bootcount_exceeds_limit(sbx, dtbos, tmp_path):
-    env = {"boot_part": "b", "upgrade_available": "1", "bootcount": "3",
-           "bootlimit": "3"}
+def test_trial_rollback_a_to_b_honours_custom_bootlimit(sbx, dtbos,
+                                                        tmp_path):
+    # Mirror of the agent-gate case: trial on slot A (rollback target B) with
+    # a non-default bootlimit=2 — the limit is read from the env, not
+    # hard-coded, and the rollback works in both directions.
+    env = {"boot_part": "a", "upgrade_available": "1", "bootcount": "2",
+           "bootlimit": "2"}
     r = boot(sbx, tmp_path, standard_slots(sbx, dtbos, [INA]), env)
-    assert_booted(r, "a")
+    assert_booted(r, "b")
     assert "rolling back" in r.output
-    assert r.env == {"boot_part": "a", "bootcount": "1",
-                     "upgrade_available": "0", "bootlimit": "3"}
+    assert r.env == {"boot_part": "b", "bootcount": "1",
+                     "upgrade_available": "0", "bootlimit": "2"}
 
 
 def test_agent_gate_rollback_bootcount_at_limit(sbx, dtbos, tmp_path):
@@ -342,11 +346,30 @@ def test_missing_slot_partition_resets(sbx, dtbos, tmp_path):
     assert r.env["bootcount"] == "1"  # counted before the reset
 
 
+_RE_ECHO = re.compile(
+    r"""\becho\b(?:[ \t]+(?:"[^"]*"|'[^']*'|[^\s;|&"']+))*""")
+_HW_CMDS = ("booti", "saveenv", "reset", "wdt", "mmc")
+
+
 def _code(script: str) -> str:
-    """Non-comment lines with quoted strings removed."""
+    """Non-comment lines with `echo` commands (and their arguments) removed.
+
+    Other quoted strings are KEPT: a command hidden in e.g.
+    `setenv x 'booti ...'; run x` must still count as a residual command."""
     lines = [ln for ln in script.splitlines()
              if not ln.lstrip().startswith("#")]
-    return re.sub(r"\"[^\"]*\"|'[^']*'", '""', "\n".join(lines))
+    return _RE_ECHO.sub("echo", "\n".join(lines))
+
+
+def _residual(code: str) -> list[str]:
+    return [c for c in _HW_CMDS if re.search(rf"\b{c}\b", code)]
+
+
+def test_residual_guard_sees_quoted_commands():
+    assert _residual(_code("setenv x 'booti 1 - 2'; run x\n")) == ["booti"]
+    assert _residual(_code('setenv y "mmc dev 0"\n')) == ["mmc"]
+    assert _residual(_code('echo "  reset via wdt"; echo \'saveenv\'\n'
+                           "echo booti mmc || echo 'x'\n")) == []
 
 
 def test_rewrite_hits_every_indirection():
@@ -356,11 +379,11 @@ def test_rewrite_hits_every_indirection():
         before = _code(text)
         after = _code(rewrite_for_sandbox(text, stage1=is_s1))
         assert re.search(r"\bbooti\b", before)
-        for cmd in ("booti", "saveenv", "reset", "wdt", "mmc"):
-            assert not re.search(rf"\b{cmd}\b", after), (cmd, is_s1)
+        assert _residual(after) == [], is_s1
         assert after.count("run oe5xrx_t_booti") == len(
             re.findall(r"\bbooti\b", before))
-    s1 = _code(rewrite_for_sandbox(stage1, stage1=True))
+    s1 = "\n".join(ln for ln in rewrite_for_sandbox(stage1, stage1=True)
+                   .splitlines() if not ln.lstrip().startswith("#"))
     assert s1.count("echo OE5XRX_T_WDT ") == 2
     assert s1.count("setenv oe5xrx_devtype host") == 2
     assert "run oe5xrx_t_saveenv" in s1 and "run oe5xrx_t_reset" in s1

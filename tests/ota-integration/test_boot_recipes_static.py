@@ -172,6 +172,23 @@ def test_boot_test_switch_guarded_against_release(test):
         == "oe5xrx-ina226"
 
 
+def test_direct_test_overlay_guarded_against_release():
+    # A test overlay put straight into OE5XRX_DT_OVERLAYS (bypassing the
+    # OE5XRX_BOOT_TEST switch) is just as fatal in a release build ...
+    for overlays in ("oe5xrx-ina226 oe5xrx-test-marker", "oe5xrx-test-broken"):
+        _cfg(overlays, tag="dev")
+        _cfg(overlays, tag=None)
+        with pytest.raises(_Fatal):
+            _cfg(overlays, tag="2026.11.04-16")
+    # ... while a non-test overlay that merely contains "test" is fine.
+    _cfg("oe5xrx-ina226 oe5xrx-testbench", tag="2026.11.04-16")
+
+
+def test_inc_documents_no_machine_override():
+    assert "never machine-override oe5xrx_dt_overlays" in \
+        _read(*_INC).lower()
+
+
 def test_kas_boot_test_overlays():
     seen = set()
     for rel, value in _TEST_YMLS.items():

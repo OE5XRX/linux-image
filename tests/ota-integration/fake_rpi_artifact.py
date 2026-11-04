@@ -15,6 +15,7 @@ recipes do: FAT boot.scr = mkimage(boot.cmd), config.txt, the CM4 DTB
   stage2-broken  stage 2 = boot-stage2-test-broken.cmd ("OE5XRX TEST FAULT")
   fat-dtoverlay  config.txt carries dtoverlay=oe5xrx-ina226
   fat-overlay    FAT carries overlays/oe5xrx-ina226.dtbo
+  fat-root-overlay  FAT root carries OE5XRX-INA226.DTBO
 Needs: mkimage (UBOOT_SANDBOX/tools or PATH), dtc, sgdisk, mkfs.vfat, mcopy,
 mkfs.ext4, bzip2 (python), CM4_BASE_DTB.
 """
@@ -34,7 +35,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from boot_scripts import (  # noqa: E402
     STAGE2_TEMPLATE, read_stage1, read_stage2_template, render_stage2)
 from rpi_artifact import release_overlays  # noqa: E402
-from uboot_sandbox import compile_dtbo, compile_script  # noqa: E402
+from uboot_sandbox import (  # noqa: E402
+    compile_dtbo, find_mkimage, script_bytes)
 
 _REPO = Path(__file__).resolve().parents[2]
 _OVERLAY_DIR = (_REPO / "meta-oe5xrx-remotestation" / "recipes-bsp"
@@ -54,20 +56,10 @@ otg_mode=1
 
 
 def _mkimage() -> Path:
-    ub = os.environ.get("UBOOT_SANDBOX")
-    if ub and (Path(ub) / "tools" / "mkimage").exists():
-        return Path(ub) / "tools" / "mkimage"
-    m = shutil.which("mkimage")
-    if not m:
+    m = find_mkimage()
+    if m is None:
         sys.exit("mkimage not found (UBOOT_SANDBOX/tools or PATH)")
-    return Path(m)
-
-
-def _scr(text: str, mkimage: Path) -> bytes:
-    with tempfile.TemporaryDirectory() as d:
-        out = Path(d) / "s.scr"
-        compile_script(text, out, mkimage)
-        return out.read_bytes()
+    return m
 
 
 def build(outdir: Path, fault: str | None) -> Path:
@@ -84,7 +76,7 @@ def build(outdir: Path, fault: str | None) -> Path:
     else:
         stage2 = render_stage2(read_stage2_template(), overlays)
 
-    fat = {"/boot.scr": _scr(read_stage1(), mkimage),
+    fat = {"/boot.scr": script_bytes(read_stage1(), mkimage),
            "/config.txt": _CONFIG_TXT.encode(),
            "/bcm2711-rpi-cm4.dtb": Path(dtb).read_bytes(),
            "/overlays/vc4-kms-v3d.dtbo": b"not-a-real-dtbo"}
@@ -93,8 +85,11 @@ def build(outdir: Path, fault: str | None) -> Path:
     if fault == "fat-overlay":
         fat["/overlays/oe5xrx-ina226.dtbo"] = compile_dtbo(
             _OVERLAY_DIR / "oe5xrx-ina226-overlay.dts")
+    if fault == "fat-root-overlay":
+        fat["/OE5XRX-INA226.DTBO"] = compile_dtbo(
+            _OVERLAY_DIR / "oe5xrx-ina226-overlay.dts")
     root = {"/boot/Image": b"KERNEL-STUB" + bytes(4096),
-            "/boot/boot-stage2.scr": _scr(stage2, mkimage),
+            "/boot/boot-stage2.scr": script_bytes(stage2, mkimage),
             "/boot/boot-stage2.cmd": stage2.encode()}
     for name in overlays:
         root[f"/boot/overlays/{name}.dtbo"] = compile_dtbo(
@@ -155,7 +150,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("outdir", type=Path)
     ap.add_argument("--fault", choices=("test-overlay", "stage2-broken",
-                                        "fat-dtoverlay", "fat-overlay"))
+                                        "fat-dtoverlay", "fat-overlay",
+                                        "fat-root-overlay"))
     a = ap.parse_args()
     print(build(a.outdir, a.fault))
 

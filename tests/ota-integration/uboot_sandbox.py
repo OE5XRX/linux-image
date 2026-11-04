@@ -43,9 +43,14 @@ RAMDISK_ADDR_R = "0x02700000"
 FDT_ADDR = "0x08000000"
 # Harness-private buffers (not visible to the scripts under test).
 _PRELUDE_ADDR = "0x06000000"
-_STAGE1_ADDR = "0x05000000"
+# 0x05800000, not 0x05000000: a test injects kernel_addr_r=0x5000000 to prove
+# stage 1 re-pins its addresses; the harness copy of stage 1 must not sit there.
+_STAGE1_ADDR = "0x05800000"
 _ENV_ADDR = "0x07000000"
 
+# Only these survive a simulated reboot (saveenv): they are the complete
+# state boot.cmd reads/writes across boots; everything else (addresses,
+# oe5xrx_* scratch vars) is re-set by the prelude or the scripts every boot.
 PERSISTED_VARS = ("boot_part", "bootcount", "upgrade_available", "bootlimit")
 BOOT_TIMEOUT_S = 30
 
@@ -112,6 +117,15 @@ def rewrite_for_sandbox(script: str, *, stage1: bool) -> str:
     missing = [k for k, v in hits.items() if v < 1]
     assert not missing, f"rewrite rules without a hit: {missing}"
     return s
+
+
+def find_mkimage() -> Path | None:
+    """mkimage from UBOOT_SANDBOX/tools, else PATH (u-boot-tools), else None."""
+    ub = os.environ.get("UBOOT_SANDBOX")
+    if ub and (Path(ub) / "tools" / "mkimage").exists():
+        return Path(ub) / "tools" / "mkimage"
+    m = shutil.which("mkimage")
+    return Path(m) if m else None
 
 
 def compile_script(text: str, out: Path, mkimage: Path | None = None) -> None:

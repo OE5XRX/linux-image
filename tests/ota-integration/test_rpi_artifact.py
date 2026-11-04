@@ -49,6 +49,7 @@ from uboot_sandbox import (
     KERNEL_ADDR_R,
     compile_script,
     fdtget,
+    find_mkimage,
     make_test_disk,
     rewrite_for_sandbox,
     run_boot,
@@ -135,7 +136,8 @@ def test_rootfs_carries_stage2_and_overlays(wic, root_a, shipped_overlays):
 @pytest.mark.rpi_artifact
 def test_fat_has_no_own_overlays(wic, fat):
     files = fat_list(wic["img"], wic["parts"]["firmware"])
-    own = [f for f in files if re.match(r"/overlays/oe5xrx-", f, re.I)]
+    # Anywhere on the FAT (root, overlays/, any subdir), any case.
+    own = [f for f in files if re.search(r"(^|/)oe5xrx-.*\.dtbo$", f, re.I)]
     assert not own, f"own overlays on the FAT (belong in the slot): {own}"
     cfg = fat("/config.txt")
     assert cfg is not None, "FAT has no config.txt"
@@ -233,17 +235,9 @@ def test_sandbox_boot_with_built_scripts(fat, root_a, stage2_text, base_dtb,
 
 # --- unit: legacy script image unwrapping -------------------------------------
 
-def _mkimage_path():
-    ub = os.environ.get("UBOOT_SANDBOX")
-    if ub and (Path(ub) / "tools" / "mkimage").exists():
-        return Path(ub) / "tools" / "mkimage"
-    m = shutil.which("mkimage")
-    return Path(m) if m else None
-
-
 @pytest.mark.unit
 def test_script_text_strips_mkimage_header(tmp_path):
-    mkimage = _mkimage_path()
+    mkimage = find_mkimage()
     if mkimage is None:
         pytest.skip("mkimage not available (u-boot-tools)")
     text = read_stage1()
