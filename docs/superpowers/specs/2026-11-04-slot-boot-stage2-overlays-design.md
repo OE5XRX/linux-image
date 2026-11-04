@@ -1,6 +1,6 @@
 # Boot-Stufe 2 + DT-Overlays aus dem A/B-Slot (CM4)
 
-Datum: 2026-11-04 · Branch `feature/slot-boot-stage2` · ein PR in `linux-image` (Spec + Plan + Code)
+Datum: 2026-11-04 · Branch `feature/slot-boot-stage2` · PR in `linux-image` (Spec + Plan + Code) + vorgelagerter Agent-PR in `station-manager` (§5)
 
 ## Warum
 
@@ -112,16 +112,28 @@ Stufe 2 fasst `bootcount`, `upgrade_available`, `boot_part` **nicht** an und ruf
 - Regel für die Zukunft (in Doku/README festhalten): **eigene** Overlays nur noch im Slot;
   `config.txt` nur für Dinge, die die Firmware selbst braucht (`otg_mode`, `dtparam`).
 
-## 5. Sichtbarkeit von Fehlern
+## 5. Fehler sichtbar machen + Rollback (User-Entscheidung: Option a)
 
-- Stufe 1/2 setzen bootargs `oe5xrx.stage2=…` und `oe5xrx.overlays=…`; landen in
-  `/proc/cmdline`.
-- Der station-agent liest `/proc/cmdline` und meldet über die generischen Metriken
-  (station-manager #177, kein Server-Code nötig):
-  `boot.stage2_ok` (1/0) und `boot.overlays_failed` (Anzahl) inkl. Descriptor.
-  Alarmregeln legt der Operator in der UI an.
-- Das ist ein **kleiner separater PR in station-manager** (+ späterer Agent-SRCREV-Bump);
-  er blockiert den linux-image-PR nicht.
+- Stufe 1/2 setzen bootargs `oe5xrx.stage2=ok|missing|failed` und
+  `oe5xrx.overlays=ok:<namen>|failed:<name>`; landen in `/proc/cmdline`.
+- **Commit-Gate im station-agent:** Während eines OTA-Trials (`upgrade_available=1`)
+  bestätigt der Agent das Update **nicht**, wenn `oe5xrx.stage2` ≠ `ok` oder
+  `oe5xrx.overlays=failed:…`. Er behandelt das genau wie einen fehlgeschlagenen
+  Pre-Commit-Health-Check (`station_agent/health_check.py` → `run_health_checks`, Aufrufer
+  `commit_boot` in `ota.py`): gleicher Fehlerpfad, gleiche Rollback-Mechanik, OTA-Ergebnis
+  `rolled_back` mit Grund an den Server.
+- **Kein Rollback** bei reinen Hardware-Zuständen: PowerBoard fehlt, INA antwortet nicht,
+  I²C aus. Das Overlay wird dann trotzdem erfolgreich angewendet; der Treiber findet nur
+  nichts → Agent lässt die `pwr.*`-Metriken weg (wie bisher).
+- Fehlt der cmdline-Marker ganz (Station mit altem FAT/Stufe 1 ohne Marker): **kein**
+  Blocker — als „alter Bootpfad" werten und normal committen (sonst würde jede noch nicht
+  neu geflashte Station jedes Update zurückrollen).
+- Zusätzlich meldet der Agent über die generischen Metriken (station-manager #177, kein
+  Server-Code): `boot.stage2_ok` (1/0, nur wenn Marker vorhanden) und
+  `boot.overlays_failed` (Anzahl), inkl. Descriptor.
+- **Reihenfolge:** Die Agent-Änderung ist ein eigener PR in **station-manager** und wird
+  **zuerst** gemergt; der linux-image-PR pinnt den Agent per `scripts/pin-station-agent.sh`
+  auf diesen Stand (gleicher PR). So kommt nie eine Stufe 2 ohne Commit-Gate auf eine Station.
 
 ## 6. Migration / Rollout
 
@@ -154,9 +166,12 @@ Skript-Text-Regeln) bleiben `-m unit`. *(Entscheidung Spec-Autor)*
 2. OTA auf ein Image mit **geändertem** Overlay (z. B. Test-Property) → Änderung kommt ohne
    Neuflash an.
 3. OTA auf ein Image mit absichtlich kaputter Stufe 2 (Test-Build) → Fallback bootet
-   (`oe5xrx.stage2=failed`) bzw. Rollback auf den alten Slot; Station erreichbar.
-4. OTA auf ein Image mit nicht anwendbarem Overlay → bootet ohne Overlays,
-   `oe5xrx.overlays=failed:…`.
+   (`oe5xrx.stage2=failed`), Agent verweigert den Commit → **Rollback auf den alten Slot**,
+   Server sieht `rolled_back`; Station erreichbar.
+4. OTA auf ein Image mit nicht anwendbarem Overlay → bootet ohne Overlays
+   (`oe5xrx.overlays=failed:…`) → **Rollback** wie 3.
+5. Station ohne gestecktes PowerBoard (oder Board abziehen) → Overlay `ok`, keine
+   `pwr.*`-Metriken, **kein** Rollback.
 Eine serielle Konsole an der Test-Station ist hilfreich (U-Boot-Ausgaben), aber keine
 Voraussetzung — ohne sie zählt das Ergebnis (laufender Slot, `/proc/cmdline`).
 
