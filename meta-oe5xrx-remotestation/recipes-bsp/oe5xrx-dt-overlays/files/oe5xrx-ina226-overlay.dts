@@ -8,8 +8,11 @@
 // (/sys/bus/i2c/devices/1-0040|1-0041/hwmon/hwmon*/), never by hwmonN.
 // Without a PowerBoard the probe just fails (logged), boot is unaffected.
 //
-// Applied by the RPi GPU firmware from config.txt (dtoverlay=oe5xrx-ina226);
-// u-boot boots that firmware DTB (see u-boot-ab/files/boot.cmd).
+// Installed into the A/B slot rootfs as /boot/overlays/oe5xrx-ina226.dtbo and
+// applied by U-Boot boot stage 2 (u-boot-ab/files/boot-stage2.cmd.in) to a copy
+// of the firmware DTB — NOT via config.txt, so changes arrive by OTA. Listed in
+// OE5XRX_DT_OVERLAYS (conf/oe5xrx-boot.inc). &i2c1 resolves against the
+// firmware DTB's __symbols__ (built with dtc -@).
 
 /dts-v1/;
 /plugin/;

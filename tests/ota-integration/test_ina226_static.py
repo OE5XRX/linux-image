@@ -1,8 +1,9 @@
 """Static guards for the PowerBoard INA226 enablement on the CM4 (rpi) image
 (contract `station-telemetry-interface` point 5): I2C on, INA2xx driver,
-a DT overlay with ti,ina226 @0x40 (+5V) / @0x41 (+12V) on i2c1, deployed to
-the firmware FAT partition and enabled from config.txt. Pure file-content
-checks (plus a dtc compile when dtc is installed) — run on every PR via
+a DT overlay with ti,ina226 @0x40 (+5V) / @0x41 (+12V) on i2c1, installed
+into the A/B slot's rootfs (/boot/overlays/) and applied by U-Boot boot stage 2
+(spec 2026-11-04-slot-boot-stage2-overlays) — no longer FAT/config.txt. Pure
+file-content checks (plus a dtc compile when dtc is installed) — run on every PR via
 `-m unit`; no build/qemu needed."""
 
 import os
@@ -94,40 +95,43 @@ def test_overlay_compiles_and_has_expected_nodes(tmp_path):
     assert get("/__fixups__", "i2c1") == "/fragment@0:target:0"
 
 
-# ---- deploy to the firmware FAT partition + enable in config.txt --------
+# ---- installed into the rootfs slot, listed for boot stage 2 -------------
 
-def test_overlay_recipe_deploys_dtbo():
+def test_overlay_recipe_installs_dtbo_into_rootfs():
     bb = _read(*_RECIPE)
     assert "file://oe5xrx-ina226-overlay.dts" in bb
     assert "dtc-native" in bb
-    assert any(ln.startswith("inherit") and "deploy" in ln.split()
-               for ln in _code_lines(bb)), "recipe must inherit deploy"
-    assert "${DEPLOYDIR}/oe5xrx-ina226.dtbo" in bb
-    # Only meaningful on the RPi (firmware applies overlays from config.txt).
+    assert "dtc -@ " in bb, "overlays need -@ (symbol fixups)"
+    assert "${D}/boot/overlays/$n.dtbo" in bb
+    assert "DEPLOYDIR" not in bb, "no more FAT deploy"
     assert 'COMPATIBLE_MACHINE = "^(raspberrypi.*|.*cm4.*)$"' in bb
 
 
-def test_image_routes_dtbo_onto_firmware_partition_rpi_only():
+def test_ina226_is_in_default_overlay_list():
+    inc = _read(_LAYER, "conf", "oe5xrx-boot.inc")
+    assert any(ln.strip() == 'OE5XRX_DT_OVERLAYS ??= "oe5xrx-ina226"'
+               for ln in _code_lines(inc))
+
+
+def test_image_installs_overlays_package_rpi_only():
     lines = _code_lines(_read(*_IMAGE))
-    boot = [ln for ln in lines if "oe5xrx-ina226.dtbo" in ln]
-    assert boot, "oe5xrx-ina226.dtbo not in IMAGE_BOOT_FILES"
-    assert all(ln.startswith("IMAGE_BOOT_FILES:append:raspberrypi4-64")
-               for ln in boot)
-    assert any("oe5xrx-ina226.dtbo;overlays/oe5xrx-ina226.dtbo" in ln
-               for ln in boot)
-    assert any(ln.startswith("WKS_FILE_DEPENDS:append:raspberrypi4-64")
-               and "oe5xrx-dt-overlays" in ln for ln in lines)
+    pkg = [ln for ln in lines if "oe5xrx-dt-overlays" in ln]
+    assert pkg and all(ln.startswith("IMAGE_INSTALL:append:raspberrypi4-64")
+                       for ln in pkg)
+    assert not any("oe5xrx-ina226.dtbo" in ln for ln in lines), \
+        "the dtbo must not be routed onto the FAT partition any more"
 
 
-def test_config_txt_enables_i2c_and_overlay():
+def test_config_txt_enables_i2c_but_no_own_overlay():
     kas = _read("raspberrypi4-64.yml")
     lines = _code_lines(kas)
-    # ENABLE_I2C=1 makes meta-raspberrypi's rpi-config emit dtparam=i2c_arm=on.
+    # ENABLE_I2C=1 makes meta-raspberrypi's rpi-config emit dtparam=i2c_arm=on;
+    # i2c1 must stay enabled in the FIRMWARE DTB that stage 2 patches.
     assert any(ln.strip() == 'ENABLE_I2C = "1"' for ln in lines)
     extra = [ln for ln in lines if ln.strip().startswith("RPI_EXTRA_CONFIG")]
     assert len(extra) == 1
     assert "otg_mode=1" in extra[0], "USB XHCI (otg_mode=1) must stay"
-    assert "dtoverlay=oe5xrx-ina226" in extra[0]
+    assert "dtoverlay=oe5xrx-ina226" not in extra[0]
 
 
 def test_qemu_config_untouched():

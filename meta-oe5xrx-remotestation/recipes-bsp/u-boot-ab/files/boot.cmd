@@ -1,5 +1,16 @@
 # OE5XRX A/B boot script (compiled to boot.scr by mkimage).
 #
+# ===========================================================================
+# STAGE 1 — FROZEN after this change, only changeable by reflash; keep minimal.
+# This script lives on the single FAT partition, which OTA never touches. Every
+# edit here only reaches a station by reflashing it on site. Anything that may
+# need to change later (bootargs, DT overlays, DTB handling) belongs in STAGE 2
+# (/boot/boot-stage2.scr inside the A/B slot, built from boot-stage2.cmd.in) —
+# not here. Stage 1 owns only what must never depend on an update: env
+# defaults, bootcount, watchdog, rollback and the fallback boot.
+# See docs/superpowers/specs/2026-11-04-slot-boot-stage2-overlays-design.md.
+# ===========================================================================
+#
 # State variables in the U-Boot environment:
 #   boot_part          — "a" or "b", the slot we want to boot from
 #   bootcount          — number of boot attempts on this slot since last commit
@@ -11,7 +22,10 @@
 #      to commit (so we stop counting).
 #   2. If upgrade_available=1 AND bootcount > bootlimit, userspace never got
 #      healthy — swap boot_part and retry the old slot.
-#   3. Otherwise, just boot from boot_part.
+#   3. Otherwise, boot from boot_part: hand over to stage 2 from the slot
+#      (/boot/boot-stage2.scr). If stage 2 is missing or returns without
+#      booting, boot exactly like before stage 2 existed (fallback below),
+#      tagged with the kernel arg oe5xrx.stage2=missing|failed.
 
 # Defaults — first boot or after env wipe.
 if test -z "${boot_part}"; then setenv boot_part a; fi
@@ -34,6 +48,9 @@ saveenv
 # a slow boot could reset-loop. If HIL shows false resets, either confirm the
 # u-boot->kernel watchdog handover keeps it fed, or drop this pre-arm and rely
 # on the kernel+systemd watchdog (which still covers kernel-up and userspace hangs).
+# Note: the degraded stage-2 path (stage 2 loads the kernel, booti returns, the
+# fallback below reloads the kernel) lengthens this pre-kernel window — include
+# it when measuring the 15 s budget on HIL.
 wdt dev watchdog@7e100000 || echo "  (no wdt device — continuing)"
 wdt start 15000 || echo "  (wdt start failed — continuing)"
 
@@ -65,15 +82,69 @@ fi
 # kernel bump that needs a new DTB requires a reflash. A userspace hardware-health
 # gate guards regressions (station-manager #106). See
 # docs/superpowers/specs/2026-07-24-cm4-usb-firmware-dtb.md and linux-image #46.
-part number mmc 0 root_${boot_part} root_partnum
+#
+# Boot device for everything below and for stage 2. Set unconditionally on
+# every boot (after the last saveenv, so never persisted) — a stale value in a
+# persisted env can therefore never redirect the boot.
+setenv oe5xrx_devtype mmc
+setenv oe5xrx_devnum 0
+
+part number ${oe5xrx_devtype} ${oe5xrx_devnum} root_${boot_part} root_partnum
 if test -z "${root_partnum}"; then
     echo "  ERROR: root_${boot_part} partition not found — resetting"
     reset
 fi
 
-echo "  Loading kernel from rootfs mmc 0:${root_partnum} (/boot/Image)"
-if ext4load mmc 0:${root_partnum} ${kernel_addr_r} /boot/Image; then
-    setenv bootargs "root=PARTLABEL=root_${boot_part} ro rootwait fsck.repair=yes net.ifnames=0 panic=5 softlockup_panic=1 reserve_mem=2M:4096:oops ramoops.mem_name=oops ramoops.ecc=1 ramoops.record_size=0x40000 ramoops.console_size=0x40000 ramoops.pmsg_size=0x40000 console=tty1 console=serial0,115200"
+# --- Stage 2 hand-over ------------------------------------------------------
+# Stage 2 (/boot/boot-stage2.scr in the slot, updated by OTA) loads the kernel,
+# applies the slot's DT overlays to a COPY of the firmware DTB and boots. It
+# reads oe5xrx_devtype/oe5xrx_devnum/root_partnum/boot_part and never touches
+# bootcount/upgrade_available/boot_part or saveenv. The watchdog is already
+# armed, but CONFIG_WDT implies CONFIG_WATCHDOG, so U-Boot itself services it
+# from schedule() (cyclic). It therefore catches only a hard hang that stops
+# calling schedule(), and the kernel/userspace after booti hands over; a
+# stage 2 stuck in a loop that keeps calling schedule() (sleep, I/O) keeps it
+# fed and is NOT caught (no reset, no rollback). Accepted residual risk: stage
+# 2 is rendered from a reviewed template whose only loop is the bounded
+# overlay `for`.
+# If stage 2 returns (failed without booting), we restore the variables it may
+# have clobbered, re-pin the boot device and the stage-2 marker, and continue
+# with the frozen fallback below. This assumes stage 2 does not overwrite the
+# oe5xrx_s1_* save variables and sets no hush locals (name=value), which hush
+# expands wherever the env var of that name is unset or empty (enforced for
+# the template by test_boot_scripts_static.py, not by U-Boot) — a stage 2
+# breaking those rules could still bend the fallback.
+setenv oe5xrx_s1_fdt_addr ${fdt_addr}
+setenv oe5xrx_s1_kernel_addr_r ${kernel_addr_r}
+setenv oe5xrx_s1_fdt_addr_r ${fdt_addr_r}
+setenv oe5xrx_s1_root_partnum ${root_partnum}
+setenv oe5xrx_s1_boot_part ${boot_part}
+setenv oe5xrx_stage2 missing
+if ext4load ${oe5xrx_devtype} ${oe5xrx_devnum}:${root_partnum} ${scriptaddr} /boot/boot-stage2.scr; then
+    echo "  Running stage 2 from slot ${boot_part}"
+    setenv oe5xrx_stage2 failed
+    source ${scriptaddr}
+    setenv oe5xrx_stage2 failed
+    echo "  Stage 2 returned without booting — using stage 1 fallback"
+else
+    echo "  No stage 2 in slot ${boot_part} — using stage 1 fallback"
+fi
+setenv fdt_addr ${oe5xrx_s1_fdt_addr}
+setenv kernel_addr_r ${oe5xrx_s1_kernel_addr_r}
+setenv fdt_addr_r ${oe5xrx_s1_fdt_addr_r}
+setenv root_partnum ${oe5xrx_s1_root_partnum}
+setenv boot_part ${oe5xrx_s1_boot_part}
+setenv oe5xrx_devtype mmc
+setenv oe5xrx_devnum 0
+
+# --- Fallback: boot exactly like before stage 2 existed -----------------------
+# The bootargs below are a deliberately FROZEN copy of the bootargs as of the
+# stage-2 change; stage 2 is the authoritative source. Only the
+# oe5xrx.stage2=missing|failed marker was added (the station-agent refuses to
+# commit an OTA trial booted this way -> rollback).
+echo "  Loading kernel from rootfs ${oe5xrx_devtype} ${oe5xrx_devnum}:${root_partnum} (/boot/Image)"
+if ext4load ${oe5xrx_devtype} ${oe5xrx_devnum}:${root_partnum} ${kernel_addr_r} /boot/Image; then
+    setenv bootargs "root=PARTLABEL=root_${boot_part} ro rootwait fsck.repair=yes net.ifnames=0 panic=5 softlockup_panic=1 reserve_mem=2M:4096:oops ramoops.mem_name=oops ramoops.ecc=1 ramoops.record_size=0x40000 ramoops.console_size=0x40000 ramoops.pmsg_size=0x40000 console=tty1 console=serial0,115200 oe5xrx.stage2=${oe5xrx_stage2}"
 
     # Prefer the firmware-provided DTB (config.txt/otg_mode applied). booti only
     # returns if the DTB is rejected — then we fall through to the fallback.
@@ -87,9 +158,9 @@ if ext4load mmc 0:${root_partnum} ${kernel_addr_r} /boot/Image; then
     # effects (USB host!) are ABSENT on this degraded path.
     echo "  fdt_addr unusable — falling back to rootfs DTB (no config.txt effects)"
     setenv fdt_ok 0
-    if ext4load mmc 0:${root_partnum} ${fdt_addr_r} /boot/broadcom/bcm2711-rpi-cm4.dtb; then setenv fdt_ok 1; fi
+    if ext4load ${oe5xrx_devtype} ${oe5xrx_devnum}:${root_partnum} ${fdt_addr_r} /boot/broadcom/bcm2711-rpi-cm4.dtb; then setenv fdt_ok 1; fi
     if test "${fdt_ok}" = 0; then
-        if ext4load mmc 0:${root_partnum} ${fdt_addr_r} /boot/bcm2711-rpi-cm4.dtb; then setenv fdt_ok 1; fi
+        if ext4load ${oe5xrx_devtype} ${oe5xrx_devnum}:${root_partnum} ${fdt_addr_r} /boot/bcm2711-rpi-cm4.dtb; then setenv fdt_ok 1; fi
     fi
     if test "${fdt_ok}" = 1; then
         booti ${kernel_addr_r} - ${fdt_addr_r}

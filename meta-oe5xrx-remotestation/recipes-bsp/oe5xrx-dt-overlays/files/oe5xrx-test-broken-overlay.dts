@@ -1,0 +1,19 @@
+// OE5XRX TEST overlay — deliberately NOT applicable (dev builds only).
+//
+// Installed + listed only with OE5XRX_BOOT_TEST="overlay-broken" (see
+// conf/oe5xrx-boot.inc). Its target label does not exist in any base DTB, so
+// `fdt apply` fails with FDT_ERR_NOTFOUND; boot stage 2 must then discard the
+// (possibly corrupted) DTB copy, boot WITHOUT any overlay and tag the cmdline
+// oe5xrx.overlays=failed:oe5xrx-test-broken (spec §2.4, HW scenario 4).
+
+/dts-v1/;
+/plugin/;
+
+/ {
+	fragment@0 {
+		target = <&oe5xrx_no_such_label>;
+		__overlay__ {
+			oe5xrx,test-broken = "must-never-apply";
+		};
+	};
+};

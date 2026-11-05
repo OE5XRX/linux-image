@@ -152,9 +152,99 @@ jobs:
       ack_layout_change: ${{ inputs.acknowledge_layout_change }}
     secrets: inherit
 
+  rpi-artifact-gate:
+    name: Artifact gate (raspberrypi4-64)
+    # Static + U-Boot-sandbox checks on the rpi wic the release job publishes
+    # (tests/ota-integration/test_rpi_artifact.py, spec §7): stage 2 + our DT
+    # overlays live in the slot rootfs (no test overlay / test fault), none on
+    # the FAT, the FAT DTB takes the overlays, and the BUILT boot.scr +
+    # boot-stage2.scr boot in the sandbox with oe5xrx.overlays=ok:<list>.
+    # Runs in dry_run too. Publication depends on it.
+    needs: [build-rpi]
+    runs-on: ubuntu-latest
+    # Sandbox build (cold ~10 min) + ~3 GiB wic decompress + tests.
+    timeout-minutes: 60
+    env:
+      UBOOT_SANDBOX: ${{ github.workspace }}/.cache/uboot-sandbox
+      RPI_ARTIFACT_DIR: ${{ github.workspace }}/rpi-artifact
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download Raspberry Pi artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: yocto-image-raspberrypi4-64
+          path: rpi-artifact
+
+      # Test deps + runtime lib of the cached tools/mkimage (libssl3t64);
+      # the U-Boot build toolchain is installed below only on a cache miss.
+      - name: Install test deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gdisk e2fsprogs device-tree-compiler mtools lbzip2 libssl3t64
+
+      # ImageOS (e.g. ubuntu24) is a runner-machine env var, not part of the
+      # `env` expression context — export it so the cache key below can use
+      # it (a sandbox binary built on another runner image may not run).
+      - name: Expose runner image for the cache key
+        run: echo "ImageOS=${ImageOS:-unknown}" >> "$GITHUB_ENV"
+
+      # Same cache key as ci.yml job uboot-sandbox (shared build).
+      - name: Cache U-Boot sandbox build
+        id: uboot-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # Only what the tests need (binary, mkimage, stamp with the pinned
+        # SHA) — not the ~0.5 GiB source/object tree. build-uboot-sandbox.sh
+        # treats exactly this as "built". Paths + key MUST stay identical in
+        # ci.yml and release.yml (the cache version hashes the path list).
+        with:
+          path: |
+            .cache/uboot-sandbox/u-boot
+            .cache/uboot-sandbox/tools/mkimage
+            .cache/uboot-sandbox/.oe5xrx-sandbox-stamp
+          key: uboot-sandbox-v2026.01-${{ hashFiles('scripts/build-uboot-sandbox.sh') }}-${{ runner.os }}-${{ env.ImageOS }}
+
+      # The U-Boot build toolchain only on a cache miss. On a hit the
+      # cached u-boot needs only libc and tools/mkimage only libssl3/
+      # libcrypto3 (verified with ldd on ubuntu:24.04 without any -dev
+      # package); the ImageOS in the cache key pins the runner image.
+      - name: Install U-Boot build deps (cache miss only)
+        if: steps.uboot-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bison flex libssl-dev libgnutls28-dev uuid-dev \
+            python3-dev python3-setuptools swig pkg-config bc
+
+      # Always run: on a cache hit it only checks the stamp (pinned version,
+      # SHA, config) and exits without needing the toolchain.
+      - name: Build U-Boot sandbox (v2026.01)
+        run: scripts/build-uboot-sandbox.sh "$UBOOT_SANDBOX"
+
+      # setup-python AFTER the U-Boot build (it needs the apt python3-dev;
+      # see ci.yml uboot-sandbox).
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: rpi artifact gate
+        run: |
+          ls -lh "$RPI_ARTIFACT_DIR"
+          pip install --quiet -r tests/ota-integration/requirements.txt
+          # Log which wic the gate checks (same pick order as the release job).
+          python - <<'PY'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, "tests/ota-integration")
+          from rpi_artifact import pick_wic
+          wic = pick_wic(Path(os.environ["RPI_ARTIFACT_DIR"]))
+          print(f"rpi artifact gate: checking {wic.name} ({wic.stat().st_size} bytes)")
+          PY
+          python -m pytest tests/ota-integration -m rpi_artifact -v
+
   release:
     name: Sign & Publish Release
-    needs: [validate-tag, build-x64, build-rpi, gate]
+    needs: [validate-tag, build-x64, build-rpi, gate, rpi-artifact-gate]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
@@ -260,7 +350,7 @@ jobs:
   # a re-run of this workflow would target the now-deleted ref.
   cleanup:
     name: Delete tag on failure
-    needs: [validate-tag, preflight, resolve-slot-a, build-x64, build-rpi, gate, release]
+    needs: [validate-tag, preflight, resolve-slot-a, build-x64, build-rpi, gate, rpi-artifact-gate, release]
     # Delete the tag ONLY when a real build/gate/sign job failed on a good tag —
     # never when validate-tag itself failed. A bare failure() can't express this:
     # per GitHub, "failure() returns true if any ANCESTOR job fails", and
@@ -276,6 +366,7 @@ jobs:
               || needs.build-x64.result == 'failure'
               || needs.build-rpi.result == 'failure'
               || needs.gate.result == 'failure'
+              || needs.rpi-artifact-gate.result == 'failure'
               || needs.release.result == 'failure') }}
     runs-on: ubuntu-latest
     permissions:

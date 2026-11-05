@@ -28,7 +28,7 @@ jobs:
         run: |
           pip install --quiet -r .github/requirements-kas.txt
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck yamllint udev device-tree-compiler
+          sudo apt-get install -y --no-install-recommends shellcheck yamllint udev device-tree-compiler u-boot-tools lbzip2
 
       - name: Verify kas configs parse (qemux86-64)
         run: kas dump qemux86-64.yml > /dev/null
@@ -46,7 +46,8 @@ jobs:
           shellcheck -e SC1091 -e SC2039 \
             scripts/l0a-fstab-uuid-lint.sh \
             scripts/compute-release-version.sh \
-            scripts/release.sh
+            scripts/release.sh \
+            scripts/build-uboot-sandbox.sh
 
       - name: Lint YAML
         run: |
@@ -73,6 +74,80 @@ jobs:
         run: |
           pip install --quiet -r tests/ota-integration/requirements.txt
           python -m pytest tests/ota-integration -m unit -q
+
+  uboot-sandbox:
+    name: U-Boot sandbox boot-script tests (stage 1/2 + overlays)
+    runs-on: ubuntu-latest
+    env:
+      UBOOT_SANDBOX: ${{ github.workspace }}/.cache/uboot-sandbox
+      CM4_BASE_DTB: ${{ github.workspace }}/.cache/bcm2711-rpi-cm4.dtb
+      # raspberrypi/firmware pin of the CM4 firmware DTB used as ${fdt_addr}.
+      RPI_FW_REV: 6f0881cba8bea8ec24956a5718714730e9936ec5
+      CM4_DTB_SHA256: dda5429988864e911304acae4c60c9866628bf8175fb6361ccbaceafedcd1c75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Test deps + runtime lib of the cached tools/mkimage (libssl3t64);
+      # the U-Boot build toolchain is installed below only on a cache miss.
+      - name: Install test deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gdisk e2fsprogs device-tree-compiler libssl3t64
+
+      # ImageOS (e.g. ubuntu24) is a runner-machine env var, not part of the
+      # `env` expression context — export it so the cache key below can use
+      # it (a sandbox binary built on another runner image may not run).
+      - name: Expose runner image for the cache key
+        run: echo "ImageOS=${ImageOS:-unknown}" >> "$GITHUB_ENV"
+
+      - name: Cache U-Boot sandbox build
+        id: uboot-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # Only what the tests need (binary, mkimage, stamp with the pinned
+        # SHA) — not the ~0.5 GiB source/object tree. build-uboot-sandbox.sh
+        # treats exactly this as "built". Paths + key MUST stay identical in
+        # ci.yml and release.yml (the cache version hashes the path list).
+        with:
+          path: |
+            .cache/uboot-sandbox/u-boot
+            .cache/uboot-sandbox/tools/mkimage
+            .cache/uboot-sandbox/.oe5xrx-sandbox-stamp
+          key: uboot-sandbox-v2026.01-${{ hashFiles('scripts/build-uboot-sandbox.sh') }}-${{ runner.os }}-${{ env.ImageOS }}
+
+      # The U-Boot build toolchain only on a cache miss. On a hit the
+      # cached u-boot needs only libc and tools/mkimage only libssl3/
+      # libcrypto3 (verified with ldd on ubuntu:24.04 without any -dev
+      # package); the ImageOS in the cache key pins the runner image.
+      - name: Install U-Boot build deps (cache miss only)
+        if: steps.uboot-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bison flex libssl-dev libgnutls28-dev uuid-dev \
+            python3-dev python3-setuptools swig pkg-config bc
+
+      # Always run: on a cache hit it only checks the stamp (pinned version,
+      # SHA, config) and exits without needing the toolchain.
+      - name: Build U-Boot sandbox (v2026.01)
+        run: scripts/build-uboot-sandbox.sh "$UBOOT_SANDBOX"
+
+      - name: Fetch pinned CM4 firmware DTB
+        run: |
+          curl -fsSL --retry 3 -o "$CM4_BASE_DTB" \
+            "https://raw.githubusercontent.com/raspberrypi/firmware/${RPI_FW_REV}/boot/bcm2711-rpi-cm4.dtb"
+          echo "${CM4_DTB_SHA256}  ${CM4_BASE_DTB}" | sha256sum -c -
+
+      # setup-python AFTER the U-Boot build: the build runs pylibfdt/binman
+      # setup.py with `python3` and needs the apt python3-dev/-setuptools,
+      # which a setup-python interpreter first on PATH would shadow.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Sandbox boot tests
+        run: |
+          pip install --quiet -r tests/ota-integration/requirements.txt
+          python -m pytest tests/ota-integration -m sandbox -q
 
   sim-harness:
     runs-on: ubuntu-latest
