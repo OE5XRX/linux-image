@@ -202,6 +202,18 @@ jobs:
       - name: Audio RDEPENDS lint
         run: bash scripts/l3-audio-rdepends-lint.sh
 
+  pipewire-single-daemon:
+    name: Single system-wide PipeWire daemon (no distro units)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends shellcheck
+      - name: Shellcheck PipeWire single-daemon lint
+        run: shellcheck -e SC1091 -e SC2039 scripts/l5-pipewire-single-daemon-lint.sh
+      - name: PipeWire single-daemon lint
+        run: bash scripts/l5-pipewire-single-daemon-lint.sh
+
   ssh-hostkeys:
     name: SSH host keys persistent (/var/lib/ssh)
     runs-on: ubuntu-latest
