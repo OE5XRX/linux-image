@@ -126,6 +126,7 @@ jobs:
           OTA_IT_LAST_RELEASE_WIC: ${{ steps.slota.outputs.wic }}
           OTA_IT_EXPECTED_TAG: ${{ inputs.expected_tag }}
           OTA_IT_ACK_LAYOUT_CHANGE: ${{ inputs.ack_layout_change && '1' || '' }}
+          LAST_RELEASE_TAG: ${{ inputs.last_release_tag }}
         run: |
           # -s (no capture): surface passing tests' stdout in the CI log — notably the
           # audio E2E gate's on-target FFT dominance ratios (RX 1 kHz / TX 1500 Hz), which
@@ -134,13 +135,16 @@ jobs:
           # Pass the OTA_IT_* vars as explicit `env` arguments, NOT via `sudo -E`:
           # the runner's sudo (sudo-rs) ignores -E ("preserving the entire
           # environment is not supported"), which silently dropped OTA_IT_WIC so
-          # every qemu test SKIPPED and the gate went false-green. The guard makes
-          # a lost OTA_IT_WIC a hard failure instead of a skip.
+          # every qemu test SKIPPED and the gate went false-green. The guards make
+          # a lost OTA_IT_WIC (all tests) or, when a last release was requested, a
+          # lost OTA_IT_LAST_RELEASE_WIC (T2) a hard failure instead of a skip.
           [ -n "${OTA_IT_WIC}" ] || { echo "::error::OTA_IT_WIC is empty" >&2; exit 1; }
           sudo env "PATH=$PATH" \
             "OTA_IT_WIC=${OTA_IT_WIC}" \
             "OTA_IT_LAST_RELEASE_WIC=${OTA_IT_LAST_RELEASE_WIC}" \
             "OTA_IT_EXPECTED_TAG=${OTA_IT_EXPECTED_TAG}" \
             "OTA_IT_ACK_LAYOUT_CHANGE=${OTA_IT_ACK_LAYOUT_CHANGE}" \
+            "LAST_RELEASE_TAG=${LAST_RELEASE_TAG}" \
             sh -c '[ -n "$OTA_IT_WIC" ] || { echo "::error::OTA_IT_WIC lost across sudo" >&2; exit 1; }
+                   [ -z "$LAST_RELEASE_TAG" ] || [ -n "$OTA_IT_LAST_RELEASE_WIC" ] || { echo "::error::OTA_IT_LAST_RELEASE_WIC lost across sudo (last_release_tag=$LAST_RELEASE_TAG)" >&2; exit 1; }
                    exec python3 -m pytest tests/ota-integration -m qemu -v -s'

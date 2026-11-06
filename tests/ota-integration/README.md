@@ -28,8 +28,14 @@ python -m pytest tests/ota-integration -m unit
 export OTA_IT_WIC=/path/to/build-under-test.wic.bz2
 export OTA_IT_EXPECTED_TAG=2026.07.11-15
 export OTA_IT_LAST_RELEASE_WIC=/path/to/previous-release.wic.bz2   # T2 only
-sudo -E env "PATH=$PATH" python -m pytest tests/ota-integration -m qemu -v
+sudo env "PATH=$PATH" "OTA_IT_WIC=$OTA_IT_WIC" "OTA_IT_EXPECTED_TAG=$OTA_IT_EXPECTED_TAG" \
+    "OTA_IT_LAST_RELEASE_WIC=$OTA_IT_LAST_RELEASE_WIC" \
+    python -m pytest tests/ota-integration -m qemu -v
 ```
+
+Pass the `OTA_IT_*` vars as explicit `env` arguments rather than `sudo -E`:
+sudo-rs (e.g. the GitHub runners) ignores `-E`, the vars never reach pytest, and
+every `qemu` test silently **skips** instead of running.
 
 `T2` requires `OTA_IT_LAST_RELEASE_WIC` (slot A) to be a **different build** than
 `OTA_IT_WIC` (slot B) — same-build A/B coincidentally matches ESP UUIDs and hides
