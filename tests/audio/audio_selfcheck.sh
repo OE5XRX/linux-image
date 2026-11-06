@@ -3,7 +3,8 @@
 #
 # Verifies the Session-A image foundation and captures the sim tones for the
 # host-side FFT verdict (bidirectional, Spec 0 §8):
-#   1. system PipeWire + WirePlumber services are active,
+#   1. system PipeWire + WirePlumber services are active, exactly one daemon of
+#      each runs and the distro pipewire/wireplumber units are absent,
 #   2. the GStreamer bridge elements (opusenc/opusdec/pipewiresrc/pipewiresink)
 #      are present,
 #   3. WirePlumber named EXACTLY ONE RX node oe5xrx.slot1,
@@ -63,6 +64,26 @@ while :; do
     sleep 1
 done
 echo "AUDIO-CHECK services=active pipewire=$a wireplumber=$b"
+
+# 1b) exactly ONE daemon of each -----------------------------------------------
+# The distro pipewire.service/.socket/pipewire-manager.socket bind the same
+# /run/pipewire/pipewire-0 and raced ours for pipewire-0.lock at boot; the
+# pipewire/wireplumber bbappends keep them out of the image. Gate on that here so
+# a regression shows up on the booted image, not just in the recipe lint.
+distro="$(systemctl list-unit-files --no-legend pipewire.service pipewire.socket \
+    pipewire-manager.socket wireplumber.service 2>/dev/null || true)"
+[ -z "$distro" ] || fail "distro_pipewire_units_present($(echo "$distro" | awk '{print $1}' | tr '\n' ' '))"
+count_comm() {  # $1=process name -> number of processes with that exact comm
+    _n=0
+    for _c in /proc/[0-9]*/comm; do
+        [ "$(cat "$_c" 2>/dev/null)" = "$1" ] && _n=$((_n + 1))
+    done
+    echo "$_n"
+}
+npw="$(count_comm pipewire)"
+nwp="$(count_comm wireplumber)"
+{ [ "$npw" -eq 1 ] && [ "$nwp" -eq 1 ]; } || fail "daemon_count(pipewire=$npw wireplumber=$nwp)"
+echo "AUDIO-CHECK single-daemon=ok pipewire=$npw wireplumber=$nwp no-distro-units"
 
 # 2) gstreamer bridge elements ------------------------------------------------
 # The FULL live-bridge element set the agent's Opus bridge needs
