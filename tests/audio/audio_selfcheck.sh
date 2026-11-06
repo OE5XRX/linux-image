@@ -68,21 +68,42 @@ echo "AUDIO-CHECK services=active pipewire=$a wireplumber=$b"
 # 1b) exactly ONE daemon of each -----------------------------------------------
 # The distro pipewire.service/.socket/pipewire-manager.socket bind the same
 # /run/pipewire/pipewire-0 and raced ours for pipewire-0.lock at boot; the
-# pipewire/wireplumber bbappends keep them out of the image. Gate on that here so
-# a regression shows up on the booted image, not just in the recipe lint.
-distro="$(systemctl list-unit-files --no-legend pipewire.service pipewire.socket \
-    pipewire-manager.socket wireplumber.service 2>/dev/null || true)"
-[ -z "$distro" ] || fail "distro_pipewire_units_present($(echo "$distro" | awk '{print $1}' | tr '\n' ' '))"
-count_comm() {  # $1=process name -> number of processes with that exact comm
-    _n=0
+# pipewire/wireplumber bbappends keep them (and the per-user units) out of the
+# image. Gate on that here so a regression shows up on the booted image, not just
+# in the recipe lint. Check the unit FILES in both system and user dirs (and both
+# /lib and /usr/lib) — ours are oe5xrx-*, so these globs never match them.
+distro=""
+for _f in /lib/systemd/system/pipewire* /lib/systemd/system/wireplumber* \
+          /lib/systemd/user/pipewire* /lib/systemd/user/wireplumber* \
+          /usr/lib/systemd/system/pipewire* /usr/lib/systemd/system/wireplumber* \
+          /usr/lib/systemd/user/pipewire* /usr/lib/systemd/user/wireplumber*; do
+    [ -e "$_f" ] && distro="$distro ${_f}"
+done
+[ -z "$distro" ] || fail "distro_pipewire_units_present(${distro# })"
+# One /proc pass counting both names, builtin read only (no fork per process —
+# cheap under TCG). pipewire/wireplumber can be mid-restart (RestartSec), so poll
+# until both counts are exactly 1 on two consecutive samples (~15 s budget).
+count_daemons() {  # sets npw / nwp (no subshell)
+    npw=0; nwp=0
     for _c in /proc/[0-9]*/comm; do
-        [ "$(cat "$_c" 2>/dev/null)" = "$1" ] && _n=$((_n + 1))
+        read -r _comm 2>/dev/null < "$_c" || continue
+        case "$_comm" in
+            pipewire) npw=$((npw + 1)) ;;
+            wireplumber) nwp=$((nwp + 1)) ;;
+        esac
     done
-    echo "$_n"
 }
-npw="$(count_comm pipewire)"
-nwp="$(count_comm wireplumber)"
-{ [ "$npw" -eq 1 ] && [ "$nwp" -eq 1 ]; } || fail "daemon_count(pipewire=$npw wireplumber=$nwp)"
+_i=0; _ok=0
+while :; do
+    count_daemons
+    if [ "$npw" -eq 1 ] && [ "$nwp" -eq 1 ]; then
+        _ok=$((_ok + 1)); [ "$_ok" -ge 2 ] && break
+    else
+        _ok=0
+    fi
+    _i=$((_i + 1)); [ "$_i" -ge 15 ] && fail "daemon_count(pipewire=$npw wireplumber=$nwp)"
+    sleep 1
+done
 echo "AUDIO-CHECK single-daemon=ok pipewire=$npw wireplumber=$nwp no-distro-units"
 
 # 2) gstreamer bridge elements ------------------------------------------------

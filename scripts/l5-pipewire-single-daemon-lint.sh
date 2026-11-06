@@ -36,15 +36,20 @@ for recipe in pipewire wireplumber; do
 done
 
 # 2) No recipe enables a distro pipewire/wireplumber unit (only oe5xrx-* ones).
-enable=$(grep -rnE --include='*.bb' --include='*.bbappend' --include='*.inc' \
-            'SYSTEMD_SERVICE' "${LAYER}" \
-         | grep -vE ':[0-9]+:[[:space:]]*#' \
-         | grep -E '(^|[" =])(pipewire(-manager|-pulse)?|wireplumber)\.(service|socket)' || true)
-if [ -n "${enable}" ]; then
+# Backslash-continued values are joined first so a multi-line SYSTEMD_SERVICE
+# assignment is matched as one statement (reported at its first line).
+while IFS= read -r -d '' f; do
+    hits=$(awk '
+        /^[[:space:]]*#/ && !cont { next }
+        { if (!cont) { start = FNR; stmt = "" } }
+        { line = $0; cont = sub(/\\[[:space:]]*$/, "", line); stmt = stmt " " line }
+        !cont { print start ":" stmt }
+    ' "${f}" | grep -E '^[0-9]+:[[:space:]]*SYSTEMD_SERVICE' \
+             | grep -E '[" =](pipewire(-manager|-pulse)?|wireplumber)\.(service|socket)' || true)
     while IFS= read -r hit; do
-        err "${hit%%:*}" "enables a distro PipeWire/WirePlumber unit: ${hit#*:}"
-    done <<<"${enable}"
-fi
+        [ -n "${hit}" ] && err "${f}" "line ${hit%%:*} enables a distro PipeWire/WirePlumber unit:${hit#*:}"
+    done <<<"${hits}"
+done < <(find "${LAYER}" -type f \( -name '*.bb' -o -name '*.bbappend' -o -name '*.inc' \) -print0)
 
 # 3) The audio recipe still owns + enables our single daemon pair.
 svc=$(code "${AUDIO}" | grep -E '^SYSTEMD_SERVICE:\$\{PN\}[[:space:]]*=' || true)
