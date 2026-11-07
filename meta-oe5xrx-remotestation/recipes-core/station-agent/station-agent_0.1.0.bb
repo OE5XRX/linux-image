@@ -11,7 +11,7 @@ SRC_URI = " \
 # Lockfile-style pin: SRCREV is always a specific commit, never ${AUTOREV}.
 # Bump via scripts/pin-station-agent.sh, commit like any dependency update.
 # The release workflow's preflight job refuses to build with AUTOREV.
-SRCREV = "a430b5175f817b51dd6ffc9fa45c3d6d5b491ad8"
+SRCREV = "780bb439ae666ccfdfe4c21bd58d16887adbfd98"
 PV = "0.1.0+git${SRCPV}"
 
 S = "${UNPACKDIR}/station_agent"
