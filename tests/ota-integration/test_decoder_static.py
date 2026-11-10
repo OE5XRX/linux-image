@@ -59,7 +59,8 @@ def test_direwolf_recipe_pinned():
 def test_direwolf_recipe_minimal():
     lines = _code_lines(_read(*_DW))
     assert 'DEPENDS = "alsa-lib"' in [ln.strip() for ln in lines]
-    assert any("udev" in ln and "rm" in ln for ln in lines)
+    # upstream installs the CM108 rule to /usr/lib/udev/rules.d (CI-proven)
+    assert any("nonarch_libdir}/udev" in ln and "rm" in ln for ln in lines)
     assert 'FILES:${PN} = "${bindir}/direwolf"' in [ln.strip() for ln in lines]
 
 

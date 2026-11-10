@@ -22,7 +22,7 @@ EXTRA_OECMAKE = "-DOPTIONAL_DNSSD=OFF -DUNITTEST=OFF"
 # Strip everything the RX-only decoder does not need: udev rule (CM108 PTT),
 # desktop/menu files, shipped docs and sample data.
 do_install:append() {
-    rm -rf ${D}${sysconfdir}/udev
+    rm -rf ${D}${sysconfdir}/udev ${D}${nonarch_libdir}/udev
     rm -rf ${D}${datadir}/applications
     rm -rf ${D}${datadir}/pixmaps
     rm -rf ${D}${datadir}/doc/direwolf
