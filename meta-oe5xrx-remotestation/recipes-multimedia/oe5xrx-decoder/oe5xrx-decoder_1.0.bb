@@ -23,7 +23,10 @@ USERADD_PACKAGES = "${PN}"
 USERADD_DEPENDS = "pipewire"
 USERADD_PARAM:${PN} = "--system --no-create-home --home-dir /nonexistent --shell /sbin/nologin --user-group --groups pipewire oe5xrx-decoder"
 
-RDEPENDS:${PN} = "bash direwolf pipewire-tools"
+# 'pipewire' (not only pipewire-tools) creates the group 'pipewire' in its preinst;
+# the rootfs install must configure it BEFORE our useradd '--groups pipewire'
+# (USERADD_DEPENDS only orders the build, not the package install).
+RDEPENDS:${PN} = "bash direwolf pipewire pipewire-tools"
 
 # Template unit: instances are started by the agent, never enabled at boot.
 SYSTEMD_SERVICE:${PN} = "oe5xrx-decoder@.service"

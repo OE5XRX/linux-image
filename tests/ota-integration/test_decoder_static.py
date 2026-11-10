@@ -128,6 +128,10 @@ def test_unit_template_not_enabled():
 def test_decoder_user_in_pipewire_group():
     r = _read(*_RECIPE)
     assert "USERADD_DEPENDS" in r and "--groups pipewire" in r
+    # rootfs install order: the package that creates group 'pipewire' must be a
+    # runtime dependency (CI: "useradd: group 'pipewire' does not exist")
+    rdeps = [ln for ln in _code_lines(r) if ln.startswith("RDEPENDS:${PN}")]
+    assert rdeps and re.search(r"\bpipewire\b", rdeps[0])
 
 
 # ---- wrapper ----------------------------------------------------------------
