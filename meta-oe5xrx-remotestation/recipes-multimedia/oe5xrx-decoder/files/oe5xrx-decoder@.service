@@ -5,6 +5,15 @@ Documentation=https://oe5xrx.org/docs/remote-station/
 # station agent, which writes /run/oe5xrx/decoder/%i.env first.
 After=oe5xrx-pipewire.service
 Wants=oe5xrx-pipewire.service
+# Lifetime coupled to the agent that starts the instances: no unattended decoder
+# without its supervisor. PartOf= propagates stop/restart of the agent; BindsTo=
+# (needs After=) additionally stops the instance when the agent goes inactive
+# without an explicit stop (crash/failure). Deliberately NO Requires=/WantedBy=
+# in the other direction: the agent starts instances itself, and stops leftovers
+# at its own startup.
+After=station-agent.service
+PartOf=station-agent.service
+BindsTo=station-agent.service
 # A broken node must not become a tight restart loop.
 StartLimitIntervalSec=120
 StartLimitBurst=5

@@ -109,6 +109,15 @@ def test_wrapper_error_is_journal_priority_err(tmp_path):
     assert r.stderr.startswith("<3>")
 
 
+def test_unit_coupled_to_agent():
+    lines = [ln.strip() for ln in _code_lines(_read(*_UNIT))]
+    for want in ("PartOf=station-agent.service", "BindsTo=station-agent.service",
+                 "After=station-agent.service"):
+        assert want in lines
+    # agent starts instances itself: nothing may pull them in from the agent side
+    assert not any(ln.startswith(("WantedBy=", "RequiredBy=")) for ln in lines)
+
+
 def test_unit_template_not_enabled():
     recipe = _read(*_RECIPE)
     assert 'SYSTEMD_AUTO_ENABLE = "disable"' in recipe
