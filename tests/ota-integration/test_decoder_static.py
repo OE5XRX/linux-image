@@ -179,7 +179,7 @@ def _run(tmp_path, env_over=None, pw_exit=0, instance="aprs-slot1"):
 
 def test_wrapper_writes_rx_only_conf(tmp_path):
     r = _run(tmp_path)
-    assert r.returncode == 0, r.stderr
+    assert r.returncode == 1, r.stderr  # clean pipeline exit is reported as failure
     conf = (tmp_path / "conf.out").read_text()
     for want in ("ADEVICE stdin null", "KISSPORT 8101", "AGWPORT 0", "ARATE 48000"):
         assert want in conf
@@ -218,7 +218,7 @@ def test_wrapper_unknown_decoder(tmp_path):
 
 
 def test_wrapper_pw_record_raw_and_no_fallback(tmp_path):
-    assert _run(tmp_path).returncode == 0
+    _run(tmp_path)
     args = (tmp_path / "pw-args").read_text().splitlines()
     assert "--raw" in args  # no AU header in front of the samples
     # missing node must fail instead of falling back to the default source
@@ -226,6 +226,13 @@ def test_wrapper_pw_record_raw_and_no_fallback(tmp_path):
     assert "node.dont-fallback=true" in props and "node.dont-reconnect=true" in props
     assert args[args.index("--target") + 1] == "oe5xrx.slot1"
     assert args[-1] == "-"  # stdout
+
+
+def test_wrapper_clean_pipeline_exit_is_failure(tmp_path):
+    # pw-record + direwolf both exit 0 -> still non-zero so Restart=on-failure fires
+    r = _run(tmp_path, pw_exit=0)
+    assert r.returncode == 1
+    assert "pipeline ended unexpectedly" in r.stderr
 
 
 def test_wrapper_pipeline_failure_propagates(tmp_path):

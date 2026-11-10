@@ -63,6 +63,10 @@ CONF
     pw-record --raw -P '{ node.dont-fallback=true node.dont-reconnect=true }' \
         --target "$node" --rate "$rate" --channels 1 --format s16 - \
         | direwolf -c "$conf" -t 0 -q hd -r "$rate" -
+    # A decoder never ends normally. If both sides exit 0 (e.g. the node vanished
+    # and pw-record quit cleanly) Restart=on-failure would not fire: fail explicitly.
+    echo "<3>oe5xrx-decoder-run: pipeline ended unexpectedly" >&2
+    exit 1
     ;;
 *)
     die "unknown decoder"
