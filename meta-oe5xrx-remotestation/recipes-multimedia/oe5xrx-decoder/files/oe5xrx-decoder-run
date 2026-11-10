@@ -57,7 +57,11 @@ KISSPORT $port
 AGWPORT 0
 CONF
     # pipefail: if either side dies, the whole unit fails and systemd restarts it.
-    pw-record --target "$node" --rate "$rate" --channels 1 --format s16 - \
+    # --raw: plain s16le (without it pw-record writes a 24 B AU header to stdout).
+    # node.dont-fallback/-reconnect: a missing target must fail at once (exit 1)
+    # instead of silently recording the default source (foreign audio!).
+    pw-record --raw -P '{ node.dont-fallback=true node.dont-reconnect=true }' \
+        --target "$node" --rate "$rate" --channels 1 --format s16 - \
         | direwolf -c "$conf" -t 0 -q hd -r "$rate" -
     ;;
 *)

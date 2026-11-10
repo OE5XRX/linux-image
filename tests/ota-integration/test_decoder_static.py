@@ -150,7 +150,8 @@ def _fakes(tmp_path, pw_exit=0):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     (bindir / "pw-record").write_text(
-        f"#!/bin/bash\ntouch '{tmp_path}/pw-called'\nexit {pw_exit}\n")
+        f"#!/bin/bash\ntouch '{tmp_path}/pw-called'\n"
+        f"printf '%s\\n' \"$@\" >'{tmp_path}/pw-args'\nexit {pw_exit}\n")
     (bindir / "direwolf").write_text(
         "#!/bin/bash\n"
         f"touch '{tmp_path}/dw-called'\n"
@@ -214,6 +215,17 @@ def test_wrapper_unknown_decoder(tmp_path):
     r = _run(tmp_path, {"OE5XRX_DECODER": "sstv"}, instance="sstv-slot1")
     assert r.returncode == 2
     assert not (tmp_path / "pw-called").exists()
+
+
+def test_wrapper_pw_record_raw_and_no_fallback(tmp_path):
+    assert _run(tmp_path).returncode == 0
+    args = (tmp_path / "pw-args").read_text().splitlines()
+    assert "--raw" in args  # no AU header in front of the samples
+    # missing node must fail instead of falling back to the default source
+    props = args[args.index("-P") + 1]
+    assert "node.dont-fallback=true" in props and "node.dont-reconnect=true" in props
+    assert args[args.index("--target") + 1] == "oe5xrx.slot1"
+    assert args[-1] == "-"  # stdout
 
 
 def test_wrapper_pipeline_failure_propagates(tmp_path):
