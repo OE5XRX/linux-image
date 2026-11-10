@@ -22,3 +22,6 @@ SRC_URI:append = " file://oe5xrx-pstore.cfg"
 # PowerBoard INA226 hwmon driver (rpi-only; the DT overlay that instantiates the
 # sensors lives in recipes-bsp/oe5xrx-dt-overlays).
 SRC_URI:append = " file://oe5xrx-ina226.cfg"
+
+# systemd IPAddressAllow/Deny (decoder sandbox) needs cgroup BPF.
+SRC_URI:append = " file://oe5xrx-cgroup-bpf.cfg"

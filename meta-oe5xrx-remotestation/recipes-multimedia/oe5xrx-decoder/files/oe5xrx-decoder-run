@@ -10,7 +10,8 @@
 set -euo pipefail
 
 die() {
-    echo "oe5xrx-decoder-run: $*" >&2
+    # <3> = journald priority "err" (survives LogLevelMax=notice)
+    echo "<3>oe5xrx-decoder-run: $*" >&2
     exit 2
 }
 
@@ -36,6 +37,7 @@ fi
 [[ "$rate" =~ ^[0-9]{4,6}$ ]] || die "bad OE5XRX_SAMPLE_RATE"
 port=$((10#$port))
 rate=$((10#$rate))
+(( rate >= 8000 && rate <= 192000 )) || die "OE5XRX_SAMPLE_RATE out of range"
 
 rundir="${RUNTIME_DIRECTORY:-${OE5XRX_TEST_RUNDIR-}}"
 [[ -n "$rundir" && -d "$rundir" ]] || die "no runtime directory"

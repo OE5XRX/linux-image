@@ -24,6 +24,8 @@ RuntimeDirectory=oe5xrx-decoder/%i
 ExecStart=/usr/libexec/oe5xrx/oe5xrx-decoder-run %i
 Restart=on-failure
 RestartSec=5
+# Exit 2 = invalid env/config (wrapper): retrying cannot help.
+RestartPreventExitStatus=2
 
 # ---- Sandbox ---------------------------------------------------------------
 NoNewPrivileges=yes
@@ -58,5 +60,8 @@ CPUQuota=50%
 StandardOutput=null
 StandardError=journal
 LogLevelMax=notice
+# Unprefixed stderr lines (direwolf errors) default to 'info' and would be dropped
+# by LogLevelMax; log them as 'notice'. The wrapper marks its own errors <3>.
+SyslogLevel=notice
 LogRateLimitIntervalSec=30s
 LogRateLimitBurst=20

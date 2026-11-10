@@ -89,6 +89,25 @@ def test_unit_network_sandbox():
     assert d["IPAddressDeny"] == "any" and d["IPAddressAllow"] == "localhost"
 
 
+def test_unit_config_error_not_restarted_and_logged():
+    d = _directives(_read(*_UNIT))
+    assert d["RestartPreventExitStatus"] == "2"
+    assert d["SyslogLevel"] == "notice"
+
+
+def test_kernel_fragment_cgroup_bpf_in_both_kernels():
+    cfg = _code_lines(_read(_LAYER, "recipes-kernel", "linux", "files",
+                            "oe5xrx-cgroup-bpf.cfg"))
+    assert "CONFIG_CGROUP_BPF=y" in [ln.strip() for ln in cfg]
+    for bb in ("linux-yocto_%.bbappend", "linux-raspberrypi_%.bbappend"):
+        assert "oe5xrx-cgroup-bpf.cfg" in _read(_LAYER, "recipes-kernel", "linux", bb)
+
+
+def test_wrapper_error_is_journal_priority_err(tmp_path):
+    r = _run(tmp_path, {"OE5XRX_RX_NODE": "a;b"})
+    assert r.stderr.startswith("<3>")
+
+
 def test_unit_template_not_enabled():
     recipe = _read(*_RECIPE)
     assert 'SYSTEMD_AUTO_ENABLE = "disable"' in recipe
@@ -164,6 +183,7 @@ def test_wrapper_rejects_bad_node(tmp_path, bad):
 @pytest.mark.parametrize("over", [
     {"OE5XRX_KISS_PORT": "80"}, {"OE5XRX_KISS_PORT": "99999"},
     {"OE5XRX_KISS_PORT": "81x1"}, {"OE5XRX_SAMPLE_RATE": "48000;id"},
+    {"OE5XRX_SAMPLE_RATE": "0000"}, {"OE5XRX_SAMPLE_RATE": "999999"},
     {"OE5XRX_DECODER": "sstv"}, {"OE5XRX_SLOT": "2"},
 ])
 def test_wrapper_rejects_bad_env(tmp_path, over):

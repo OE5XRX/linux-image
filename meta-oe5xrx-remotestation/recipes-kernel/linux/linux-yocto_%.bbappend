@@ -13,3 +13,6 @@ SRC_URI:append = " file://oe5xrx-pstore.cfg"
 # (PREFERRED_VERSION_linux-yocto / _linux-raspberrypi) — PREFERRED_VERSION is
 # conf-level provider metadata, not per-recipe, and the RPi kernel provider is
 # linux-raspberrypi (not linux-yocto), so pinning must cover both there.
+
+# systemd IPAddressAllow/Deny (decoder sandbox) needs cgroup BPF.
+SRC_URI:append = " file://oe5xrx-cgroup-bpf.cfg"
