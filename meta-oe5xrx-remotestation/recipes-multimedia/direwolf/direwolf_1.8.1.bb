@@ -23,6 +23,7 @@ EXTRA_OECMAKE = "-DOPTIONAL_DNSSD=OFF -DUNITTEST=OFF"
 # desktop/menu files, shipped docs and sample data.
 do_install:append() {
     rm -rf ${D}${sysconfdir}/udev ${D}${nonarch_libdir}/udev
+    rmdir --ignore-fail-on-non-empty ${D}${nonarch_libdir}
     rm -rf ${D}${datadir}/applications
     rm -rf ${D}${datadir}/pixmaps
     rm -rf ${D}${datadir}/doc/direwolf
