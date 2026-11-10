@@ -28,6 +28,8 @@ do_install:append() {
     rm -rf ${D}${datadir}/pixmaps
     rm -rf ${D}${datadir}/doc/direwolf
     rm -rf ${D}${datadir}/direwolf
+    # helper scripts (bash/perl/python) would need interpreter RDEPENDS in -tools
+    rm -f ${D}${bindir}/*.sh ${D}${bindir}/*.pl ${D}${bindir}/*.py
 }
 
 # Only the decoder itself goes into the image; decode_aprs, kissutil, ... are
