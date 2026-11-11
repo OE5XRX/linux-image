@@ -1,0 +1,74 @@
+#!/bin/bash
+# oe5xrx-decoder-run <instance>   (instance = <decoder>-slot<N>, e.g. aprs-slot1)
+#
+# Started by oe5xrx-decoder@.service. The environment comes from the env file the
+# agent wrote; nothing here is trusted: every value is validated against a strict
+# pattern, nothing is eval'd, all expansions are quoted.
+#
+# Test hooks: binaries are resolved via PATH; OE5XRX_TEST_RUNDIR replaces
+# RUNTIME_DIRECTORY.
+set -euo pipefail
+
+die() {
+    # <3> = journald priority "err" (survives LogLevelMax=notice)
+    echo "<3>oe5xrx-decoder-run: $*" >&2
+    exit 2
+}
+
+instance="${1-}"
+[[ "$instance" =~ ^[a-z][a-z0-9]{0,15}-slot[0-9]{1,3}$ ]] || die "bad instance name"
+inst_decoder="${instance%-slot*}"
+inst_slot="${instance##*-slot}"
+
+decoder="${OE5XRX_DECODER-}"
+node="${OE5XRX_RX_NODE-}"
+port="${OE5XRX_KISS_PORT-}"
+rate="${OE5XRX_SAMPLE_RATE-}"
+
+[[ "$decoder" =~ ^[a-z][a-z0-9]{0,15}$ ]] || die "bad OE5XRX_DECODER"
+[[ "$decoder" == "$inst_decoder" ]] || die "OE5XRX_DECODER does not match instance"
+if [[ -n "${OE5XRX_SLOT-}" ]]; then
+    [[ "$OE5XRX_SLOT" =~ ^[0-9]{1,3}$ && "$((10#$OE5XRX_SLOT))" == "$((10#$inst_slot))" ]] \
+        || die "OE5XRX_SLOT does not match instance"
+fi
+[[ "$node" =~ ^[A-Za-z0-9._:@/+-]{1,200}$ ]] || die "bad OE5XRX_RX_NODE"
+[[ "$port" =~ ^[0-9]{4,5}$ ]] || die "bad OE5XRX_KISS_PORT"
+(( 10#$port >= 1024 && 10#$port <= 65535 )) || die "OE5XRX_KISS_PORT out of range"
+[[ "$rate" =~ ^[0-9]{4,6}$ ]] || die "bad OE5XRX_SAMPLE_RATE"
+port=$((10#$port))
+rate=$((10#$rate))
+(( rate >= 8000 && rate <= 192000 )) || die "OE5XRX_SAMPLE_RATE out of range"
+
+rundir="${RUNTIME_DIRECTORY:-${OE5XRX_TEST_RUNDIR-}}"
+[[ -n "$rundir" && -d "$rundir" ]] || die "no runtime directory"
+
+case "$decoder" in
+aprs)
+    conf="$rundir/direwolf.conf"
+    # RX-only: audio from stdin, no PTT/beacon/iGate/digipeater, no AGW port.
+    # Decoded packets leave Direwolf only via KISS on the given port.
+    cat >"$conf" <<CONF
+ADEVICE stdin null
+ARATE $rate
+ACHANNELS 1
+CHANNEL 0
+MODEM 1200
+KISSPORT $port
+AGWPORT 0
+CONF
+    # pipefail: if either side dies, the whole unit fails and systemd restarts it.
+    # --raw: plain s16le (without it pw-record writes a 24 B AU header to stdout).
+    # node.dont-fallback/-reconnect: a missing target must fail at once (exit 1)
+    # instead of silently recording the default source (foreign audio!).
+    pw-record --raw -P '{ node.dont-fallback=true node.dont-reconnect=true }' \
+        --target "$node" --rate "$rate" --channels 1 --format s16 - \
+        | direwolf -c "$conf" -t 0 -q hd -r "$rate" -
+    # A decoder never ends normally. If both sides exit 0 (e.g. the node vanished
+    # and pw-record quit cleanly) Restart=on-failure would not fire: fail explicitly.
+    echo "<3>oe5xrx-decoder-run: pipeline ended unexpectedly" >&2
+    exit 1
+    ;;
+*)
+    die "unknown decoder"
+    ;;
+esac

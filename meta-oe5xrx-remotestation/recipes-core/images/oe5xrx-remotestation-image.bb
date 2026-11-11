@@ -49,6 +49,10 @@ IMAGE_INSTALL:append = " dfu-util"
 # both surface as PipeWire nodes here.
 IMAGE_INSTALL:append = " oe5xrx-audio-system"
 
+# Passive services (APRS): Direwolf + the sandboxed oe5xrx-decoder@.service template.
+# Instances are started by the station agent, never at boot.
+IMAGE_INSTALL:append = " direwolf oe5xrx-decoder"
+
 # Boot robustness: hung-task -> panic -> reboot -> A/B bootcount rollback.
 # Pairs with cmdline panic=5 softlockup_panic=1 (set in grub.cfg / boot.cmd).
 IMAGE_INSTALL:append = " oe5xrx-boot-robustness"

@@ -1,0 +1,76 @@
+[Unit]
+Description=OE5XRX decoder %i
+Documentation=https://oe5xrx.org/docs/remote-station/
+# Instance name: <decoder>-slot<N>, e.g. aprs-slot1. Started/stopped only by the
+# station agent, which writes /run/oe5xrx/decoder/%i.env first.
+After=oe5xrx-pipewire.service
+Wants=oe5xrx-pipewire.service
+# Lifetime coupled to the agent that starts the instances: no unattended decoder
+# without its supervisor. PartOf= propagates stop/restart of the agent; BindsTo=
+# (needs After=) additionally stops the instance when the agent goes inactive
+# without an explicit stop (crash/failure). Deliberately NO Requires=/WantedBy=
+# in the other direction: the agent starts instances itself, and stops leftovers
+# at its own startup.
+After=station-agent.service
+PartOf=station-agent.service
+BindsTo=station-agent.service
+# A broken node must not become a tight restart loop.
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=oe5xrx-decoder
+Group=oe5xrx-decoder
+# Access to the system-wide PipeWire socket (/run/pipewire/pipewire-0).
+SupplementaryGroups=pipewire
+Environment=PIPEWIRE_RUNTIME_DIR=/run/pipewire
+# Written by the agent (root). OE5XRX_DECODER, OE5XRX_SLOT, OE5XRX_RX_NODE,
+# OE5XRX_KISS_PORT, OE5XRX_SAMPLE_RATE. The wrapper validates every value.
+EnvironmentFile=/run/oe5xrx/decoder/%i.env
+# Writable scratch (generated direwolf.conf); the rootfs is read-only.
+RuntimeDirectory=oe5xrx-decoder/%i
+ExecStart=/usr/libexec/oe5xrx/oe5xrx-decoder-run %i
+Restart=on-failure
+RestartSec=5
+# Exit 2 = invalid env/config (wrapper): retrying cannot help.
+RestartPreventExitStatus=2
+
+# ---- Sandbox ---------------------------------------------------------------
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+# Direwolf's KISSPORT listens on all interfaces. Only loopback may talk to it
+# (needs CONFIG_CGROUP_BPF in the kernel).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+# ---- Resource limits (must not starve Opus RX / PipeWire) -------------------
+MemoryMax=96M
+CPUQuota=50%
+
+# ---- Journal protection (64 MB journal) -------------------------------------
+# Packets go only to KISS; stdout is discarded, stderr is rate-limited.
+StandardOutput=null
+StandardError=journal
+LogLevelMax=notice
+# Unprefixed stderr lines (direwolf errors) default to 'info' and would be dropped
+# by LogLevelMax; log them as 'notice'. The wrapper marks its own errors <3>.
+SyslogLevel=notice
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=20
