@@ -130,7 +130,8 @@ echo "AUDIO-CHECK gst=ok opus,pipewire,rtp,udp,rtpmanager,convert,rawparse,volum
 # oe5xrx-decoder@sstv-slotN runs `python3 -I -m station_agent.sstv.rx_unit` under
 # the unit's sandbox. Run the same module with EVERY sandbox/identity/limit
 # directive taken from the installed unit file itself (no copy that could drift):
-# it imports numpy, binds 127.0.0.1:<port> and exits 0 on stdin EOF. A missing
+# it imports numpy, binds 127.0.0.1:8299 (= slot 99, which no busboard has, so a
+# live SSTV decoder on a bench is not disturbed) and exits 0 on stdin EOF. A missing
 # python3-numpy or a W^X/memory/address-family clash fails here and not on the
 # first SSTV start on a station. (The real instance is not started: it is
 # BindsTo=station-agent and needs the agent's env file.)
@@ -157,7 +158,7 @@ $(sed -n '/^\[Service\]/,/^\[/p' "$DEC_UNIT")
 UNIT
 [ "$n" -ge 20 ] || fail "decoder_sandbox_parse_n=$n"
 timeout 300 systemd-run -q --pipe --wait "$@" \
-    python3 -I -m station_agent.sstv.rx_unit --port 8201 --rate 8000 </dev/null \
+    python3 -I -m station_agent.sstv.rx_unit --port 8299 --rate 8000 </dev/null \
     || fail "sstv_rx_unit"
 echo "AUDIO-CHECK sstv-decoder=ok rx_unit ran under the unit sandbox ($n directives)"
 

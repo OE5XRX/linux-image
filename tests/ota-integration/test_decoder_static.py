@@ -184,7 +184,7 @@ def test_qemu_selfcheck_covers_sstv():
     # the real module, under the sandbox parsed from the installed unit file
     assert "oe5xrx-decoder@.service" in txt
     assert re.search(r'systemd-run[^\n]*"\$@"', txt)
-    assert "python3 -I -m station_agent.sstv.rx_unit --port 8201 --rate 8000 </dev/null" in txt
+    assert "python3 -I -m station_agent.sstv.rx_unit --port 8299 --rate 8000 </dev/null" in txt
 
 
 # [Service] keys of the unit that are not sandbox/identity/limits (lifecycle,

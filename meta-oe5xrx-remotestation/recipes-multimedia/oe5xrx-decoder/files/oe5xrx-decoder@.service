@@ -73,8 +73,10 @@ CPUQuota=50%
 StandardOutput=null
 StandardError=journal
 LogLevelMax=notice
-# Unprefixed stderr lines (direwolf/python errors) default to 'info' and would be dropped
-# by LogLevelMax; log them as 'notice'. The wrapper marks its own errors <3>.
+# Unprefixed stderr lines default to 'info' and would be dropped by LogLevelMax;
+# log them as 'notice'. That keeps direwolf errors, and ALL of rx_unit's stderr
+# logging (a few INFO lines per picture plus errors); the rate limit below bounds
+# both. The wrapper marks its own errors <3>.
 SyslogLevel=notice
 LogRateLimitIntervalSec=30s
 LogRateLimitBurst=20
