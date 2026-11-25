@@ -405,4 +405,7 @@ def test_wrapper_sstv_rx_unit_failure_propagates(tmp_path):
 
 
 def test_wrapper_sstv_pw_record_failure_propagates(tmp_path):
-    assert _run_sstv(tmp_path, pw_exit=1).returncode == 1
+    # pipefail: pw-record's own code, not the clean-end fallback (also 1)
+    r = _run_sstv(tmp_path, pw_exit=3)
+    assert r.returncode == 3
+    assert "pipeline ended unexpectedly" not in r.stderr
