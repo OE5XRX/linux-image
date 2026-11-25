@@ -29,7 +29,8 @@ Environment=PIPEWIRE_RUNTIME_DIR=/run/pipewire
 # OE5XRX_SAMPLE_RATE + OE5XRX_KISS_PORT (aprs) / OE5XRX_SSTV_PORT (sstv). The
 # wrapper validates every value.
 EnvironmentFile=/run/oe5xrx/decoder/%i.env
-# Writable scratch (generated direwolf.conf); the rootfs is read-only.
+# Writable scratch (aprs: generated direwolf.conf; unused by sstv); the rootfs
+# is read-only.
 RuntimeDirectory=oe5xrx-decoder/%i
 ExecStart=/usr/libexec/oe5xrx/oe5xrx-decoder-run %i
 Restart=on-failure
@@ -67,11 +68,12 @@ MemoryMax=96M
 CPUQuota=50%
 
 # ---- Journal protection (64 MB journal) -------------------------------------
-# Packets go only to KISS; stdout is discarded, stderr is rate-limited.
+# Decoded output goes only to the local TCP port (aprs: KISS, sstv: NDJSON);
+# stdout is discarded, stderr is rate-limited.
 StandardOutput=null
 StandardError=journal
 LogLevelMax=notice
-# Unprefixed stderr lines (direwolf errors) default to 'info' and would be dropped
+# Unprefixed stderr lines (direwolf/python errors) default to 'info' and would be dropped
 # by LogLevelMax; log them as 'notice'. The wrapper marks its own errors <3>.
 SyslogLevel=notice
 LogRateLimitIntervalSec=30s

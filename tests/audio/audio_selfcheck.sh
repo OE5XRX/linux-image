@@ -6,13 +6,16 @@
 #   1. system PipeWire + WirePlumber services are active, exactly one daemon of
 #      each runs and the distro pipewire/wireplumber units are absent,
 #   2. the GStreamer bridge elements (opusenc/opusdec/pipewiresrc/pipewiresink)
-#      are present,
+#      and the SSTV TX player elements (rawaudioparse/volume) are present,
+#   2b. the SSTV decoder (python3 -m station_agent.sstv.rx_unit, numpy) starts,
+#      binds its port and exits cleanly under the decoder unit's own sandbox,
 #   3. WirePlumber named EXACTLY ONE RX node oe5xrx.slot1,
 #   4. RX: record the 1 kHz tone off oe5xrx.slot1 (cable A tap),
 #   5. TX: play a distinct 1500 Hz tone into oe5xrx.slot1.tx and capture it off
 #      the reverse-cable dev0 tap — proves mic->TX works in sim for Session B.
 # Both WAVs are shipped as base64; the host computes the RX(1 kHz)+TX(1500 Hz)
-# Goertzel verdicts (goertzel.py) — the guest ships no Python. Runnable
+# Goertzel verdicts (goertzel.py) — no Python on the analysis path (2b only
+# runs the agent's SSTV module). Runnable
 # standalone on the CM4 bench too.
 set -u
 
@@ -124,17 +127,39 @@ done
 echo "AUDIO-CHECK gst=ok opus,pipewire,rtp,udp,rtpmanager,convert,rawparse,volume elements present"
 
 # 2b) SSTV decoder runtime -----------------------------------------------------
-# oe5xrx-decoder@sstv-slotN runs `python3 -I -m station_agent.sstv.rx_unit` as
-# user oe5xrx-decoder under the unit's sandbox. Import it the same way (user,
-# W^X, memory cap) so a missing python3-numpy or a sandbox clash fails here and
-# not on the first SSTV start on a station.
-timeout 300 systemd-run -q --pipe --wait \
-    -p User=oe5xrx-decoder -p Group=oe5xrx-decoder -p NoNewPrivileges=yes \
-    -p MemoryDenyWriteExecute=yes -p MemoryMax=96M -p ProtectSystem=strict \
-    -p PrivateTmp=yes \
-    python3 -I -c 'import numpy, station_agent.sstv.rx_unit; numpy.convolve(numpy.ones(64), numpy.ones(8)); print("SSTV-IMPORT numpy", numpy.__version__)' \
-    || fail "sstv_decoder_import"
-echo "AUDIO-CHECK sstv-decoder=ok numpy+rx_unit import as oe5xrx-decoder under sandbox"
+# oe5xrx-decoder@sstv-slotN runs `python3 -I -m station_agent.sstv.rx_unit` under
+# the unit's sandbox. Run the same module with EVERY sandbox/identity/limit
+# directive taken from the installed unit file itself (no copy that could drift):
+# it imports numpy, binds 127.0.0.1:<port> and exits 0 on stdin EOF. A missing
+# python3-numpy or a W^X/memory/address-family clash fails here and not on the
+# first SSTV start on a station. (The real instance is not started: it is
+# BindsTo=station-agent and needs the agent's env file.)
+DEC_UNIT=""
+for f in /usr/lib/systemd/system/oe5xrx-decoder@.service \
+         /lib/systemd/system/oe5xrx-decoder@.service; do
+    [ -f "$f" ] && { DEC_UNIT="$f"; break; }
+done
+[ -n "$DEC_UNIT" ] || fail "no_decoder_unit"
+set --
+n=0
+while IFS= read -r line; do
+    case "$line" in
+    # Keep in sync with test_decoder_static.py: it checks that every [Service]
+    # key of the unit is either matched here or a known non-sandbox key.
+    User=*|Group=*|SupplementaryGroups=*|Environment=*|NoNewPrivileges=*|\
+    Protect*=*|Private*=*|Restrict*=*|LockPersonality=*|MemoryDenyWriteExecute=*|\
+    SystemCallArchitectures=*|CapabilityBoundingSet=*|IPAddress*=*|MemoryMax=*|\
+    CPUQuota=*)
+        set -- "$@" -p "$line"; n=$((n + 1)) ;;
+    esac
+done <<UNIT
+$(sed -n '/^\[Service\]/,/^\[/p' "$DEC_UNIT")
+UNIT
+[ "$n" -ge 20 ] || fail "decoder_sandbox_parse_n=$n"
+timeout 300 systemd-run -q --pipe --wait "$@" \
+    python3 -I -m station_agent.sstv.rx_unit --port 8201 --rate 8000 </dev/null \
+    || fail "sstv_rx_unit"
+echo "AUDIO-CHECK sstv-decoder=ok rx_unit ran under the unit sandbox ($n directives)"
 
 # Dump audio-graph state so a failure is diagnosable from the CI console.
 dump_audio_diag() {

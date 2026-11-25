@@ -181,17 +181,40 @@ def test_qemu_selfcheck_covers_sstv():
     loop = re.search(r"for el in (.*?); do", txt, re.S).group(1)
     for el in ("rawaudioparse", "volume", "audioconvert", "audioresample", "pipewiresink"):
         assert re.search(rf"\b{el}\b", loop), el
-    # import as the decoder user under the unit's W^X + memory sandbox
-    assert "User=oe5xrx-decoder" in txt
-    assert "MemoryDenyWriteExecute=yes" in txt and "MemoryMax=96M" in txt
-    assert "station_agent.sstv.rx_unit" in txt and "import numpy" in txt
+    # the real module, under the sandbox parsed from the installed unit file
+    assert "oe5xrx-decoder@.service" in txt
+    assert re.search(r'systemd-run[^\n]*"\$@"', txt)
+    assert "python3 -I -m station_agent.sstv.rx_unit --port 8201 --rate 8000 </dev/null" in txt
 
 
-def test_selfcheck_sandbox_matches_unit():
-    d = _directives(_read(*_UNIT))
-    txt = _read(*_SELFCHECK)
-    assert f"MemoryMax={d['MemoryMax']}" in txt
-    assert f"MemoryDenyWriteExecute={d['MemoryDenyWriteExecute']}" in txt
+# [Service] keys of the unit that are not sandbox/identity/limits (lifecycle,
+# logging, the env file) and so are not mirrored by the QEMU rx_unit check.
+_NON_SANDBOX_KEYS = {
+    "Type", "EnvironmentFile", "RuntimeDirectory", "ExecStart", "Restart",
+    "RestartSec", "RestartPreventExitStatus", "StandardOutput", "StandardError",
+    "LogLevelMax", "SyslogLevel", "LogRateLimitIntervalSec", "LogRateLimitBurst",
+}
+
+
+def _selfcheck_sandbox_patterns():
+    sc = _read(*_SELFCHECK)
+    case = re.search(r'case "\$line" in\n(.*?)\)\n\s*set -- "\$@" -p', sc, re.S).group(1)
+    case = re.sub(r"#[^\n]*", "", case).replace("\\\n", "")
+    return [p.strip() for p in case.split("|")]
+
+
+def test_selfcheck_mirrors_every_unit_sandbox_key():
+    import fnmatch
+    pats = _selfcheck_sandbox_patterns()
+    unit = _read(*_UNIT)
+    keys = {ln.split("=", 1)[0].strip() for ln in _code_lines(unit[unit.index("[Service]"):])
+            if "=" in ln and not ln.startswith("[")}
+    sandbox = keys - _NON_SANDBOX_KEYS
+    assert len(sandbox) >= 20
+    for k in sorted(sandbox):
+        assert any(fnmatch.fnmatchcase(f"{k}=x", p) for p in pats), k
+    for k in sorted(keys & _NON_SANDBOX_KEYS):
+        assert not any(fnmatch.fnmatchcase(f"{k}=x", p) for p in pats), k
 
 
 def test_station_agent_pinned():
