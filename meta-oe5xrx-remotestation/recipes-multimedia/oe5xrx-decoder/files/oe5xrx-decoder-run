@@ -82,6 +82,9 @@ sstv)
     (( port >= 8200 && port <= 8299 )) || die "OE5XRX_SSTV_PORT out of range"
     (( port == 8200 + 10#$inst_slot )) || die "OE5XRX_SSTV_PORT does not match instance"
     # -I: isolated mode, no PYTHON* env vars, no user site, no cwd on sys.path.
+    # So this always runs the image's pinned station_agent, also on the dev image
+    # where the agent itself runs from /mnt/dev (station-agent-dev-launch): rx_unit/
+    # decoder changes need a re-pin + rebuild, the dev loop does not reach them.
     record | python3 -I -m station_agent.sstv.rx_unit --port "$port" --rate "$rate"
     # rx_unit exits 0 on stdin EOF: same reasoning as above.
     echo "<3>oe5xrx-decoder-run: pipeline ended unexpectedly" >&2

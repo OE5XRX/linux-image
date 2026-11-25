@@ -342,8 +342,6 @@ def _run_sstv(tmp_path, env_over=None, slot=1, **kw):
            "OE5XRX_SSTV_PORT": str(8200 + slot), "OE5XRX_SAMPLE_RATE": "8000",
            "OE5XRX_KISS_PORT": None, "OE5XRX_TEST_RUNDIR": None}
     env.update(env_over or {})
-    rundir = tmp_path / "run"
-    rundir.mkdir(exist_ok=True)
     full = {"PATH": f"{_fakes(tmp_path, kw.get('pw_exit', 0), kw.get('py_exit', 0))}"
                     f":{os.environ['PATH']}"}
     full.update({k: v for k, v in env.items() if v is not None})
