@@ -1,5 +1,5 @@
 #!/bin/bash
-# oe5xrx-decoder-run <instance>   (instance = <decoder>-slot<N>, e.g. aprs-slot1)
+# oe5xrx-decoder-run <instance>   (instance = <decoder>-slot<N>, e.g. aprs-slot1, sstv-slot1)
 #
 # Started by oe5xrx-decoder@.service. The environment comes from the env file the
 # agent wrote; nothing here is trusted: every value is validated against a strict
@@ -22,7 +22,6 @@ inst_slot="${instance##*-slot}"
 
 decoder="${OE5XRX_DECODER-}"
 node="${OE5XRX_RX_NODE-}"
-port="${OE5XRX_KISS_PORT-}"
 rate="${OE5XRX_SAMPLE_RATE-}"
 
 [[ "$decoder" =~ ^[a-z][a-z0-9]{0,15}$ ]] || die "bad OE5XRX_DECODER"
@@ -32,18 +31,27 @@ if [[ -n "${OE5XRX_SLOT-}" ]]; then
         || die "OE5XRX_SLOT does not match instance"
 fi
 [[ "$node" =~ ^[A-Za-z0-9._:@/+-]{1,200}$ ]] || die "bad OE5XRX_RX_NODE"
-[[ "$port" =~ ^[0-9]{4,5}$ ]] || die "bad OE5XRX_KISS_PORT"
-(( 10#$port >= 1024 && 10#$port <= 65535 )) || die "OE5XRX_KISS_PORT out of range"
 [[ "$rate" =~ ^[0-9]{4,6}$ ]] || die "bad OE5XRX_SAMPLE_RATE"
-port=$((10#$port))
 rate=$((10#$rate))
 (( rate >= 8000 && rate <= 192000 )) || die "OE5XRX_SAMPLE_RATE out of range"
 
-rundir="${RUNTIME_DIRECTORY:-${OE5XRX_TEST_RUNDIR-}}"
-[[ -n "$rundir" && -d "$rundir" ]] || die "no runtime directory"
+# Audio from the slot's RX node as raw s16le mono on stdout.
+# --raw: plain s16le (without it pw-record writes a 24 B AU header to stdout).
+# node.dont-fallback/-reconnect: a missing target must fail at once (exit 1)
+# instead of silently recording the default source (foreign audio!).
+record() {
+    pw-record --raw -P '{ node.dont-fallback=true node.dont-reconnect=true }' \
+        --target "$node" --rate "$rate" --channels 1 --format s16 -
+}
 
 case "$decoder" in
 aprs)
+    port="${OE5XRX_KISS_PORT-}"
+    [[ "$port" =~ ^[0-9]{4,5}$ ]] || die "bad OE5XRX_KISS_PORT"
+    port=$((10#$port))
+    (( port >= 1024 && port <= 65535 )) || die "OE5XRX_KISS_PORT out of range"
+    rundir="${RUNTIME_DIRECTORY:-${OE5XRX_TEST_RUNDIR-}}"
+    [[ -n "$rundir" && -d "$rundir" ]] || die "no runtime directory"
     conf="$rundir/direwolf.conf"
     # RX-only: audio from stdin, no PTT/beacon/iGate/digipeater, no AGW port.
     # Decoded packets leave Direwolf only via KISS on the given port.
@@ -57,14 +65,28 @@ KISSPORT $port
 AGWPORT 0
 CONF
     # pipefail: if either side dies, the whole unit fails and systemd restarts it.
-    # --raw: plain s16le (without it pw-record writes a 24 B AU header to stdout).
-    # node.dont-fallback/-reconnect: a missing target must fail at once (exit 1)
-    # instead of silently recording the default source (foreign audio!).
-    pw-record --raw -P '{ node.dont-fallback=true node.dont-reconnect=true }' \
-        --target "$node" --rate "$rate" --channels 1 --format s16 - \
-        | direwolf -c "$conf" -t 0 -q hd -r "$rate" -
+    record | direwolf -c "$conf" -t 0 -q hd -r "$rate" -
     # A decoder never ends normally. If both sides exit 0 (e.g. the node vanished
     # and pw-record quit cleanly) Restart=on-failure would not fire: fail explicitly.
+    echo "<3>oe5xrx-decoder-run: pipeline ended unexpectedly" >&2
+    exit 1
+    ;;
+sstv)
+    # station_agent.sstv.rx_unit decodes stdin and serves NDJSON picture events
+    # on 127.0.0.1:<port> to the agent. Port = 8200 + slot (agent:
+    # station_agent/decoders/sstv.py SSTV_PORT_BASE); anything else is a
+    # mismatched or forged env file.
+    port="${OE5XRX_SSTV_PORT-}"
+    [[ "$port" =~ ^[0-9]{4}$ ]] || die "bad OE5XRX_SSTV_PORT"
+    port=$((10#$port))
+    (( port >= 8200 && port <= 8299 )) || die "OE5XRX_SSTV_PORT out of range"
+    (( port == 8200 + 10#$inst_slot )) || die "OE5XRX_SSTV_PORT does not match instance"
+    # -I: isolated mode, no PYTHON* env vars, no user site, no cwd on sys.path.
+    # So this always runs the image's pinned station_agent, also on the dev image
+    # where the agent itself runs from /mnt/dev (station-agent-dev-launch): rx_unit/
+    # decoder changes need a re-pin + rebuild, the dev loop does not reach them.
+    record | python3 -I -m station_agent.sstv.rx_unit --port "$port" --rate "$rate"
+    # rx_unit exits 0 on stdin EOF: same reasoning as above.
     echo "<3>oe5xrx-decoder-run: pipeline ended unexpectedly" >&2
     exit 1
     ;;

@@ -2,8 +2,9 @@ SUMMARY = "OE5XRX passive-service decoder host (sandboxed systemd template + wra
 DESCRIPTION = "Template unit oe5xrx-decoder@<decoder>-slot<N>.service, started and stopped \
 by the station agent (never enabled at boot). The agent writes \
 /run/oe5xrx/decoder/<instance>.env; the wrapper validates it and runs \
-pw-record | direwolf (RX-only, KISS on 127.0.0.1). Runs as the unprivileged user \
-'oe5xrx-decoder' in group 'pipewire'."
+pw-record | direwolf (APRS: RX-only, KISS on 127.0.0.1) or \
+pw-record | python3 -m station_agent.sstv.rx_unit (SSTV: NDJSON on 127.0.0.1). \
+Runs as the unprivileged user 'oe5xrx-decoder' in group 'pipewire'."
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
@@ -26,7 +27,9 @@ USERADD_PARAM:${PN} = "--system --no-create-home --home-dir /nonexistent --shell
 # 'pipewire' (not only pipewire-tools) creates the group 'pipewire' in its preinst;
 # the rootfs install must configure it BEFORE our useradd '--groups pipewire'
 # (USERADD_DEPENDS only orders the build, not the package install).
-RDEPENDS:${PN} = "bash direwolf pipewire pipewire-tools"
+# sstv: the decoder module ships in station-agent (station_agent.sstv.rx_unit)
+# and is the only part of the agent that needs numpy (the agent itself does not).
+RDEPENDS:${PN} = "bash direwolf pipewire pipewire-tools python3-numpy station-agent"
 
 # Template unit: instances are started by the agent, never enabled at boot.
 SYSTEMD_SERVICE:${PN} = "oe5xrx-decoder@.service"
