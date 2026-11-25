@@ -116,8 +116,8 @@ echo "AUDIO-CHECK single-daemon=ok pipewire=$npw wireplumber=$nwp no-distro-unit
 # plugins-good-rtp, udpsink/udpsrc from plugins-good-udp, rtpjitterbuffer from
 # plugins-good-rtpmanager). Missing any of these = a silently dead live bridge
 # (RC#1) even though the tone-shim substrate below still works — so gate on all.
-# audioconvert/audioresample are plugins-base (already pulled) but spawned by the
-# bridge in both directions, so include them for the true full set.
+# audioconvert/audioresample (pinned plugins-base split packages) are spawned by
+# the bridge in both directions, so include them for the true full set.
 # rawaudioparse + volume: the agent's SSTV TX player (station_agent/sstv_tx.py).
 for el in opusenc opusdec pipewiresrc pipewiresink audioconvert audioresample \
           rtpopuspay rtpopusdepay udpsink udpsrc rtpjitterbuffer \
