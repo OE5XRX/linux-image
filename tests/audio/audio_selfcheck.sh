@@ -115,11 +115,26 @@ echo "AUDIO-CHECK single-daemon=ok pipewire=$npw wireplumber=$nwp no-distro-unit
 # (RC#1) even though the tone-shim substrate below still works — so gate on all.
 # audioconvert/audioresample are plugins-base (already pulled) but spawned by the
 # bridge in both directions, so include them for the true full set.
+# rawaudioparse + volume: the agent's SSTV TX player (station_agent/sstv_tx.py).
 for el in opusenc opusdec pipewiresrc pipewiresink audioconvert audioresample \
-          rtpopuspay rtpopusdepay udpsink udpsrc rtpjitterbuffer; do
+          rtpopuspay rtpopusdepay udpsink udpsrc rtpjitterbuffer \
+          rawaudioparse volume; do
     gst-inspect-1.0 "$el" >/dev/null 2>&1 || fail "no_$el"
 done
-echo "AUDIO-CHECK gst=ok opus,pipewire,rtp,udp,rtpmanager,convert bridge elements present"
+echo "AUDIO-CHECK gst=ok opus,pipewire,rtp,udp,rtpmanager,convert,rawparse,volume elements present"
+
+# 2b) SSTV decoder runtime -----------------------------------------------------
+# oe5xrx-decoder@sstv-slotN runs `python3 -I -m station_agent.sstv.rx_unit` as
+# user oe5xrx-decoder under the unit's sandbox. Import it the same way (user,
+# W^X, memory cap) so a missing python3-numpy or a sandbox clash fails here and
+# not on the first SSTV start on a station.
+timeout 300 systemd-run -q --pipe --wait \
+    -p User=oe5xrx-decoder -p Group=oe5xrx-decoder -p NoNewPrivileges=yes \
+    -p MemoryDenyWriteExecute=yes -p MemoryMax=96M -p ProtectSystem=strict \
+    -p PrivateTmp=yes \
+    python3 -I -c 'import numpy, station_agent.sstv.rx_unit; numpy.convolve(numpy.ones(64), numpy.ones(8)); print("SSTV-IMPORT numpy", numpy.__version__)' \
+    || fail "sstv_decoder_import"
+echo "AUDIO-CHECK sstv-decoder=ok numpy+rx_unit import as oe5xrx-decoder under sandbox"
 
 # Dump audio-graph state so a failure is diagnosable from the CI console.
 dump_audio_diag() {

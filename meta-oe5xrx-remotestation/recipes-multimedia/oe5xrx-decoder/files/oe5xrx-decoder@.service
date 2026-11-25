@@ -1,7 +1,7 @@
 [Unit]
 Description=OE5XRX decoder %i
 Documentation=https://oe5xrx.org/docs/remote-station/
-# Instance name: <decoder>-slot<N>, e.g. aprs-slot1. Started/stopped only by the
+# Instance name: <decoder>-slot<N>, e.g. aprs-slot1, sstv-slot1. Started/stopped only by the
 # station agent, which writes /run/oe5xrx/decoder/%i.env first.
 After=oe5xrx-pipewire.service
 Wants=oe5xrx-pipewire.service
@@ -26,7 +26,8 @@ Group=oe5xrx-decoder
 SupplementaryGroups=pipewire
 Environment=PIPEWIRE_RUNTIME_DIR=/run/pipewire
 # Written by the agent (root). OE5XRX_DECODER, OE5XRX_SLOT, OE5XRX_RX_NODE,
-# OE5XRX_KISS_PORT, OE5XRX_SAMPLE_RATE. The wrapper validates every value.
+# OE5XRX_SAMPLE_RATE + OE5XRX_KISS_PORT (aprs) / OE5XRX_SSTV_PORT (sstv). The
+# wrapper validates every value.
 EnvironmentFile=/run/oe5xrx/decoder/%i.env
 # Writable scratch (generated direwolf.conf); the rootfs is read-only.
 RuntimeDirectory=oe5xrx-decoder/%i
@@ -54,7 +55,8 @@ LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 CapabilityBoundingSet=
-# Direwolf's KISSPORT listens on all interfaces. Only loopback may talk to it
+# Direwolf's KISSPORT listens on all interfaces (the SSTV unit binds 127.0.0.1
+# itself). Only loopback may talk to either
 # (needs CONFIG_CGROUP_BPF in the kernel).
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 IPAddressDeny=any

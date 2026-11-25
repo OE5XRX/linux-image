@@ -43,6 +43,12 @@ inherit systemd allarch
 #   volume                      -> gstreamer1.0-plugins-base (already above)
 #   tee/queue/fdsink            -> gstreamer1.0 (coreelements)
 # Without audiofx the agent degrades to a pass-through volume (no leveling/limiter).
+# The agent's SSTV TX player (station_agent/sstv_tx.py, build_play_argv:
+# filesrc ! rawaudioparse ! audioconvert ! audioresample ! volume ! pipewiresink)
+# needs rawaudioparse, which is NOT in the bridge set above:
+#   rawaudioparse -> gstreamer1.0-plugins-base-rawparse
+# audioconvert/audioresample/volume are pinned as their split packages too, so the
+# player does not depend on the '-meta' RRECOMMENDS of the empty base package.
 # gst-inspect-1.0 / gst-launch-1.0 live in the gstreamer1.0 package.
 #
 # NOTE: depend on the SPECIFIC split plugin packages, NOT the bare
@@ -63,6 +69,10 @@ RDEPENDS:${PN} = " \
     gstreamer1.0 \
     gstreamer1.0-plugins-base \
     gstreamer1.0-plugins-base-opus \
+    gstreamer1.0-plugins-base-rawparse \
+    gstreamer1.0-plugins-base-audioconvert \
+    gstreamer1.0-plugins-base-audioresample \
+    gstreamer1.0-plugins-base-volume \
     gstreamer1.0-pipewire \
     gstreamer1.0-plugins-good-rtp \
     gstreamer1.0-plugins-good-udp \
